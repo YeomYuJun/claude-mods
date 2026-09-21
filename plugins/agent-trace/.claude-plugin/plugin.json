@@ -1,0 +1,8 @@
+{
+  "name": "agent-trace",
+  "version": "0.0.0",
+  "description": "세션이 띄운 서브에이전트, agent team, Workflow 를 세션 기록 파일에서 읽어 도킹 패널에 흐름도·에이전트 상세·파일 접근으로 그린다",
+  "author": {
+    "name": "YeomYuJun"
+  }
+}
