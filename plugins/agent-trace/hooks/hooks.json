@@ -1,0 +1,4 @@
+{
+  "description": "/trace 패널: 세션이 띄운 서브에이전트, agent team, Workflow, 백그라운드 셸을 흐름도·에이전트 상세·파일 접근으로 그린다",
+  "modules": ["./register.ts"]
+}
