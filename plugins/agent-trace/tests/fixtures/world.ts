@@ -38,6 +38,10 @@ function isDirIn(files: Record<string, string>, path: string) {
   return Object.keys(files).some(key => key.startsWith(`${path}/`))
 }
 
+function norm(path: string): string {
+  return path.replace(/\\/g, '/')
+}
+
 export function worldOf(on: On, seed: Seed = {}): World {
   const world: World = {
     files: seed.files ?? {},
@@ -58,9 +62,9 @@ export function worldOf(on: On, seed: Seed = {}): World {
   on('session.model', () => ({ value: 'claude-opus-5[1m]' }))
   on('session.usage', () => ({ value: { context: { tokens: 262_300, window: 1_000_000 }, rateLimits: [] } }))
   on('agent.list', () => { counted('agent.list'); return { value: world.live } })
-  on('fs.exists', ($, e) => ({ value: e.path in world.files || isDirIn(world.files, e.path) }))
-  on('fs.list', ($, e) => ({ value: childrenOf(world.files, e.path) }))
-  on('fs.read', ($, e) => ({ value: world.files[e.path] ?? '' }))
+  on('fs.exists', ($, e) => { const path = norm(e.path); return { value: path in world.files || isDirIn(world.files, path) } })
+  on('fs.list', ($, e) => ({ value: childrenOf(world.files, norm(e.path)) }))
+  on('fs.read', ($, e) => ({ value: world.files[norm(e.path)] ?? '' }))
   on('ui.open', ($, e) => { world.opened.push(e.id); return { value: undefined } })
   on('ui.close', ($, e) => { world.closed.push(e.id); return { value: undefined } })
   on('ui.invalidate', () => ({ value: undefined }))

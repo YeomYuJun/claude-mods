@@ -26,7 +26,7 @@ export function detailView(input: { kit: Kit; model: TraceModel; id: string; wid
 
   return (
     <Box flexDirection="column">
-      <Button key="back" plain onPress={() => input.act({ type: 'back' })}>{`← ${dotOf(node.status)} ${Text.clip(node.label, input.width - 6)}`}</Button>
+      <Button key="back" plain onPress={() => input.act({ type: 'back' })}>{`← ${dotOf(node.status)} ${Text.clip(node.label, Math.max(1, input.width - 6))}`}</Button>
       <T dimColor>{head}</T>
       {parent ? <T dimColor>{`Spawned by ${parent.label}`}</T> : null}
       <T dimColor>{metaLineOf(node, input.now)}</T>
@@ -37,7 +37,7 @@ export function detailView(input: { kit: Kit; model: TraceModel; id: string; wid
       {calls.map(call => (
         <T key={`c:${call.id}`} wrap="truncate-end">{`${call.ok === undefined ? '●' : call.ok ? '✓' : '✗'}  ${call.name}  ${call.summary}`}</T>
       ))}
-      {node.transcriptPath ? <Markdown>{`[Open transcript](${fileUrlOf(node.transcriptPath)})`}</Markdown> : null}
+      {node.transcriptPath ? <Markdown text={`[Open transcript](${fileUrlOf(node.transcriptPath)})`} /> : null}
       {isStoppable ? <Button key="stop" onPress={() => input.stop(node.id)}>Stop agent</Button> : null}
     </Box>
   )

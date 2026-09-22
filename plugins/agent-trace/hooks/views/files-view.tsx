@@ -14,17 +14,22 @@ export function fileUrlOf(path: string): string {
   return `file:///${encodeURI(slashed.replace(/^\/+/, ''))}`
 }
 
+function keyOf(path: string): string {
+  return path.replace(/\\/g, '/').toLowerCase()
+}
+
 export function fileRowsOf(model: TraceModel): FileRow[] {
   const labels = new Map(model.nodes.map(node => [node.id, node.label]))
   const rows = new Map<string, FileRow & { editors: Set<string>; nodeSet: Set<string> }>()
   for (const access of model.files) {
-    const row = rows.get(access.path) ?? { path: access.path, reads: 0, edits: 0, writes: 0, nodes: [], isConflict: false, editors: new Set<string>(), nodeSet: new Set<string>() }
+    const key = keyOf(access.path)
+    const row = rows.get(key) ?? { path: access.path, reads: 0, edits: 0, writes: 0, nodes: [], isConflict: false, editors: new Set<string>(), nodeSet: new Set<string>() }
     if (access.op === 'read') row.reads += 1
     if (access.op === 'edit') row.edits += 1
     if (access.op === 'write') row.writes += 1
     if (access.op !== 'read') row.editors.add(access.nodeId)
     row.nodeSet.add(labels.get(access.nodeId) ?? access.nodeId)
-    rows.set(access.path, row)
+    rows.set(key, row)
   }
   return [...rows.values()]
     .map(({ editors, nodeSet, ...row }) => ({ ...row, nodes: [...nodeSet].sort(), isConflict: editors.size > 1 }))
@@ -38,7 +43,7 @@ export function filesView(input: { kit: Kit; model: TraceModel; width: number })
     <Box flexDirection="column">
       {rows.map(row => (
         <Box key={`f:${row.path}`} flexDirection="column">
-          <Markdown>{`${row.isConflict ? '**충돌 가능** ' : ''}[${Text.clip(row.path, input.width - 14)}](${fileUrlOf(row.path)})`}</Markdown>
+          <Markdown text={`${row.isConflict ? '**충돌 가능** ' : ''}[${Text.clip(row.path, input.width - 14)}](${fileUrlOf(row.path)})`} />
           <T dimColor wrap="truncate-end">{`  R${row.reads} E${row.edits} W${row.writes} · ${row.nodes.join(', ')}`}</T>
         </Box>
       ))}

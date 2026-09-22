@@ -118,6 +118,20 @@ describe('files view', () => {
     ])
   })
 
+  test('a mixed backslash/forward-slash path still collapses to one conflict row', () => {
+    const model: TraceModel = {
+      rootId: 'S',
+      nodes: [node('S', undefined), node('a', 'S', { label: 'A' }), node('b', 'S', { label: 'B' })],
+      files: [
+        { path: 'D:\\z.ts', nodeId: 'a', op: 'edit' },
+        { path: 'D:/z.ts', nodeId: 'b', op: 'write' },
+      ],
+    }
+    expect(Views.fileRowsOf(model)).toEqual([
+      { path: 'D:\\z.ts', reads: 0, edits: 1, writes: 1, nodes: ['A', 'B'], isConflict: true },
+    ])
+  })
+
   test('the tab says shell edits are missing', () => {
     const text = Fixtures.textOf(Views.filesView({ kit: KIT, model: MODEL_F, width: 60 }))
     expect(text).toContain('충돌 가능')

@@ -3,7 +3,7 @@ export function textOf(tree: unknown): string {
   if (Array.isArray(tree)) return tree.map(textOf).join('')
   if (typeof tree !== 'object' || !tree) return ''
   const props = Reflect.get(tree, 'props') as Record<string, unknown> | undefined
-  const lead = typeof props?.label === 'string' ? props.label : typeof props?.source === 'string' ? props.source : ''
+  const lead = typeof props?.label === 'string' ? props.label : typeof props?.source === 'string' ? props.source : typeof props?.text === 'string' ? props.text : ''
   return `${lead}${textOf(Reflect.get(tree, 'children') ?? [])}`
 }
 
