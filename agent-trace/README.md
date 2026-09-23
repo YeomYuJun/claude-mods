@@ -1,13 +1,13 @@
 # agent-trace
 
 세션이 띄운 서브에이전트, agent team, Workflow, 백그라운드 셸을 `/trace` 도킹 패널에 흐름도·에이전트 상세·파일 접근으로 그린다.
-설계: [docs/specs/2026-09-22-agent-trace-design.md](../../docs/specs/2026-09-22-agent-trace-design.md)
+설계: [docs/specs/2026-09-22-agent-trace-design.md](../docs/specs/2026-09-22-agent-trace-design.md)
 
 ## 실행
 
 ```powershell
 $env:CLAUDE_CODE_ENABLE_FUNCTION_HOOKS = "1"
-claude --plugin-dir "D:/claude-mods/plugins/agent-trace"
+claude --plugin-dir "D:/claude-mods/agent-trace"
 ```
 
 `/trace` 로 열고 닫는다. 패널을 트랜스크립트 옆에 붙이는 전체 화면 레이아웃이고 터미널이 144 열 이상이면, 메인 세션의 첫 Agent·Task·Workflow 호출이 끝날 때 저절로 열린다. 이번 세션에서 직접 닫았으면 다시 열리지 않는다(`/clear` 뒤에는 다시 열린다).
@@ -35,6 +35,6 @@ claude --plugin-dir "D:/claude-mods/plugins/agent-trace"
 ## 개발
 
 ```powershell
-claude plugin test "D:/claude-mods/plugins/agent-trace"
-claude plugin validate "D:/claude-mods/plugins/agent-trace"
+claude plugin test "D:/claude-mods/agent-trace"
+claude plugin validate "D:/claude-mods/agent-trace"
 ```
