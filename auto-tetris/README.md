@@ -4,6 +4,19 @@
 
 ## 실행
 
+모든 세션에서 쓰려면 `~/.claude/settings.json` 의 `env` 에 두 값을 둔다. 새로 띄우는 세션부터 이 폴더를 `--plugin-dir` 로 준 것과 같이 불러온다(저장소 폴더를 그대로 읽으므로 `git pull` 이 다음 세션에 반영된다).
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1",
+    "CLAUDE_CODE_PLUGIN_DIRS": "D:/claude-mods/auto-tetris"
+  }
+}
+```
+
+`CLAUDE_CODE_PLUGIN_DIRS` 에 폴더가 여럿이면 `;` 로 잇는다. 빼면 전역 로드가 풀린다. 한 세션에서만 쓰려면:
+
 ```powershell
 $env:CLAUDE_CODE_ENABLE_FUNCTION_HOOKS = "1"
 claude --plugin-dir "D:/claude-mods/auto-tetris"
