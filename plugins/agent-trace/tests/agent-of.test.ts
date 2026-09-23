@@ -44,6 +44,13 @@ describe('agentOf', () => {
     expect(factsOf(rows, 2_000 + 61_000).node.status).toBe('done')
   })
 
+  test('a teammate that answered waits for its next message at once', () => {
+    const teammate = { ...META, taskKind: 'in_process_teammate', teamName: 'session-x' }
+    const answered = [Fixtures.userText('go', 1_000), Fixtures.assistantText('done', 2_000)]
+    expect(factsOf(answered, 3_000, teammate).node.status).toBe('idle')
+    expect(factsOf([...answered, Fixtures.userText('next task', 4_000)], 5_000, teammate).node.status).toBe('running')
+  })
+
   test('a person stop reads as stopped', () => {
     const { node } = factsOf([Fixtures.userText('go', 1_000)], 2_000, { ...META, stoppedByUser: true })
     expect(node.status).toBe('stopped')

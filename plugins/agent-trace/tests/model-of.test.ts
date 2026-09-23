@@ -58,6 +58,19 @@ describe('modelOf', () => {
     expect(model.nodes.find(node => node.id === 'b1')?.status).toBe('done')
   })
 
+  test('a waiting teammate stays idle while the engine still lists it running', () => {
+    const t1 = file('t1', { name: 'ticker', taskKind: 'in_process_teammate', teamName: 'session-x' }, [Fixtures.userText('go', 1_000), Fixtures.assistantText('done', 2_000)])
+    const model = modelOf({ agents: [t1], live: [{ id: 't1', description: 'x', type: 'teammate', status: 'running' }] })
+    expect(model.nodes.find(node => node.id === 't1')).toMatchObject({ status: 'idle', rawStatus: 'running' })
+    expect(model.nodes.find(node => node.id === 'team:session-x')?.status).toBe('idle')
+  })
+
+  test('a killed teammate reads as stopped even when its last row is an answer', () => {
+    const t1 = file('t1', { name: 'ticker', taskKind: 'in_process_teammate', teamName: 'session-x' }, [Fixtures.userText('go', 1_000), Fixtures.assistantText('done', 2_000)])
+    const model = modelOf({ agents: [t1], live: [{ id: 't1', description: 'x', type: 'teammate', status: 'killed' }] })
+    expect(model.nodes.find(node => node.id === 't1')?.status).toBe('stopped')
+  })
+
   test('a live tool call names what runs now', () => {
     const a = file('a1', { description: 'x' }, [Fixtures.userText('go', 1_000)])
     const model = modelOf({ agents: [a], live: [{ id: 'a1', description: 'x', type: 'general-purpose', status: 'running' }], nowTools: new Map([['a1', 'Bash']]) })

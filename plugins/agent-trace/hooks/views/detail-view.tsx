@@ -3,12 +3,12 @@
 /* @jsxFrag Fragment */
 import type { RenderElement } from 'claude-code'
 
-import type { Status, TraceModel } from '../model'
+import { statusOf, type Status, type TraceModel } from '../model'
 import Text from '../text'
 import { fileUrlOf } from './files-view.jsx'
 import { dotOf, metaLineOf, type Act, type Kit } from './flow-view.jsx'
 
-const WORD: Record<Status, string> = { running: 'Working', done: 'Done', failed: 'Failed', stopped: 'Stopped' }
+const WORD: Record<Status, string> = { running: 'Working', idle: 'Idle', done: 'Done', failed: 'Failed', stopped: 'Stopped' }
 const PROMPT_LINES = 12
 const TOOL_ROWS = 15
 
@@ -19,10 +19,11 @@ export function detailView(input: { kit: Kit; model: TraceModel; id: string; wid
     return <Button key="back" plain onPress={() => input.act({ type: 'back' })}>← (사라진 노드)</Button>
   }
   const parent = input.model.nodes.find(item => item.id === node.parentId)
-  const head = [WORD[node.status], node.agentType, node.model, node.runMode].filter(Boolean).join(' · ')
+  const raw = node.rawStatus !== undefined && statusOf(node.rawStatus) !== node.status ? ` (engine: ${node.rawStatus})` : ''
+  const head = [`${WORD[node.status]}${raw}`, node.agentType, node.model, node.runMode].filter(Boolean).join(' · ')
   const prompt = (node.prompt ?? '').split('\n').slice(0, PROMPT_LINES).join('\n')
   const calls = [...node.toolCalls].reverse().slice(0, TOOL_ROWS)
-  const isStoppable = input.canStop && node.status === 'running' && (node.kind === 'subagent' || node.kind === 'teammate')
+  const isStoppable = input.canStop && (node.status === 'running' || (node.status === 'idle' && node.kind === 'teammate')) && (node.kind === 'subagent' || node.kind === 'teammate')
 
   return (
     <Box flexDirection="column">
@@ -39,6 +40,7 @@ export function detailView(input: { kit: Kit; model: TraceModel; id: string; wid
       ))}
       {node.transcriptPath ? <Markdown text={`[Open transcript](${fileUrlOf(node.transcriptPath)})`} /> : null}
       {isStoppable ? <Button key="stop" onPress={() => input.stop(node.id)}>Stop agent</Button> : null}
+      {node.stopNote ? <T color={node.stopNote.isError ? 'red' : undefined} dimColor={!node.stopNote.isError} wrap="wrap">{`${node.stopNote.isError ? 'Stop failed' : 'Stop'}: ${node.stopNote.text}`}</T> : null}
     </Box>
   )
 }

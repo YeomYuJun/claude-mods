@@ -148,7 +148,7 @@ describe('pane view', () => {
 
   test('header summarises, tabs and density are buttons', () => {
     const { tree } = Views.paneView({ kit: KIT, model: MODEL, state: STATE, width: 90, rows: 30, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
-    expect(Fixtures.textOf(tree)).toContain('2 agents · 실행 1 · 실패 0')
+    expect(Fixtures.textOf(tree)).toContain('2 agents · 실행 1 · 대기 0 · 실패 0')
     expect(Fixtures.keysOf(tree)).toEqual(expect.arrayContaining(['tab:flow', 'tab:files', 'density']))
   })
 

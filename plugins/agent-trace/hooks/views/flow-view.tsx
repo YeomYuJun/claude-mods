@@ -11,7 +11,7 @@ import Text from '../text'
 export type Kit = Pick<ElementTable<'terminal' | 'desktop'>, 'Box' | 'Text' | 'Button' | 'Markdown'>
 export type Act = (action: PaneAction) => void
 
-const DOT_COLOR: Record<Status, string> = { running: 'green', done: 'gray', failed: 'red', stopped: 'gray' }
+const DOT_COLOR: Record<Status, string> = { running: 'green', idle: 'yellow', done: 'gray', failed: 'red', stopped: 'gray' }
 
 export function dotOf(status: Status): string {
   return status === 'stopped' ? '■' : '●'

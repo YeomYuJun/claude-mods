@@ -64,19 +64,22 @@ export function agentOf(input: { id: string; meta: AgentMeta; rows: Row[]; trans
         const call = calls.get(block.tool_use_id)
         if (call) call.ok = block.is_error !== true
       }
-      if (blocksOf(row).some(block => block.type === 'tool_result')) lastWasFinalText = false
+      lastWasFinalText = false
     }
   }
 
   const toolCalls = [...calls.values()]
   const pending = [...toolCalls].reverse().find(call => call.ok === undefined)
   const isIdle = endedAt !== undefined && now - endedAt > Names.DONE_IDLE_MS
-  const status = meta.stoppedByUser ? 'stopped' : lastWasFinalText && isIdle ? 'done' : 'running'
+  const isTeammate = meta.taskKind === 'in_process_teammate'
+  // 팀원은 답을 낸 뒤에도 끝나지 않고 다음 메시지를 기다린다. 마지막 줄이 답이면 대기다.
+  const status = meta.stoppedByUser ? 'stopped' : !lastWasFinalText ? 'running' : isTeammate ? 'idle' : isIdle ? 'done' : 'running'
 
   const node: TraceNode = {
     id,
-    kind: meta.taskKind === 'in_process_teammate' ? 'teammate' : 'subagent',
+    kind: isTeammate ? 'teammate' : 'subagent',
     label: meta.description ?? meta.name ?? id,
+    ...(meta.name ? { name: meta.name } : {}),
     depth: meta.spawnDepth ?? 1,
     status,
     agentType: meta.agentType,

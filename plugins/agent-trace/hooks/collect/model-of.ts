@@ -72,15 +72,19 @@ export function traceOf(input: ModelInput): TraceModel {
     if (node.kind === 'session' || node.kind === 'team' || node.kind === 'workflow' || node.kind === 'shell') continue
     const liveAgent = liveById.get(id)
     const notified = node.toolUseId ? main.notified.get(node.toolUseId) : undefined
-    const status = statusOf(liveAgent?.status) ?? statusOf(notified) ?? node.status
+    const liveStatus = statusOf(liveAgent?.status)
+    const isWaiting = node.kind === 'teammate' && node.status === 'idle' && (liveStatus === undefined || liveStatus === 'running')
+    const status = isWaiting ? 'idle' : liveStatus ?? statusOf(notified) ?? node.status
     const nowTool = status === 'running' ? nowTools.get(id) ?? node.nowTool : undefined
-    nodes.set(id, { ...node, status, rawStatus: liveAgent?.status ?? notified ?? node.rawStatus, nowTool })
+    const name = liveAgent?.name ?? node.name
+    nodes.set(id, { ...node, ...(name ? { name } : {}), status, rawStatus: liveAgent?.status ?? notified ?? node.rawStatus, nowTool })
   }
 
   for (const [id, node] of nodes) {
     if (node.kind !== 'team') continue
     const members = [...nodes.values()].filter(member => member.parentId === id)
-    nodes.set(id, { ...node, status: members.some(member => member.status === 'running') ? 'running' : 'done' })
+    const status = members.some(member => member.status === 'running') ? 'running' : members.some(member => member.status === 'idle') ? 'idle' : 'done'
+    nodes.set(id, { ...node, status })
   }
 
   for (const [id, node] of nodes) {

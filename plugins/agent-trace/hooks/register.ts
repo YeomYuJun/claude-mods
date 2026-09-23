@@ -1,7 +1,7 @@
 import type { AgentInfo, FsEntry, On, SessionMessage, Timer } from 'claude-code'
 
 import Collect from './collect'
-import type { TraceModel } from './model'
+import type { StopNote, TraceModel } from './model'
 import Names from './names'
 import PaneState, { type PaneAction } from './pane-state'
 import Reader, { type ReadCache } from './reader'
@@ -22,7 +22,7 @@ type Host = {
   fsList: (path: string) => Promise<FsEntry[]>
   fsRead: (path: string) => Promise<string>
   invalidate: () => void
-  taskStop: (id: string) => void
+  taskStop: (target: string, label: string) => Promise<StopNote>
 }
 
 export function register(on: On) {
@@ -37,6 +37,7 @@ export function register(on: On) {
   const cache: ReadCache = new Map()
   const firstSeen = new Map<string, number>()
   const nowTools = new Map<string, string>()
+  const stopNotes = new Map<string, StopNote>()
 
   async function dirOf(h: Host): Promise<string> {
     const configDir = await h.envConfigDir()
@@ -65,8 +66,21 @@ export function register(on: On) {
   function withNowTools(current: TraceModel): TraceModel {
     return {
       ...current,
-      nodes: current.nodes.map(node => node.status === 'running' && nowTools.has(node.id) ? { ...node, nowTool: nowTools.get(node.id) } : node),
+      nodes: current.nodes.map(node => {
+        const withTool = node.status === 'running' && nowTools.has(node.id) ? { ...node, nowTool: nowTools.get(node.id) } : node
+        const stopNote = stopNotes.get(node.id)
+        return stopNote ? { ...withTool, stopNote } : withTool
+      }),
     }
+  }
+
+  async function stop(id: string) {
+    const node = model?.nodes.find(item => item.id === id)
+    if (!host || !node) return
+    // 팀원을 기록 파일 이름의 id 로 부르면 TaskStop 이 검증 오류를 낸다. 이름이 있으면 이름으로 부른다.
+    const note = await host.taskStop(node.name ?? id, node.label)
+    stopNotes.set(id, note)
+    await refresh(host)
   }
 
   function act(action: PaneAction) {
@@ -82,6 +96,7 @@ export function register(on: On) {
     cache.clear()
     firstSeen.clear()
     nowTools.clear()
+    stopNotes.clear()
     poll?.cancel()
     poll = undefined
   }
@@ -103,7 +118,13 @@ export function register(on: On) {
       fsList: path => $.fs.list(path),
       fsRead: path => $.fs.read(path),
       invalidate: () => $.ui.invalidate('ui.render'),
-      taskStop: id => { void $.tool.call({ tool: 'TaskStop', task_id: id }) },
+      taskStop: async (target, label) => {
+        const result = await $.tool.call({ tool: 'TaskStop', task_id: target, consent: `The user pressed "Stop agent" for ${label} in the agent-trace panel` })
+        if (result.deny !== undefined) return { text: result.deny, isError: true }
+        const message = result.result && typeof result.result === 'object' ? Reflect.get(result.result, 'message') : result.result
+        const text = typeof result.text === 'string' ? result.text : typeof message === 'string' ? message : ''
+        return { text: text.trim().split('\n')[0] ?? '', isError: result.isError === true }
+      },
     }
     await $.command.register({ name: Names.COMMAND_NAME, description: Names.COMMAND_DESCRIPTION })
     return next(e)
@@ -153,7 +174,7 @@ export function register(on: On) {
     const now = await $.clock.now()
     const view = Views.paneView({
       kit: { Box, Text, Button, Markdown }, model: withNowTools(model), state, width: e.props.bodyColumns, rows: e.props.scroll.bodyRows,
-      now, act, canStop: true, stop: id => host?.taskStop(id),
+      now, act, canStop: true, stop: id => { void stop(id) },
     })
     maxTop = Math.max(0, view.maxTop)
     return view.tree
@@ -172,6 +193,7 @@ export function register(on: On) {
     } finally {
       if (e.agentId && nowTools.get(e.agentId) === e.tool) nowTools.delete(e.agentId)
       if (isOpen && !e.agentId && Names.REFRESH_TOOLS.includes(e.tool) && host) void refresh(host)
+      if (isOpen && e.agentId && !poll && host) void refresh(host)
     }
   })
 }

@@ -1,5 +1,5 @@
 export type NodeKind = 'session' | 'subagent' | 'teammate' | 'team' | 'workflow' | 'workflowAgent' | 'shell'
-export type Status = 'running' | 'done' | 'failed' | 'stopped'
+export type Status = 'running' | 'idle' | 'done' | 'failed' | 'stopped'
 export type FileOp = 'read' | 'edit' | 'write'
 
 export type ToolCall = {
@@ -17,6 +17,7 @@ export type TraceNode = {
   id: string
   kind: NodeKind
   label: string
+  name?: string
   parentId?: string
   depth: number
   status: Status
@@ -36,7 +37,10 @@ export type TraceNode = {
   phase?: { done: number; total: number }
   sentTo?: SentTo[]
   note?: 'too-large'
+  stopNote?: StopNote
 }
+
+export type StopNote = { text: string; isError: boolean }
 
 export type FileAccess = { path: string; nodeId: string; op: FileOp; at?: number }
 

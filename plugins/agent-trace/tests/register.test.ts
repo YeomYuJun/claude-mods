@@ -36,7 +36,7 @@ describe('register', () => {
     const tree = await $.ui.render(PANE)
     const text = Fixtures.textOf(tree)
     expect(text).toContain('lea ARIA tests admin1')
-    expect(text).toContain('1 agents · 실행 1 · 실패 0')
+    expect(text).toContain('1 agent · 실행 1 · 대기 0 · 실패 0')
   })
 
   test('a tool call inside an agent shows as what runs now', async ($, on) => {
@@ -68,6 +68,62 @@ describe('register', () => {
     const afterOpen = world.calls['agent.list']
     await world.clock.advance(10_000)
     expect(world.calls['agent.list']).toBe(afterOpen)
+  })
+
+  function teammateFiles(dir: string) {
+    return {
+      [`${dir}/subagents/agent-t1.meta.json`]: JSON.stringify({ description: 'ticker', name: 'ticker', taskKind: 'in_process_teammate', teamName: 'session-x', spawnDepth: 0 }),
+      [`${dir}/subagents/agent-t1.jsonl`]: Fixtures.jsonl([Fixtures.userText('go', 900_000), Fixtures.assistantText('done', 950_000)]),
+    }
+  }
+
+  test('a waiting teammate counts as idle and does not keep the poll alive', async ($, on) => {
+    const world = Fixtures.worldOf(on, { files: teammateFiles(Fixtures.SESSION_DIR), live: [{ id: 't1', description: 'ticker', type: 'teammate', status: 'running', name: 'ticker' }] })
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.TRACE)
+    expect(Fixtures.textOf(await $.ui.render(PANE))).toContain('1 agent · 실행 0 · 대기 1 · 실패 0')
+    const afterOpen = world.calls['agent.list']
+    await world.clock.advance(10_000)
+    expect(world.calls['agent.list']).toBe(afterOpen)
+  })
+
+  test('a tool call inside a waiting agent reads the model again', async ($, on) => {
+    const world = Fixtures.worldOf(on, { files: teammateFiles(Fixtures.SESSION_DIR), live: [{ id: 't1', description: 'ticker', type: 'teammate', status: 'running', name: 'ticker' }] })
+    on('tool.call', { tool: 'Grep' }, () => ({ result: 'x' }))
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.TRACE)
+    const afterOpen = world.calls['agent.list']
+    await $.tool.call({ tool: 'Grep', pattern: 'x', agentId: 't1' })
+    await world.clock.settle()
+    expect(world.calls['agent.list']).toBe((afterOpen ?? 0) + 1)
+  })
+
+  const TEAMMATE_LIVE = [{ id: 't1', description: 'ticker', type: 'teammate', status: 'running', name: 'ticker' }]
+
+  test('Stop agent calls TaskStop with the teammate name and shows what it answered', async ($, on) => {
+    const world = Fixtures.worldOf(on, { files: teammateFiles(Fixtures.SESSION_DIR), live: TEAMMATE_LIVE })
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.TRACE)
+    await $.ui.render(PANE)
+    await $.ui.press({ plugin: 'agent-trace', key: 'node:t1' })
+    await $.ui.render(PANE)
+    await $.ui.press({ plugin: 'agent-trace', key: 'stop' })
+    await world.clock.settle()
+    expect(world.toolCalls.map(call => call.task_id)).toEqual(['ticker'])
+    expect(Fixtures.textOf(await $.ui.render(PANE))).toContain('Stop: stopped')
+  })
+
+  test('a refused stop shows why', async ($, on) => {
+    on('tool.call', { tool: 'TaskStop' }, () => ({ deny: 'No task found with ID: ticker' }))
+    const world = Fixtures.worldOf(on, { files: teammateFiles(Fixtures.SESSION_DIR), live: TEAMMATE_LIVE })
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.TRACE)
+    await $.ui.render(PANE)
+    await $.ui.press({ plugin: 'agent-trace', key: 'node:t1' })
+    await $.ui.render(PANE)
+    await $.ui.press({ plugin: 'agent-trace', key: 'stop' })
+    await world.clock.settle()
+    expect(Fixtures.textOf(await $.ui.render(PANE))).toContain('Stop failed: No task found with ID: ticker')
   })
 
   test('/clear forgets the pane', async ($, on) => {
