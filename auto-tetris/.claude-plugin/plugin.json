@@ -1,0 +1,8 @@
+{
+  "name": "auto-tetris",
+  "version": "0.0.0",
+  "description": "세션이 쓰는 토큰으로만 움직이는 자동 테트리스를 도킹 패널에 그린다. 사람은 조작하지 않는다",
+  "author": {
+    "name": "YeomYuJun"
+  }
+}

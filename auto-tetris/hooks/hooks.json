@@ -1,0 +1,4 @@
+{
+  "description": "/tetris 패널: 출력 토큰이 수를 두고 도구 호출이 블록을 떨어뜨리는 자동 테트리스",
+  "modules": ["./register.ts"]
+}
