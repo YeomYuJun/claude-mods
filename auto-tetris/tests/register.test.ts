@@ -19,6 +19,25 @@ async function drain(stream: AsyncIterable<unknown>) {
 
 const STEP = { turnId: 't1', index: 0, model: 'claude-test', messageCount: 1 } as const
 
+// 우물(1~20 행)에서 블록 글자(▀)가 있는 가장 위 행. 빈 판에서는 지금 블록의 위치다
+function topOf(lines: readonly string[]): number {
+  for (let y = 1; y <= 20; y++) if (lines[y]?.includes('▀')) return y
+  return -1
+}
+
+// 33 ms 씩 흘리며 blit 마다 (블록 위치, PIECES) 를 모은다
+async function framesOf(world: ReturnType<typeof Fixtures.worldOf>, count: number) {
+  const out: Array<{ top: number; pieces: number; well: string }> = []
+  for (let i = 0; i < count; i++) {
+    const before = world.blits.length
+    await world.clock.advance(33)
+    if (world.blits.length === before) continue
+    const lines = Fixtures.linesOf(world.blits[world.blits.length - 1]!.cells, 24)
+    out.push({ top: topOf(lines), pieces: Number(Fixtures.valueOf(lines, 'PIECES')), well: lines.slice(1, 21).join('') })
+  }
+  return out
+}
+
 describe('register', () => {
   test('/tetris opens the pane 24 columns wide when docked, again closes it', async ($, on) => {
     const world = Fixtures.worldOf(on)
@@ -63,16 +82,32 @@ describe('register', () => {
     expect(Fixtures.valueOf(lines, 'OUT')).toBe('1.2k')
   })
 
-  test('a tool call chunk drops the piece: the next one is out', async ($, on) => {
+  test('a tool call chunk drops the piece row by row over several frames, then the next one is out', async ($, on) => {
     const world = Fixtures.worldOf(on)
-    modelAnswers(on, [{ kind: 'tool', index: 0, id: 'toolu_1', name: 'Bash' }, { kind: 'stop', stopReason: 'tool_use', usage: USAGE }])
+    modelAnswers(on, [{ kind: 'tool', index: 0, id: 'toolu_1', name: 'Bash' }, { kind: 'stop', stopReason: 'tool_use', usage: { ...USAGE, output_tokens: 0 } }])
     await $.session.start(Fixtures.START)
     await $.command.run(Fixtures.TETRIS_DOCKED)
     await $.ui.render(Fixtures.paneOf(24, 44))
     await drain($.turn.step(STEP))
-    await world.clock.advance(100)
-    const lines = Fixtures.linesOf(world.blits[world.blits.length - 1]!.cells, 24)
-    expect(Number(Fixtures.valueOf(lines, 'PIECES'))).toBeGreaterThan(1)
+    const frames = await framesOf(world, 60)
+    const falling = frames.filter(f => f.pieces === 1).map(f => f.top)
+    // 한 프레임에 바닥으로 가지 않고, 같은 블록이 여러 위치를 거친다
+    expect(new Set(falling).size).toBeGreaterThan(5)
+    expect(frames[frames.length - 1]!.pieces).toBe(2)
+  })
+
+  test('tokens settled only at the stop are played over many frames, not at once', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    modelAnswers(on, [{ kind: 'stop', stopReason: 'end_turn', usage: { ...USAGE, output_tokens: 240 } }])
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.TETRIS_DOCKED)
+    await $.ui.render(Fixtures.paneOf(24, 44))
+    await drain($.turn.step(STEP))
+    const frames = await framesOf(world, 90)
+    let changes = 0
+    for (let i = 1; i < frames.length; i++) if (frames[i]!.well !== frames[i - 1]!.well) changes++
+    // 240 토큰 = 20 수. 한 프레임에 몰리지 않고 프레임마다 거의 한 수씩 보인다
+    expect(changes).toBeGreaterThan(15)
   })
 
   test('tokens keep playing while the pane is closed', async ($, on) => {

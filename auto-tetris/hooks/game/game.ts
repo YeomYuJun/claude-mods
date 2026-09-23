@@ -7,6 +7,8 @@ export const HID = 2
 export const CLEAR_MS = 400
 export const OVER_MS = 2500
 export const FLASH_MS = 330
+// 속도를 주지 않은 advance 의 낙하: 한 번에 바닥까지
+export const INSTANT_ROWS = 1_000_000
 
 type Shape = number[][]
 const SHAPES: Shape[] = [
@@ -38,7 +40,8 @@ export const ROT: Array<Array<Array<[number, number]>>> = SHAPES.map(shape => {
   return turns.map(cellsOf)
 })
 
-export type Piece = { k: number; r: number; x: number; y: number; tr: number; tx: number }
+// falling: 도구 호출로 떨어지는 중. fallAcc 는 아직 내려가지 않은 행의 몫
+export type Piece = { k: number; r: number; x: number; y: number; tr: number; tx: number; falling: boolean; fallAcc: number }
 
 export type Game = {
   board: Uint8Array
@@ -48,7 +51,6 @@ export type Game = {
   clearing?: { rows: number[]; ms: number }
   over?: { ms: number }
   flash?: { cells: Array<[number, number]>; ms: number }
-  pendingDrops: number
   lines: number
   score: number
   pieces: number
@@ -155,7 +157,7 @@ function spawn(g: Game): void {
     return
   }
   const target = plan(g, k, y)
-  g.cur = { k, r: 0, x, y, tr: target.r, tx: target.x }
+  g.cur = { k, r: 0, x, y, tr: target.r, tx: target.x, falling: false, fallAcc: 0 }
   g.pieces++
 }
 
@@ -176,14 +178,15 @@ function lock(g: Game): void {
 }
 
 export function create(seed: number): Game {
-  const g: Game = { board: new Uint8Array(BW * BH), bag: [], next: 0, pendingDrops: 0, lines: 0, score: 0, pieces: 0, games: 1, seed: seed | 0 || 0x1b873593 }
+  const g: Game = { board: new Uint8Array(BW * BH), bag: [], next: 0, lines: 0, score: 0, pieces: 0, games: 1, seed: seed | 0 || 0x1b873593 }
   g.next = drawBag(g)
   spawn(g)
   return g
 }
 
+// 줄 지우기·게임 오버·낙하 중에는 수를 받지 않는다
 export function isBusy(g: Game): boolean {
-  return g.clearing !== undefined || g.over !== undefined
+  return g.clearing !== undefined || g.over !== undefined || g.cur?.falling === true
 }
 
 // 한 수: 목표 회전으로 한 번 돌리거나, 목표 열로 한 칸 옮기거나, 한 칸 내린다(닿으면 굳는다)
@@ -209,18 +212,32 @@ export function move(g: Game): boolean {
   return true
 }
 
-// 도구 호출 한 번: 지금 블록이 계획한 자리로 바로 떨어진다. 애니메이션 중이면 미뤄 둔다
-export function drop(g: Game): void {
+// 도구 호출 한 번: 지금 블록을 계획한 회전·열로 맞추고 떨어뜨리기 시작한다. 내려가는 것은 advance 가 행 단위로 한다
+export function drop(g: Game): boolean {
   const cur = g.cur
-  if (!cur || isBusy(g)) { g.pendingDrops = Math.min(g.pendingDrops + 1, 3); return }
+  if (!cur || isBusy(g)) return false
   if (fits(g.board, cur.k, cur.tr, cur.tx, cur.y)) { cur.r = cur.tr; cur.x = cur.tx }
-  while (fits(g.board, cur.k, cur.r, cur.x, cur.y + 1)) cur.y++
+  cur.falling = true
+  cur.fallAcc = 0
+  return true
+}
+
+function land(g: Game, cur: Piece): void {
   g.flash = { cells: ROT[cur.k]![cur.r]!.map(([cx, cy]) => [cur.x + cx, cur.y + cy] as [number, number]), ms: 0 }
   lock(g)
 }
 
-// 시간이 흐른다: 줄 지우기·게임 오버·번쩍임 애니메이션을 진행한다
-export function advance(g: Game, dtMs: number): void {
+// 시간이 흐른다: 낙하·줄 지우기·게임 오버·번쩍임 애니메이션을 진행한다. fallRows 는 낙하 속도(행/초)
+export function advance(g: Game, dtMs: number, fallRows: number = INSTANT_ROWS): void {
+  const cur = g.cur
+  if (cur?.falling) {
+    cur.fallAcc += (dtMs / 1000) * fallRows
+    while (cur.fallAcc >= 1) {
+      cur.fallAcc--
+      if (fits(g.board, cur.k, cur.r, cur.x, cur.y + 1)) cur.y++
+      else { land(g, cur); break }
+    }
+  }
   if (g.flash) { g.flash.ms += dtMs; if (g.flash.ms >= FLASH_MS) g.flash = undefined }
   if (g.clearing) {
     g.clearing.ms += dtMs
@@ -239,5 +256,4 @@ export function advance(g: Game, dtMs: number): void {
     g.next = drawBag(g)
     spawn(g)
   }
-  while (g.pendingDrops > 0 && !isBusy(g) && g.cur) { g.pendingDrops--; drop(g) }
 }

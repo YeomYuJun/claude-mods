@@ -21,7 +21,6 @@ export type Usage = {
 export type Meter = {
   out: number
   inp: number
-  credit: number
   estimates: Map<string, number>
   starts: Map<string, number>
   turns: Set<string>
@@ -35,7 +34,7 @@ export type Meter = {
 }
 
 export function create(): Meter {
-  return { out: 0, inp: 0, credit: 0, estimates: new Map(), starts: new Map(), turns: new Set(), tools: 0, seen: false, pending: 0, bins: new Array<number>(BINS).fill(0) }
+  return { out: 0, inp: 0, estimates: new Map(), starts: new Map(), turns: new Set(), tools: 0, seen: false, pending: 0, bins: new Array<number>(BINS).fill(0) }
 }
 
 // 글자 수로 토큰을 어림한다: 영문은 4 글자, 한글·한자는 1.6 글자에 한 토큰 정도
@@ -53,14 +52,15 @@ export function onTurnEnd(m: Meter, turnId: string): void {
   m.turns.delete(turnId)
 }
 
-export function onText(m: Meter, step: string, kind: 'text' | 'thinking', text: string): void {
+// 조각 하나를 센다. 돌려주는 값은 수로 적립할 토큰 수다
+export function onText(m: Meter, step: string, kind: 'text' | 'thinking', text: string): number {
   const est = estimateOf(text)
   m.out += est
-  m.credit += est
   m.pending += est
   m.estimates.set(step, (m.estimates.get(step) ?? 0) + est)
   m.lastKind = kind
   m.seen = true
+  return est
 }
 
 export function onToolChunk(m: Meter): void {
@@ -69,35 +69,34 @@ export function onToolChunk(m: Meter): void {
 }
 
 // 도구 인자 JSON 조각도 출력 토큰이다. 같은 응답의 어림에 넣어 정산 때 두 번 세지 않는다
-export function onInput(m: Meter, step: string, json: string): void {
+export function onInput(m: Meter, step: string, json: string): number {
   const est = estimateOf(json)
   m.out += est
-  m.credit += est
   m.pending += est
   m.estimates.set(step, (m.estimates.get(step) ?? 0) + est)
   m.lastKind = 'tool'
   m.seen = true
+  return est
 }
 
 export function onStepStart(m: Meter, step: string, now: number): void {
   m.starts.set(step, now)
 }
 
-// 응답이 끝났다: 어림과 실제 출력 토큰의 차이를 메운다. 모자랐던 만큼은 수로도 준다
-export function onStop(m: Meter, step: string, usage: Usage | null, now?: number): void {
+// 응답이 끝났다: 어림과 실제 출력 토큰의 차이를 메운다. 모자랐던 만큼을 돌려줘 수로도 준다
+export function onStop(m: Meter, step: string, usage: Usage | null, now?: number): number {
   const est = m.estimates.get(step) ?? 0
   const start = m.starts.get(step)
   m.estimates.delete(step)
   m.starts.delete(step)
-  if (!usage) return
+  if (!usage) return 0
   const diff = usage.output_tokens - est
   m.out += diff
-  if (diff > 0) {
-    m.credit += diff
-    if (start !== undefined && now !== undefined) spreadBack(m, diff, start, now)
-    else m.pending += diff
-  }
   m.inp += usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+  if (diff <= 0) return 0
+  if (start !== undefined && now !== undefined) spreadBack(m, diff, start, now)
+  else m.pending += diff
+  return diff
 }
 
 // [from, now] 에 고르게 나온 것으로 보고 겹치는 막대마다 시간 비율만큼 넣는다. 막대 창보다 오래된 몫은 버린다
@@ -119,17 +118,6 @@ export function onToolStart(m: Meter): void {
 
 export function onToolEnd(m: Meter): void {
   m.tools = Math.max(0, m.tools - 1)
-}
-
-export function takeMoves(m: Meter, perMove: number, max: number): number {
-  const n = Math.min(Math.floor(m.credit / perMove), max)
-  m.credit -= n * perMove
-  if (m.credit > perMove * max) m.credit = perMove * max
-  return n
-}
-
-export function refund(m: Meter, moves: number, perMove: number): void {
-  m.credit += moves * perMove
 }
 
 // 화면 한 틱: 조각이 왔으면 그 시각을 적고, 모인 토큰을 속도 막대로 옮긴다

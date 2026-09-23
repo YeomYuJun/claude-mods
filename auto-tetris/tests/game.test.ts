@@ -17,21 +17,23 @@ describe('game', () => {
     expect(g.cur?.y).toBe(y)
   })
 
-  test('a drop lands the piece at once and the next one spawns', async () => {
+  test('a drop falls row by row at the given speed, then the next one spawns', async () => {
     const g = Game.create(7)
-    Game.drop(g)
+    const y0 = g.cur!.y
+    expect(Game.drop(g)).toBe(true)
+    expect(Game.move(g)).toBe(false)
+    Game.advance(g, 100, 30)
+    expect(g.cur!.y).toBe(y0 + 3)
+    expect(g.pieces).toBe(1)
+    Game.advance(g, 2000, 30)
     expect(g.pieces).toBe(2)
     expect([...g.board].some(v => v > 0)).toBe(true)
   })
 
-  test('a drop during the line-clear animation waits for it', async () => {
+  test('a drop during the line-clear animation is refused', async () => {
     const g = Game.create(7)
-    g.board.fill(1, (Game.BH - 1) * Game.BW, Game.BH * Game.BW - 1)
-    g.clearing = { rows: [Game.BH - 1], ms: 0 }
-    Game.drop(g)
-    expect(g.pendingDrops).toBe(1)
-    Game.advance(g, Game.CLEAR_MS)
-    expect(g.pendingDrops).toBe(0)
+    g.clearing = { rows: [], ms: 0 }
+    expect(Game.drop(g)).toBe(false)
   })
 
   test('a full well ends the game and a new one starts after the pause', async () => {

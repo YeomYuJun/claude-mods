@@ -5,14 +5,12 @@ import Meter from '../hooks/meter'
 const USAGE = { input_tokens: 100, output_tokens: 40, cache_read_input_tokens: 5000, cache_creation_input_tokens: 0 }
 
 describe('meter', () => {
-  test('streamed text gives moves at once and the stop settles on the real count', async () => {
+  test('streamed text is credited at once and the stop credits only what the estimate missed', async () => {
     const m = Meter.create()
-    Meter.onText(m, 's1', 'text', 'x'.repeat(48))
-    expect(Meter.takeMoves(m, 12, 40)).toBe(1)
-    Meter.onStop(m, 's1', USAGE)
+    expect(Meter.onText(m, 's1', 'text', 'x'.repeat(48))).toBe(12)
+    expect(Meter.onStop(m, 's1', USAGE)).toBe(28)
     expect(m.out).toBe(40)
     expect(m.inp).toBe(5100)
-    expect(Meter.takeMoves(m, 12, 40)).toBe(2)
   })
 
   test('the status follows what the session is doing', async () => {
@@ -53,13 +51,5 @@ describe('meter', () => {
     // 4 초 동안 400 토큰: 끝난 막대 여덟 개에 50 씩, 최근 2 초 평균은 100 tok/s
     expect(m.bins.slice(-8).map(v => Math.round(v))).toEqual([50, 50, 50, 50, 50, 50, 50, 50])
     expect(Math.round(Meter.rateOf(m))).toBe(100)
-  })
-
-  test('the backlog is capped so a long closed stretch does not replay forever', async () => {
-    const m = Meter.create()
-    Meter.onText(m, 's1', 'text', 'x'.repeat(100_000))
-    expect(Meter.takeMoves(m, 12, 40)).toBe(40)
-    expect(Meter.takeMoves(m, 12, 40)).toBe(40)
-    expect(Meter.takeMoves(m, 12, 40)).toBe(0)
   })
 })

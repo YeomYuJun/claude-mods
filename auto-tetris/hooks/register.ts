@@ -4,6 +4,7 @@ import Frame from './frame'
 import Game from './game'
 import Meter from './meter'
 import Names from './names'
+import Queue from './queue'
 import View from './view'
 
 type Host = {
@@ -18,28 +19,35 @@ export function register(on: On) {
   let isOpen = false
   let game = Game.create(0x1b873593)
   const meter = Meter.create()
+  const queue = Queue.create()
   let timer: Timer | undefined
   let mounted: { cols: number; rows: number } | undefined
   let lastCells = ''
   let lastAt: number | undefined
 
-  // 수를 둔다. 애니메이션 중이면 쌓아 두고, 애니메이션이 끝나 바쁘지 않으면 이어서 둔다
-  function play() {
-    if (Game.isBusy(game)) return
-    let moves = Meter.takeMoves(meter, Names.TOKENS_PER_MOVE, Names.MAX_BACKLOG_MOVES)
-    while (moves > 0) {
-      if (!Game.move(game)) break
-      moves--
-      if (Game.isBusy(game)) break
-    }
-    if (moves > 0) Meter.refund(meter, moves, Names.TOKENS_PER_MOVE)
+  function credit(tokens: number) {
+    Queue.addTokens(queue, tokens, Names.TOKENS_PER_MOVE * Names.MAX_BACKLOG_MOVES)
   }
 
-  // 패널이 닫혀 있으면 애니메이션을 기다리지 않고 바로 끝낸다(보는 사람이 없다)
+  // 큐 머리부터 둔다. 낙하 표시면 떨어뜨리기 시작하고, 토큰이면 이번 프레임 몫만큼 수를 둔다.
+  // 애니메이션(줄 지우기·낙하·게임 오버) 중에는 기다린다
+  function play(dtMs: number, rate: number) {
+    if (Game.isBusy(game)) return
+    if (Queue.takeDrop(queue)) { Game.drop(game); return }
+    const n = Queue.movesFor(queue, rate, Names.TOKENS_PER_MOVE, dtMs)
+    let done = 0
+    while (done < n && !Game.isBusy(game) && Game.move(game)) done++
+    Queue.refund(queue, n - done, Names.TOKENS_PER_MOVE)
+  }
+
+  // 패널이 닫혀 있으면 애니메이션을 기다리지 않고 큐를 순서대로 바로 비운다(보는 사람이 없다)
   function playClosed() {
-    for (let i = 0; i < 4 && Game.isBusy(game); i++) Game.advance(game, Game.OVER_MS)
-    play()
-    if (Game.isBusy(game)) Game.advance(game, Game.OVER_MS)
+    for (let i = 0; i < 400 && (queue.items.length > 0 || Game.isBusy(game)); i++) {
+      if (Game.isBusy(game)) { Game.advance(game, Game.OVER_MS); continue }
+      const before = Queue.tokensOf(queue) + Queue.dropsOf(queue)
+      play(60_000, 0)
+      if (Queue.tokensOf(queue) + Queue.dropsOf(queue) === before && !Game.isBusy(game)) break
+    }
   }
 
   function frameOf(cols: number, rows: number, now: number): string {
@@ -53,8 +61,9 @@ export function register(on: On) {
     const dt = lastAt === undefined ? 0 : Math.min(1000, Math.max(0, now - lastAt))
     lastAt = now
     Meter.tick(meter, now)
-    Game.advance(game, dt)
-    play()
+    const rate = Meter.rateOf(meter)
+    Game.advance(game, dt, Queue.fallRowsOf(rate))
+    play(dt, rate)
     const cells = frameOf(mounted.cols, mounted.rows, now)
     if (cells === lastCells) return
     lastCells = cells
@@ -140,10 +149,10 @@ export function register(on: On) {
     Meter.onStepStart(meter, step, await $.clock.now())
     const stream = next(e)
     for await (const chunk of stream) {
-      if (chunk.kind === 'text' || chunk.kind === 'thinking') Meter.onText(meter, step, chunk.kind, chunk.text)
-      else if (chunk.kind === 'input') Meter.onInput(meter, step, chunk.json)
-      else if (chunk.kind === 'tool') { Meter.onToolChunk(meter); Game.drop(game) }
-      else if (chunk.kind === 'stop') Meter.onStop(meter, step, chunk.usage, await $.clock.now())
+      if (chunk.kind === 'text' || chunk.kind === 'thinking') credit(Meter.onText(meter, step, chunk.kind, chunk.text))
+      else if (chunk.kind === 'input') credit(Meter.onInput(meter, step, chunk.json))
+      else if (chunk.kind === 'tool') { Meter.onToolChunk(meter); Queue.addDrop(queue) }
+      else if (chunk.kind === 'stop') credit(Meter.onStop(meter, step, chunk.usage, await $.clock.now()))
       if (!isOpen) playClosed()
       yield chunk
     }
