@@ -51,6 +51,11 @@ describe('agentOf', () => {
     expect(factsOf([...answered, Fixtures.userText('next task', 4_000)], 5_000, teammate).node.status).toBe('running')
   })
 
+  test('a teammate prompt drops the message wrapper', () => {
+    const wrapped = '<teammate-message teammate_id="team-lead" summary="tick">\nrun date 7 times\n</teammate-message>'
+    expect(factsOf([Fixtures.userText(wrapped, 1_000)], 2_000).node.prompt).toBe('run date 7 times')
+  })
+
   test('a person stop reads as stopped', () => {
     const { node } = factsOf([Fixtures.userText('go', 1_000)], 2_000, { ...META, stoppedByUser: true })
     expect(node.status).toBe('stopped')

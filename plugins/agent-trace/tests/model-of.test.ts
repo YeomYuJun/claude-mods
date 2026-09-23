@@ -58,6 +58,13 @@ describe('modelOf', () => {
     expect(model.nodes.find(node => node.id === 'b1')?.status).toBe('done')
   })
 
+  test('the team this session made by itself adds no level', () => {
+    const t1 = file('t1', { name: 'ticker', taskKind: 'in_process_teammate', teamName: 'session-S1' }, [Fixtures.userText('go', 1_000)])
+    expect(modelOf({ agents: [t1] }).nodes.map(node => [node.id, node.kind, node.parentId])).toEqual([
+      ['S1', 'session', undefined], ['t1', 'teammate', 'S1'],
+    ])
+  })
+
   test('a waiting teammate stays idle while the engine still lists it running', () => {
     const t1 = file('t1', { name: 'ticker', taskKind: 'in_process_teammate', teamName: 'session-x' }, [Fixtures.userText('go', 1_000), Fixtures.assistantText('done', 2_000)])
     const model = modelOf({ agents: [t1], live: [{ id: 't1', description: 'x', type: 'teammate', status: 'running' }] })

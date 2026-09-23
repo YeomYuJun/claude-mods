@@ -126,6 +126,46 @@ describe('register', () => {
     expect(Fixtures.textOf(await $.ui.render(PANE))).toContain('Stop failed: No task found with ID: ticker')
   })
 
+  const HINT_DRAWN = { type: 'Text', children: ['? for shortcuts'] } as const
+  const HINT = { component: 'PromptHint', surface: 'terminal', requestId: 'hint', viewport: { columns: 160, rows: 40, isFullscreen: true }, props: {} } as const
+
+  test('the first main-loop Agent call opens a docked pane', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: { status: 'async_launched', agentId: 'a1' } }))
+    on('ui.render', { component: 'PromptHint' }, () => HINT_DRAWN)
+    await $.session.start(Fixtures.START)
+    await $.ui.render(HINT)
+    await $.tool.call({ tool: 'Agent', description: 'x', prompt: 'p', subagent_type: 'general-purpose' })
+    await world.clock.settle()
+    expect(world.opened).toEqual(['trace'])
+  })
+
+  test('a narrow terminal or a subagent call opens nothing', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: { status: 'async_launched', agentId: 'a2' } }))
+    on('ui.render', { component: 'PromptHint' }, () => HINT_DRAWN)
+    await $.session.start(Fixtures.START)
+    await $.ui.render({ ...HINT, viewport: { columns: 120, rows: 40, isFullscreen: true } })
+    await $.tool.call({ tool: 'Agent', description: 'x', prompt: 'p', subagent_type: 'general-purpose' })
+    await $.ui.render(HINT)
+    await $.tool.call({ tool: 'Agent', description: 'x', prompt: 'p', subagent_type: 'general-purpose', agentId: 'a1' })
+    await world.clock.settle()
+    expect(world.opened).toEqual([])
+  })
+
+  test('a pane the person closed does not open by itself again', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: { status: 'async_launched', agentId: 'a1' } }))
+    on('ui.render', { component: 'PromptHint' }, () => HINT_DRAWN)
+    await $.session.start(Fixtures.START)
+    await $.ui.render(HINT)
+    await $.command.run(Fixtures.TRACE)
+    await $.command.run(Fixtures.TRACE)
+    await $.tool.call({ tool: 'Agent', description: 'x', prompt: 'p', subagent_type: 'general-purpose' })
+    await world.clock.settle()
+    expect(world.opened).toEqual(['trace'])
+  })
+
   test('/clear forgets the pane', async ($, on) => {
     const world = Fixtures.worldOf(on)
     on('command.run', { command: 'clear' }, () => ({}))

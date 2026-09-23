@@ -14,6 +14,9 @@ export const MIN_COLUMN = 24
 export const GAP = 3
 export const INDENT = 4
 
+export const AUTO_OPEN_COLUMNS = 144
+export const AUTO_OPEN_TOOLS: readonly string[] = ['Agent', 'Task', 'Workflow']
+
 export const REFRESH_TOOLS: readonly string[] = ['Agent', 'Task', 'Workflow', 'SendMessage', 'TaskStop', 'Bash', 'PowerShell']
 
 export * as default from '.'

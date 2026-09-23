@@ -11,6 +11,7 @@ import Text from '../text'
 export type Kit = Pick<ElementTable<'terminal' | 'desktop'>, 'Box' | 'Text' | 'Button' | 'Markdown'>
 export type Act = (action: PaneAction) => void
 
+const WORD: Record<Status, string> = { running: '', idle: '대기', done: '완료', failed: '실패', stopped: '정지' }
 const DOT_COLOR: Record<Status, string> = { running: 'green', idle: 'yellow', done: 'gray', failed: 'red', stopped: 'gray' }
 
 export function dotOf(status: Status): string {
@@ -20,13 +21,13 @@ export function dotOf(status: Status): string {
 export function metaLineOf(node: TraceNode, now: number): string {
   if (node.kind === 'session') {
     const context = node.contextTokens === undefined ? '' : ` · ${Text.tokensOf(node.contextTokens)} in context`
-    return `${node.model ?? ''}${context}`
+    return `${node.model === undefined ? '' : Text.modelNameOf(node.model)}${context}`
   }
   const elapsed = node.startedAt === undefined ? '' : Text.durationOf((node.status === 'running' ? now : node.endedAt ?? now) - node.startedAt)
   const tokens = node.tokens === undefined ? '' : Text.tokensOf(node.tokens)
   const phase = node.phase ? `${'▰'.repeat(node.phase.done)}${'▱'.repeat(Math.max(0, node.phase.total - node.phase.done))} ${node.phase.done}/${node.phase.total}` : ''
-  const sent = (node.sentTo ?? []).map(item => `→ ${item.to} ×${item.count}`).join(' ')
-  return [elapsed, tokens, phase, sent, node.note === 'too-large' ? '기록이 커서 요약만' : ''].filter(Boolean).join(' · ')
+  const word = node.kind === 'team' ? '' : WORD[node.status]
+  return [word, elapsed, tokens, phase, node.note === 'too-large' ? '기록이 커서 요약만' : ''].filter(Boolean).join(' · ')
 }
 
 export function flowView(input: { kit: Kit; model: TraceModel; layout: Layout; top: number; rows: number; now: number; act: Act }): RenderElement {

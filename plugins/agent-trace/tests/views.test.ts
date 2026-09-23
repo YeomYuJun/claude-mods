@@ -43,6 +43,16 @@ describe('flow view', () => {
     expect(text).toContain('3m 51s · 111.5k')
   })
 
+  test('a node that is not running says so in words beside its time', () => {
+    expect(Fixtures.textOf(flowOf(90))).toContain('완료 · 12m 42s · 289.0k')
+  })
+
+  test('the session model drops the claude- prefix', () => {
+    const model: TraceModel = { ...MODEL, nodes: [node('S', undefined, { model: 'claude-opus-5-5[1m]', contextTokens: 69_600 })] }
+    const layout = Layout.layoutOf({ model, width: 90, collapsed: new Set() })
+    expect(Fixtures.textOf(Views.flowView({ kit: KIT, model, layout, top: 0, rows: 10, now: 0, act: () => {} }))).toContain('opus-5-5[1m] · 69.6k in context')
+  })
+
   test('each node is a button, and the background shell is listed apart', () => {
     const tree = flowOf(90)
     expect(Fixtures.keysOf(tree)).toEqual(expect.arrayContaining(['node:S', 'node:a1', 'node:a2', 'node:sh', 'fold:S']))
@@ -86,6 +96,27 @@ describe('detail view', () => {
     expect(text).toContain('Read and follow helper_prompt.md fully.')
     expect(text).toContain('Tool calls (2)')
     expect(text).toContain('[Open transcript](file:///C:/Users/u/.claude/projects/D--work/S1/subagents/agent-c.jsonl)')
+  })
+
+  test('the session detail shows its model once and no tool list', () => {
+    const model: TraceModel = { rootId: 'S', files: [], nodes: [node('S', undefined, { label: 'main', model: 'claude-opus-5-5[1m]', contextTokens: 69_600 })] }
+    const text = Fixtures.textOf(Views.detailView({ kit: KIT, model, id: 'S', width: 60, now: 0, act: () => {}, canStop: true, stop: () => {} }))
+    expect(text).not.toContain('Working')
+    expect(text).not.toContain('Tool calls')
+    expect(text.split('opus-5-5[1m]').length).toBe(2)
+  })
+
+  test('a team detail lists its members, and messages sent show in the detail', () => {
+    const model: TraceModel = { rootId: 'S', files: [], nodes: [
+      node('S', undefined),
+      node('team:x', 'S', { kind: 'team', label: 'x' }),
+      node('t1', 'team:x', { kind: 'teammate', label: 'ticker', status: 'idle', sentTo: [{ to: 'team-lead', count: 1 }] }),
+    ] }
+    const detail = (id: string) => Fixtures.textOf(Views.detailView({ kit: KIT, model, id, width: 60, now: 0, act: () => {}, canStop: true, stop: () => {} }))
+    expect(detail('team:x')).toContain('Members (1)')
+    expect(detail('team:x')).toContain('ticker')
+    expect(detail('t1')).toContain('Sent → team-lead ×1')
+    expect(detail('t1')).toContain('Idle · teammate')
   })
 
   test('newest tool call first', () => {

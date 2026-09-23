@@ -55,7 +55,9 @@ export function traceOf(input: ModelInput): TraceModel {
     }
     let parentId = agent.meta.parentAgentId
       ?? (agent.meta.toolUseId ? callOwner.get(agent.meta.toolUseId) : undefined)
-    if (!parentId && agent.meta.taskKind === 'in_process_teammate' && agent.meta.teamName) {
+    // 이 세션이 저절로 만든 팀(session-<세션 id 앞 8자>)은 노드로 세우지 않는다. 좁은 패널에서 한 단을 먹기만 한다.
+    const isOwnTeam = agent.meta.teamName === `session-${rootId.slice(0, 8)}`
+    if (!parentId && agent.meta.taskKind === 'in_process_teammate' && agent.meta.teamName && !isOwnTeam) {
       const teamId = `team:${agent.meta.teamName}`
       if (!nodes.has(teamId)) {
         nodes.set(teamId, { id: teamId, kind: 'team', label: agent.meta.teamName, parentId: rootId, depth: 1, status: 'running', toolCalls: [], startedAt: fact.node.startedAt })

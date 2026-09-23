@@ -34,6 +34,8 @@ export function register(on: On) {
   let maxTop = 0
   let model: TraceModel | undefined
   let poll: Timer | undefined
+  let hint: { isFullscreen: boolean; columns: number } | undefined
+  let closedByPerson = false
   const cache: ReadCache = new Map()
   const firstSeen = new Map<string, number>()
   const nowTools = new Map<string, string>()
@@ -97,6 +99,7 @@ export function register(on: On) {
     firstSeen.clear()
     nowTools.clear()
     stopNotes.clear()
+    closedByPerson = false
     poll?.cancel()
     poll = undefined
   }
@@ -134,6 +137,7 @@ export function register(on: On) {
     if (isOpen) {
       await $.ui.close({ id: Names.PANE_ID })
       isOpen = false
+      closedByPerson = true
       poll?.cancel()
       poll = undefined
       return { text: Names.PANEL_HIDDEN_TEXT }
@@ -144,6 +148,7 @@ export function register(on: On) {
       ? { id: Names.PANE_ID, title: Names.PANE_TITLE, holdToasts: true }
       : { id: Names.PANE_ID, title: Names.PANE_TITLE, holdToasts: true, focus: true, closeOnEscape: true, rows: 24 })
     isOpen = true
+    closedByPerson = false
     return { text: Names.PANEL_SHOWN_TEXT }
   })
 
@@ -161,6 +166,7 @@ export function register(on: On) {
     }
     const result = await next(e)
     if (result.deny === undefined) {
+      if (e.origin.kind === 'person') closedByPerson = true
       isOpen = false
       poll?.cancel()
       poll = undefined
@@ -186,6 +192,11 @@ export function register(on: On) {
     return {}
   })
 
+  on('ui.render', { component: 'PromptHint' }, ($, e, next) => {
+    if (e.viewport) hint = { isFullscreen: e.viewport.isFullscreen === true, columns: e.viewport.columns }
+    return next(e)
+  })
+
   on('tool.call', async ($, e, next) => {
     if (e.agentId) nowTools.set(e.agentId, e.tool)
     try {
@@ -194,6 +205,13 @@ export function register(on: On) {
       if (e.agentId && nowTools.get(e.agentId) === e.tool) nowTools.delete(e.agentId)
       if (isOpen && !e.agentId && Names.REFRESH_TOOLS.includes(e.tool) && host) void refresh(host)
       if (isOpen && e.agentId && !poll && host) void refresh(host)
+      const shouldOpen = !isOpen && !closedByPerson && !e.agentId && Names.AUTO_OPEN_TOOLS.includes(e.tool)
+        && hint?.isFullscreen === true && hint.columns >= Names.AUTO_OPEN_COLUMNS
+      if (shouldOpen && host) {
+        isOpen = true
+        const opening = host
+        void refresh(opening).then(() => $.ui.open({ id: Names.PANE_ID, title: Names.PANE_TITLE, holdToasts: true }))
+      }
     }
   })
 }

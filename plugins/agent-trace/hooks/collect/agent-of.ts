@@ -19,6 +19,11 @@ export type AgentMeta = {
 export type AgentFacts = { node: TraceNode; files: FileAccess[]; agentCallIds: string[]; sends: string[] }
 
 const AGENT_TOOLS = new Set(['Agent', 'Task'])
+const TEAMMATE_MESSAGE = /^\s*<teammate-message\b[^>]*>\s*([\s\S]*?)\s*<\/teammate-message>\s*$/
+
+export function promptOf(text: string): string {
+  return TEAMMATE_MESSAGE.exec(text)?.[1] ?? text
+}
 
 export function agentOf(input: { id: string; meta: AgentMeta; rows: Row[]; transcriptPath: string; now: number; tooLarge?: boolean }): AgentFacts {
   const { id, meta, rows, transcriptPath, now } = input
@@ -41,7 +46,7 @@ export function agentOf(input: { id: string; meta: AgentMeta; rows: Row[]; trans
     }
     if (row.type === 'user' && prompt === undefined) {
       const text = plainTextOf(row)
-      if (text !== undefined && blocksOf(row).every(block => block.type !== 'tool_result')) prompt = text
+      if (text !== undefined && blocksOf(row).every(block => block.type !== 'tool_result')) prompt = promptOf(text)
     }
     if (row.type === 'assistant') {
       model = modelOf(row) ?? model

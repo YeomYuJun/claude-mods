@@ -1,5 +1,40 @@
 # agent-trace
 
-세션이 띄운 서브에이전트, agent team, Workflow 를 세션 기록 파일에서 읽어 `/trace` 도킹 패널에 흐름도·에이전트 상세·파일 접근으로 그리는 플러그인.
+세션이 띄운 서브에이전트, agent team, Workflow, 백그라운드 셸을 `/trace` 도킹 패널에 흐름도·에이전트 상세·파일 접근으로 그린다.
+설계: [docs/specs/2026-09-22-agent-trace-design.md](../../docs/specs/2026-09-22-agent-trace-design.md)
 
-구현 중이다. 현재는 `/trace` 명령이 빈 패널을 열고 닫기만 한다. 흐름도·에이전트 상세·파일 접근은 아직 없다. 설계는 [docs/specs/2026-09-22-agent-trace-design.md](../../docs/specs/2026-09-22-agent-trace-design.md).
+## 실행
+
+```powershell
+$env:CLAUDE_CODE_ENABLE_FUNCTION_HOOKS = "1"
+claude --plugin-dir "D:/claude-mods/plugins/agent-trace"
+```
+
+`/trace` 로 열고 닫는다. 패널을 트랜스크립트 옆에 붙이는 전체 화면 레이아웃이고 터미널이 144 열 이상이면, 메인 세션의 첫 Agent·Task·Workflow 호출이 끝날 때 저절로 열린다. 이번 세션에서 직접 닫았으면 다시 열리지 않는다(`/clear` 뒤에는 다시 열린다).
+
+## 화면
+
+- 머리글: `흐름 │ 파일` 탭, 밀도 버튼(`d`), 요약 `N agents · 실행 N · 대기 N · 실패 N`.
+- 흐름 탭: 깊이별 열이 24 열 이상 나오면 가로 트리, 아니면 세로 들여쓰기 트리. 노드 2 행은 실행 중이 아니면 상태(`대기`·`완료`·`실패`·`정지`), 경과 시간, 토큰(마지막 요청의 컨텍스트 + 출력). 루트 2 행은 모델(`claude-` 를 뗀 이름)과 현재 컨텍스트. 팀원은 팀 노드 아래에 두되, 이 세션이 저절로 만든 팀(`session-<세션 id 앞 8자>`)은 노드로 세우지 않고 팀원을 루트 아래에 둔다. 노드 20 개 초과 시 한 줄 표시로 시작한다. 트리 아래에 백그라운드 셸 목록.
+- 상태 점: 실행 초록, 대기 노랑, 완료 회색, 실패 빨강, 정지 `■`. 대기는 답을 내고 다음 메시지를 기다리는 팀원이다.
+- 노드를 누르면 상세: 상태·유형·모델·실행 방식, 부모, 보낸 메시지(`Sent → 받는쪽 ×N`), 진행 중 도구, 지시문(팀원 메시지 태그는 벗긴다), 최근 도구 호출, 대화 기록 파일 링크, Stop agent. 팀 노드 상세는 도구 호출 대신 멤버 목록, main 상세는 모델·컨텍스트 한 줄만 보인다. `Esc` 는 흐름으로 돌아가고 한 번 더 누르면 패널을 닫는다.
+- Stop agent: 실행 중인 에이전트와 대기 중인 팀원에 보인다. TaskStop 을 에이전트 이름(없으면 id)으로 부르고, 돌려받은 첫 줄을 버튼 아래 `Stop: …` 또는 `Stop failed: …` 로 적는다. 실제 세션에서 멈추는지는 아직 확인하지 않았다.
+- 파일 탭: 경로별 읽기·편집·쓰기 횟수와 건드린 에이전트. 둘 이상이 편집한 파일은 `충돌 가능`. Bash 로 바꾼 파일은 빠진다.
+
+## 읽는 곳
+
+| 대상 | 출처 |
+|---|---|
+| 메인 세션 | `$.session.messages()`, `$.session.usage()`, `$.session.model()` |
+| 서브에이전트·팀원 | `<설정 폴더>/projects/<cwd 키>/<세션 id>/subagents/agent-*.jsonl`, `.meta.json` |
+| Workflow | 같은 세션 폴더의 `workflows/*.json`, `subagents/workflows/<runId>/agent-*.jsonl` |
+| 실시간 상태 | `$.agent.list()`, `tool.call` 이벤트의 `agentId` |
+
+설정 폴더는 `CLAUDE_CONFIG_DIR`, 없으면 `USERPROFILE`(또는 `HOME`)`/.claude`. 4 MiB 를 넘는 기록 파일은 읽지 않고 노드에 `기록이 커서 요약만` 을 단다.
+
+## 개발
+
+```powershell
+claude plugin test "D:/claude-mods/plugins/agent-trace"
+claude plugin validate "D:/claude-mods/plugins/agent-trace"
+```
