@@ -36,6 +36,30 @@ describe('game', () => {
     expect(Game.drop(g)).toBe(false)
   })
 
+  test('clears in a row build a combo with a bonus, a placement without a clear resets it', async () => {
+    const g = Game.create(7)
+    const clearOne = () => {
+      g.board.fill(0)
+      g.board.fill(1, (Game.BH - 1) * Game.BW, Game.BH * Game.BW - 1)
+      g.cur = { k: Game.I_PIECE, r: 1, x: Game.BW - 3, y: Game.BH - 4, tr: 1, tx: Game.BW - 3, falling: false, fallAcc: 0 }
+      Game.move(g)
+      Game.advance(g, Game.CLEAR_MS)
+    }
+    clearOne()
+    expect(g.combo).toBe(1)
+    expect(g.popup?.lines).toEqual(['SINGLE'])
+    const before = g.score
+    clearOne()
+    expect(g.combo).toBe(2)
+    expect(g.score - before).toBe(100 + Game.COMBO_BONUS)
+    expect(g.popup?.lines).toEqual(['SINGLE', 'COMBO x2'])
+    g.board.fill(0)
+    g.cur = { k: Game.O_PIECE, r: 0, x: 0, y: Game.BH - 2, tr: 0, tx: 0, falling: false, fallAcc: 0 }
+    Game.move(g)
+    expect(g.combo).toBe(0)
+    expect(g.maxCombo).toBe(2)
+  })
+
   test('a full well ends the game and a new one starts after the pause', async () => {
     const g = Game.create(7)
     g.board.fill(1)

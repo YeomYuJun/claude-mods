@@ -124,6 +124,17 @@ export function compose(input: FrameInput): Grid {
     }
   }
 
+  // 우물 안 문구: 지운 줄·콤보, 게임 오버. 가운데 맞추고 글자 뒤는 우물색으로 덮는다
+  const banner = (row: number, s: string, color: number) => {
+    const x = bx + Math.floor((20 - s.length) / 2)
+    text(g, x - 1, by + row, ` ${s} `, color, WELL)
+  }
+  if (game.popup && !game.over) {
+    const fade = game.popup.ms > Game.POPUP_MS * 0.7 ? 0.55 : 0
+    game.popup.lines.forEach((line, i) => banner(5 + i, line, mix(i === 0 ? WHITE : ACCENT, WELL, fade)))
+  }
+  if (game.over) banner(9, 'GAME OVER', blink ? 0xe56b6f : 0x6b3335)
+
   // 보드 아래 정보. 높이가 모자라면 아래쪽 줄부터 빠진다(put 이 격자 밖을 버린다)
   let y = 23
   text(g, x0 + 2, y, 'NEXT', LABEL)
@@ -138,6 +149,7 @@ export function compose(input: FrameInput): Grid {
   y += 1
   row(g, x0, y++, 'LINES', String(game.lines), VALUE)
   row(g, x0, y++, 'SCORE', String(game.score), VALUE)
+  row(g, x0, y++, 'COMBO', `${game.combo} max ${game.maxCombo}`, game.combo >= 2 ? ACCENT : VALUE)
   row(g, x0, y++, 'PIECES', String(game.pieces), VALUE)
   row(g, x0, y++, 'GAME', String(game.games), VALUE)
   y += 1
@@ -155,7 +167,5 @@ export function compose(input: FrameInput): Grid {
   const color = status === 'tool' && !blink ? mix(view.color, 0x262626, 0.5) : view.color
   put(g, x0 + 2, y, BAR, color)
   text(g, x0 + 4, y, view.word, color)
-  y += 1
-  if (game.over) text(g, x0 + 2, y, 'GAME OVER', blink ? 0xe56b6f : 0x6b3335)
   return g
 }

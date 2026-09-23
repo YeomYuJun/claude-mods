@@ -30,7 +30,8 @@ claude --plugin-dir "D:/claude-mods/auto-tetris"
 
 고정 폭 24 열. 보드 한 칸은 2 열 × 1 행이고 `▀` 의 위 절반을 밝게 칠한다. 패널이 더 넓으면 가운데에 두고, 24 열 × 22 행보다 작으면 필요한 크기를 글로 적는다. 22 행이면 보드만, 40 행쯤이면 아래 정보까지 다 보인다.
 
-- `NEXT` 다음 블록, `LINES` `SCORE` `PIECES` `GAME`
+- `NEXT` 다음 블록, `LINES` `SCORE` `COMBO`(지금 콤보와 최고) `PIECES` `GAME`
+- 콤보: 줄을 지운 배치가 이어진 횟수. 줄을 못 지운 배치에서 0 이 된다. 2 콤보부터 `50 × (콤보 - 1)` 점을 더한다. 줄을 지우면 우물 안에 `SINGLE`~`TETRIS` 와 `COMBO xN` 이 1.2 초 뜨고, 게임 오버도 우물 안에 적는다.
 - `OUT TOK` 출력 토큰, `IN TOK` 입력 토큰(캐시 읽기·쓰기 포함), `tok/s` 최근 2 초 평균 속도와 0.5 초 막대 20 개
 - 상태: `streaming`(텍스트가 흐르는 중), `thinking`, `tool call`(도구 실행 중, 깜빡임), `waiting`(턴은 진행 중인데 조각이 없음), `idle`
 

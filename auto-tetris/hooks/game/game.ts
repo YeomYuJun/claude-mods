@@ -7,6 +7,10 @@ export const HID = 2
 export const CLEAR_MS = 400
 export const OVER_MS = 2500
 export const FLASH_MS = 330
+export const POPUP_MS = 1200
+// 콤보 가산점: 이어진 두 번째 배치부터 COMBO_BONUS × (콤보 - 1)
+export const COMBO_BONUS = 50
+const CLEAR_NAMES = ['', 'SINGLE', 'DOUBLE', 'TRIPLE', 'TETRIS']
 // 속도를 주지 않은 advance 의 낙하: 한 번에 바닥까지
 export const INSTANT_ROWS = 1_000_000
 
@@ -51,6 +55,11 @@ export type Game = {
   clearing?: { rows: number[]; ms: number }
   over?: { ms: number }
   flash?: { cells: Array<[number, number]>; ms: number }
+  // 우물 안에 잠깐 띄우는 문구(지운 줄 이름, 콤보)
+  popup?: { lines: string[]; ms: number }
+  // 줄을 지운 배치가 몇 번 이어졌는가. 줄을 못 지운 배치에서 0
+  combo: number
+  maxCombo: number
   lines: number
   score: number
   pieces: number
@@ -173,12 +182,20 @@ function lock(g: Game): void {
   if (full.length > 0) {
     g.clearing = { rows: full, ms: 0 }
     g.lines += full.length
-    g.score += [0, 100, 300, 500, 800][full.length] ?? 800
-  } else spawn(g)
+    g.combo++
+    g.maxCombo = Math.max(g.maxCombo, g.combo)
+    g.score += ([0, 100, 300, 500, 800][full.length] ?? 800) + COMBO_BONUS * Math.max(0, g.combo - 1)
+    const lines = [CLEAR_NAMES[full.length] ?? 'TETRIS']
+    if (g.combo >= 2) lines.push(`COMBO x${g.combo}`)
+    g.popup = { lines, ms: 0 }
+  } else {
+    g.combo = 0
+    spawn(g)
+  }
 }
 
 export function create(seed: number): Game {
-  const g: Game = { board: new Uint8Array(BW * BH), bag: [], next: 0, lines: 0, score: 0, pieces: 0, games: 1, seed: seed | 0 || 0x1b873593 }
+  const g: Game = { board: new Uint8Array(BW * BH), bag: [], next: 0, combo: 0, maxCombo: 0, lines: 0, score: 0, pieces: 0, games: 1, seed: seed | 0 || 0x1b873593 }
   g.next = drawBag(g)
   spawn(g)
   return g
@@ -239,6 +256,7 @@ export function advance(g: Game, dtMs: number, fallRows: number = INSTANT_ROWS):
     }
   }
   if (g.flash) { g.flash.ms += dtMs; if (g.flash.ms >= FLASH_MS) g.flash = undefined }
+  if (g.popup) { g.popup.ms += dtMs; if (g.popup.ms >= POPUP_MS) g.popup = undefined }
   if (g.clearing) {
     g.clearing.ms += dtMs
     if (g.clearing.ms < CLEAR_MS) return
@@ -251,6 +269,7 @@ export function advance(g: Game, dtMs: number, fallRows: number = INSTANT_ROWS):
     if (g.over.ms < OVER_MS) return
     g.board.fill(0)
     g.over = undefined
+    g.combo = 0
     g.games++
     g.bag = []
     g.next = drawBag(g)

@@ -12,7 +12,19 @@ describe('frame', () => {
     expect(lines[0]).toBe(' ┌────────────────────┐ ')
     expect(Fixtures.valueOf(lines, 'LINES')).toBe('0')
     expect(Fixtures.valueOf(lines, 'PIECES')).toBe('1')
+    expect(lines.join(' ')).toContain('COMBO')
     expect(lines.join('\n')).toContain('▍ idle')
+  })
+
+  test('a combo and a game over are written inside the well', async () => {
+    const game = Game.create(1)
+    game.popup = { lines: ['DOUBLE', 'COMBO x3'], ms: 0 }
+    let lines = Fixtures.linesOf(Frame.encode(Frame.compose({ game, meter: Meter.create(), cols: 24, rows: 40, now: 0 })), 24)
+    expect(lines[6]).toContain(' DOUBLE ')
+    expect(lines[7]).toContain(' COMBO x3 ')
+    game.over = { ms: 0 }
+    lines = Fixtures.linesOf(Frame.encode(Frame.compose({ game, meter: Meter.create(), cols: 24, rows: 40, now: 0 })), 24)
+    expect(lines[10]).toContain('GAME OVER')
   })
 
   test('a wider pane centres the fixed-width board', async () => {
