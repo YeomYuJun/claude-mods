@@ -137,11 +137,13 @@ export function register(on: On) {
   on('turn.step', async function* ($, e, next) {
     const step = `${e.agentId ?? 'main'}:${e.turnId}:${e.index}`
     Meter.onTurn(meter, e.turnId)
+    Meter.onStepStart(meter, step, await $.clock.now())
     const stream = next(e)
     for await (const chunk of stream) {
       if (chunk.kind === 'text' || chunk.kind === 'thinking') Meter.onText(meter, step, chunk.kind, chunk.text)
+      else if (chunk.kind === 'input') Meter.onInput(meter, step, chunk.json)
       else if (chunk.kind === 'tool') { Meter.onToolChunk(meter); Game.drop(game) }
-      else if (chunk.kind === 'stop') Meter.onStop(meter, step, chunk.usage)
+      else if (chunk.kind === 'stop') Meter.onStop(meter, step, chunk.usage, await $.clock.now())
       if (!isOpen) playClosed()
       yield chunk
     }

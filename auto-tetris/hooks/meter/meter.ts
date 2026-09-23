@@ -1,5 +1,6 @@
 // 토큰 흐름을 세고 "지금 무엇을 하는 중인가"를 정한다(순수 모듈).
-// 스트림의 글자로 토큰을 어림해 즉시 수를 주고, 응답 끝의 usage 로 정확한 값에 맞춘다.
+// 스트림의 글자(텍스트·생각·도구 인자 JSON)로 토큰을 어림해 즉시 수를 주고,
+// 응답 끝의 usage 로 정확한 값에 맞춘다. 스트림에 보이지 않던 몫은 그 응답이 걸린 시간에 걸쳐 속도 막대에 나눠 넣는다.
 
 export type Status = 'idle' | 'waiting' | 'thinking' | 'streaming' | 'tool'
 
@@ -7,6 +8,8 @@ export const BIN_MS = 500
 export const BINS = 20
 // 마지막 조각이 이 시간 안에 왔으면 아직 쓰는 중이다
 export const LIVE_MS = 900
+// tok/s 는 끝난 막대 이만큼의 평균이다(2 초)
+export const RATE_BINS = 4
 
 export type Usage = {
   input_tokens: number
@@ -20,6 +23,7 @@ export type Meter = {
   inp: number
   credit: number
   estimates: Map<string, number>
+  starts: Map<string, number>
   turns: Set<string>
   tools: number
   lastKind?: 'text' | 'thinking' | 'tool'
@@ -31,7 +35,7 @@ export type Meter = {
 }
 
 export function create(): Meter {
-  return { out: 0, inp: 0, credit: 0, estimates: new Map(), turns: new Set(), tools: 0, seen: false, pending: 0, bins: new Array<number>(BINS).fill(0) }
+  return { out: 0, inp: 0, credit: 0, estimates: new Map(), starts: new Map(), turns: new Set(), tools: 0, seen: false, pending: 0, bins: new Array<number>(BINS).fill(0) }
 }
 
 // 글자 수로 토큰을 어림한다: 영문은 4 글자, 한글·한자는 1.6 글자에 한 토큰 정도
@@ -64,15 +68,49 @@ export function onToolChunk(m: Meter): void {
   m.seen = true
 }
 
+// 도구 인자 JSON 조각도 출력 토큰이다. 같은 응답의 어림에 넣어 정산 때 두 번 세지 않는다
+export function onInput(m: Meter, step: string, json: string): void {
+  const est = estimateOf(json)
+  m.out += est
+  m.credit += est
+  m.pending += est
+  m.estimates.set(step, (m.estimates.get(step) ?? 0) + est)
+  m.lastKind = 'tool'
+  m.seen = true
+}
+
+export function onStepStart(m: Meter, step: string, now: number): void {
+  m.starts.set(step, now)
+}
+
 // 응답이 끝났다: 어림과 실제 출력 토큰의 차이를 메운다. 모자랐던 만큼은 수로도 준다
-export function onStop(m: Meter, step: string, usage: Usage | null): void {
+export function onStop(m: Meter, step: string, usage: Usage | null, now?: number): void {
   const est = m.estimates.get(step) ?? 0
+  const start = m.starts.get(step)
   m.estimates.delete(step)
+  m.starts.delete(step)
   if (!usage) return
   const diff = usage.output_tokens - est
   m.out += diff
-  if (diff > 0) { m.credit += diff; m.pending += diff }
+  if (diff > 0) {
+    m.credit += diff
+    if (start !== undefined && now !== undefined) spreadBack(m, diff, start, now)
+    else m.pending += diff
+  }
   m.inp += usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+}
+
+// [from, now] 에 고르게 나온 것으로 보고 겹치는 막대마다 시간 비율만큼 넣는다. 막대 창보다 오래된 몫은 버린다
+function spreadBack(m: Meter, tokens: number, from: number, now: number): void {
+  const span = now - from
+  if (m.binStart === undefined || span <= 0) { m.pending += tokens; return }
+  const share = (a: number, b: number) => Math.max(0, Math.min(b, now) - Math.max(a, from)) / span
+  m.pending += tokens * share(m.binStart, now)
+  for (let i = BINS - 1; i >= 0; i--) {
+    const end = m.binStart - (BINS - 1 - i) * BIN_MS
+    if (end <= from) break
+    m.bins[i] = (m.bins[i] ?? 0) + tokens * share(end - BIN_MS, end)
+  }
 }
 
 export function onToolStart(m: Meter): void {
@@ -115,9 +153,9 @@ export function resetRate(m: Meter): void {
 }
 
 export function rateOf(m: Meter): number {
-  const a = m.bins[BINS - 1] ?? 0
-  const b = m.bins[BINS - 2] ?? 0
-  return (a + b) / ((BIN_MS * 2) / 1000)
+  let sum = 0
+  for (let i = BINS - RATE_BINS; i < BINS; i++) sum += m.bins[i] ?? 0
+  return sum / ((BIN_MS * RATE_BINS) / 1000)
 }
 
 export function statusOf(m: Meter, now: number): Status {

@@ -33,6 +33,28 @@ describe('meter', () => {
     expect(Meter.statusOf(m, 5000)).toBe('idle')
   })
 
+  test('tool input JSON counts as output at once and is not counted twice at the stop', async () => {
+    const m = Meter.create()
+    Meter.onInput(m, 's1', 'x'.repeat(80))
+    expect(m.out).toBe(20)
+    expect(Meter.statusOf(m, 0)).toBe('idle')
+    Meter.tick(m, 0)
+    expect(Meter.statusOf(m, 100)).toBe('tool')
+    Meter.onStop(m, 's1', { ...USAGE, output_tokens: 20 })
+    expect(m.out).toBe(20)
+  })
+
+  test('tokens the stream did not show are spread over the time the response took', async () => {
+    const m = Meter.create()
+    Meter.tick(m, 0)
+    Meter.onStepStart(m, 's1', 0)
+    Meter.tick(m, 4000)
+    Meter.onStop(m, 's1', { ...USAGE, output_tokens: 400 }, 4000)
+    // 4 초 동안 400 토큰: 끝난 막대 여덟 개에 50 씩, 최근 2 초 평균은 100 tok/s
+    expect(m.bins.slice(-8).map(v => Math.round(v))).toEqual([50, 50, 50, 50, 50, 50, 50, 50])
+    expect(Math.round(Meter.rateOf(m))).toBe(100)
+  })
+
   test('the backlog is capped so a long closed stretch does not replay forever', async () => {
     const m = Meter.create()
     Meter.onText(m, 's1', 'text', 'x'.repeat(100_000))
