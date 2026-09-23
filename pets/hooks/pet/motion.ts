@@ -1,0 +1,151 @@
+// 경로 따라가기와 단차 뛰기(순수 모듈). 고정 스텝(약 16.7 ms)마다 한 번 부른다.
+// - 속도는 가속·감속 한도 안에서 목표 속도로 다가간다. 끝 칸에 가까우면 v = √(2·감속·남은 거리) 로 줄여 미끄러지지 않고 선다
+// - 꺾이는 칸은 가운데까지 가지 않고 조금 앞에서 다음 칸으로 넘어가 모서리를 둥글게 돈다(세 칸 높이가 같을 때만)
+// - 높이가 다른 칸으로 넘어갈 때는 경계 앞에서 웅크렸다가(걷기만) 포물선으로 뛰고, 착지하면 잠깐 눌리고 먼지가 인다
+
+import Names from '../names'
+import Iso from '../iso'
+import World, { type World as WorldState } from '../world'
+import * as Fx from './fx.js'
+import { dirOf, isRight, type Gait, type Pet } from './state.js'
+
+export const SPEED: Record<Gait, number> = { walk: 2.4, trot: 3.6, run: 6.0, sniff: 1.1 }
+const ACCEL: Record<Gait, number> = { walk: 7, trot: 10, run: 14, sniff: 5 }
+const DECEL: Record<Gait, number> = { walk: 6, trot: 9, run: 12, sniff: 5 }
+// 걸음 한 주기에 가는 거리(타일)
+export const STRIDE: Record<Gait, number> = { walk: 0.62, trot: 0.9, run: 1.3, sniff: 0.45 }
+const CORNER = 0.22
+const CROUCH_MS = 80
+const LAND_MS = 90
+const TURN_MS = 110
+const DUST_EVERY_MS = 110
+
+function groundOf(world: WorldState, x: number, y: number): number {
+  return World.heightAt(world, Math.round(x), Math.round(y)) * Names.STEP_PX
+}
+
+function face(p: Pet, dx: number, dy: number): void {
+  const next = dirOf(dx, dy)
+  if (isRight(next) !== isRight(p.dir)) p.turnMs = TURN_MS
+  p.dir = next
+}
+
+export function faceTo(p: Pet, dx: number, dy: number): void {
+  if (dx === 0 && dy === 0) return
+  face(p, dx, dy)
+}
+
+function puff(p: Pet, count: number, spread: number): void {
+  const s = Iso.screenOf(p.x, p.y, p.z)
+  for (let i = 0; i < count; i++) {
+    const side = i % 2 === 0 ? -1 : 1
+    Fx.spawn(p.particles, { kind: 'dust', x: s.sx + side * (2 + (i >> 1) * 2), y: s.sy - 0.5, vx: side * spread * (0.6 + 0.2 * i), vy: -8 - 3 * i, g: 0, life: 380 + 40 * i })
+  }
+}
+
+function startHop(p: Pet, world: WorldState, tx: number, ty: number, isPath: boolean): void {
+  const z1 = groundOf(world, tx, ty)
+  const up = z1 > p.z
+  const dist = Math.hypot(tx - p.x, ty - p.y)
+  const v = Math.max(p.speed, 2.2)
+  p.hop = {
+    fx: p.x, fy: p.y, tx, ty, z0: p.z, z1, t: 0,
+    dur: Math.min(420, Math.max(220, (dist / v) * 1000)),
+    peak: (up ? 5 : 3) + (p.gait === 'run' ? 2 : 0),
+    isPath,
+  }
+}
+
+// 제자리에서 앞으로 한 칸(가능하면) 폴짝. 못 가면 제자리에서 솟는다
+export function pounce(p: Pet, world: WorldState, dx: number, dy: number): void {
+  const x0 = Math.round(p.x)
+  const y0 = Math.round(p.y)
+  const ok = World.canStep(world, x0, y0, x0 + dx, y0 + dy)
+  p.gait = 'trot'
+  p.speed = 0
+  p.hop = {
+    fx: p.x, fy: p.y, tx: ok ? x0 + dx : p.x, ty: ok ? y0 + dy : p.y, z0: p.z,
+    z1: ok ? groundOf(world, x0 + dx, y0 + dy) : p.z, t: 0, dur: 360, peak: 7, isPath: false,
+  }
+}
+
+export function step(p: Pet, world: WorldState, dtMs: number): void {
+  const dt = dtMs / 1000
+  p.turnMs = Math.max(0, p.turnMs - dtMs)
+  p.landMs = Math.max(0, p.landMs - dtMs)
+  if (p.hop) {
+    const h = p.hop
+    h.t += dtMs
+    const u = Math.min(1, h.t / h.dur)
+    p.x = h.fx + (h.tx - h.fx) * u
+    p.y = h.fy + (h.ty - h.fy) * u
+    p.z = h.z0 + (h.z1 - h.z0) * u + 4 * h.peak * u * (1 - u)
+    p.stride += (dtMs / h.dur) * 0.5
+    if (u >= 1) {
+      p.z = h.z1
+      p.hop = undefined
+      p.landMs = LAND_MS
+      puff(p, 4, 14)
+      if (h.isPath) p.path.shift()
+    }
+    return
+  }
+  if (p.crouchMs > 0) {
+    p.crouchMs -= dtMs
+    if (p.crouchMs <= 0) {
+      const wp = p.path[0]
+      if (wp) startHop(p, world, wp.x, wp.y, true)
+    }
+    return
+  }
+  const wp = p.path[0]
+  if (!wp) {
+    p.speed = 0
+    p.z = groundOf(world, p.x, p.y)
+    return
+  }
+  const dx = wp.x - p.x
+  const dy = wp.y - p.y
+  const dist = Math.hypot(dx, dy)
+  const here = World.heightAt(world, Math.round(p.x), Math.round(p.y))
+  const there = World.heightAt(world, wp.x, wp.y)
+  if (there !== here && dist <= 0.62) {
+    faceTo(p, dx, dy)
+    // 걷다가 오를 때는 멈칫 웅크리고, 뛰는 중에는 속도 그대로 뛰어오른다
+    if (p.gait === 'run' || p.gait === 'trot') startHop(p, world, wp.x, wp.y, true)
+    else { p.crouchMs = CROUCH_MS; p.speed *= 0.4 }
+    return
+  }
+  let remaining = dist
+  let prev = wp
+  for (let i = 1; i < p.path.length; i++) {
+    const q = p.path[i]!
+    remaining += Math.abs(q.x - prev.x) + Math.abs(q.y - prev.y)
+    prev = q
+  }
+  const target = Math.min(SPEED[p.gait], Math.sqrt(2 * DECEL[p.gait] * remaining))
+  if (p.speed < target) p.speed = Math.min(target, p.speed + ACCEL[p.gait] * dt)
+  else p.speed = Math.max(target, p.speed - DECEL[p.gait] * dt)
+  p.speed = Math.max(p.speed, 0.35)
+  const move = Math.min(dist, p.speed * dt)
+  if (dist > 1e-6) {
+    p.x += (dx / dist) * move
+    p.y += (dy / dist) * move
+    faceTo(p, dx, dy)
+  }
+  p.stride += move / STRIDE[p.gait]
+  p.z = groundOf(world, p.x, p.y)
+  if (p.gait === 'run') {
+    p.fxClock += dtMs
+    if (p.fxClock >= DUST_EVERY_MS) { p.fxClock = 0; puff(p, 1, 6) }
+  }
+  const next = p.path[1]
+  const left = dist - move
+  // 다음 구간이 지금 가는 축과 다른 축이면 꺾는 칸이다
+  const isTurn = next !== undefined && (next.x !== wp.x) !== (Math.abs(dx) > Math.abs(dy))
+  const flat = next !== undefined && World.heightAt(world, next.x, next.y) === there && here === there
+  if (left <= 1e-4 || (isTurn && flat && left < CORNER)) {
+    p.path.shift()
+    if (p.path.length === 0) { p.x = wp.x; p.y = wp.y; p.speed = 0 }
+  }
+}

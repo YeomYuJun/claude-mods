@@ -1,0 +1,194 @@
+// 상태를 한 프레임의 모습(DogPose)으로 바꾼다(순수 모듈). 상태를 바꾸지 않는다.
+//
+// 걸음: 다리마다 위상이 다르고, 위상의 앞 σ 동안은 발이 바닥을 짚고 뒤로 밀리며(+amp 에서 -amp),
+// 나머지 동안은 들려서 앞으로 돌아온다. 걷기는 네 박자(뒤-앞-뒤-앞), 속보는 대각 짝, 달리기는 앞·뒤 짝이 모이고 벌어지며 몸이 뜬다.
+
+import type { DogPose, Leg } from '../sprite'
+import { isBack, isMoving, isRight, type Gait, type Pet } from './state.js'
+
+type GaitShape = { sigma: number; amp: number; phase: readonly [number, number, number, number] }
+
+// 다리 순서: 가까운 뒷다리, 먼 뒷다리, 가까운 앞다리, 먼 앞다리
+const GAITS: Record<Gait, GaitShape> = {
+  walk: { sigma: 0.7, amp: 1, phase: [0, 0.5, 0.25, 0.75] },
+  sniff: { sigma: 0.75, amp: 1, phase: [0, 0.5, 0.25, 0.75] },
+  trot: { sigma: 0.5, amp: 1, phase: [0, 0.5, 0.5, 0] },
+  run: { sigma: 0.38, amp: 2, phase: [0, 0.08, 0.5, 0.58] },
+}
+const HIPS: ReadonlyArray<readonly [number, boolean]> = [[-3, false], [-2, true], [2, false], [3, true]]
+const LEG_LEN = 2
+
+function foot(ph: number, sigma: number, amp: number): { dx: number; lift: boolean } {
+  const t = ph - Math.floor(ph)
+  if (t < sigma) return { dx: Math.round(amp - (2 * amp * t) / sigma), lift: false }
+  return { dx: Math.round(-amp + (2 * amp * (t - sigma)) / (1 - sigma)), lift: true }
+}
+
+function legsStill(dxFront = 0, dxBack = 0): Leg[] {
+  return HIPS.map(([hipX, far]) => ({ hipX, far, dx: hipX > 0 ? dxFront : dxBack, lift: false, len: LEG_LEN }))
+}
+
+function legsWalking(gait: Gait, stride: number): Leg[] {
+  const g = GAITS[gait]
+  return HIPS.map(([hipX, far], i) => {
+    const f = foot(stride + g.phase[i]!, g.sigma, g.amp)
+    return { hipX, far, dx: f.dx, lift: f.lift, len: LEG_LEN }
+  })
+}
+
+function wag(t: number, base: number, amp: number, hz: number): number {
+  return base + amp * Math.sin((2 * Math.PI * hz * t) / 1000)
+}
+
+function base(p: Pet): DogPose {
+  return {
+    body: 'stand', flip: !isRight(p.dir), back: isBack(p.dir), bodyDx: 0, bodyDy: 0, tilt: 0,
+    head: isBack(p.dir) ? 'back' : 'face', headDx: 0, headDy: 0,
+    eyeClosed: p.blinkMs > 0, tongue: false, mouthOpen: false,
+    legs: legsStill(), tailAngle: 0.8, tailLen: 3, scratch: 0,
+  }
+}
+
+// t: 지금 단계가 시작한 뒤 흐른 시간(ms), now: 꼬리·숨 시계(ms)
+export function poseOf(p: Pet): DogPose {
+  const d = base(p)
+  const now = p.breath
+  const t = p.act.t
+  const happy = p.excite > 0.5
+  if (p.hop) {
+    const u = p.hop.t / p.hop.dur
+    // 오를 때는 앞다리를 모으고 뒷다리를 뻗고, 내려올 때는 앞다리를 먼저 내민다
+    d.legs = HIPS.map(([hipX, far]) => ({ hipX, far, dx: hipX > 0 ? (u < 0.5 ? -1 : 1) : (u < 0.5 ? -1 : 0), lift: true, len: LEG_LEN }))
+    d.tailAngle = 1.0
+    return d
+  }
+  if (p.crouchMs > 0) {
+    d.bodyDy = 1
+    d.headDy = 1
+    d.legs = legsStill(1, -1)
+    d.tailAngle = 0.9
+    return d
+  }
+  if (p.turnMs > 0) {
+    d.body = 'frontStand'
+    d.tailAngle = wag(now, 0, 1, 3)
+    return d
+  }
+  if (isMoving(p)) {
+    const g = p.gait
+    d.legs = legsWalking(g, p.stride)
+    const ph = p.stride - Math.floor(p.stride)
+    if (g === 'run') {
+      // 네 발이 다 떠 있는 순간 몸이 한 픽셀 솟는다
+      const flight = d.legs.every(l => l.lift)
+      d.bodyDy = flight ? -1 : 0
+      d.tailAngle = wag(now, 0.35, 0.15, 3)
+      d.tongue = true
+    } else if (g === 'sniff') {
+      d.headDx = 1
+      d.headDy = 3
+      d.tailAngle = wag(now, 1.1, 0.25, 5)
+    } else {
+      d.headDy = g === 'walk' && ph % 0.5 >= 0.25 ? 1 : 0
+      d.tailAngle = wag(now, 0.75, 0.3, g === 'trot' ? 3 : 2)
+    }
+    if (p.landMs > 0) { d.bodyDy += 1; d.headDy += 1 }
+    return d
+  }
+  if (p.landMs > 0) { d.bodyDy = 1; d.headDy = 1 }
+  switch (p.pose) {
+    case 'stand':
+      d.tailAngle = wag(now, 0.8, happy ? 0.5 : 0.35, happy ? 4 : 1.6)
+      return d
+    case 'look':
+      d.body = 'frontStand'
+      d.tailAngle = wag(now, 0, 1, happy ? 5 : 2.5)
+      d.tongue = happy
+      return d
+    case 'pant':
+      d.tongue = true
+      d.mouthOpen = Math.floor(now / 170) % 2 === 0
+      d.tailAngle = wag(now, 0.7, 0.3, 2.5)
+      return d
+    case 'sniff':
+      d.headDx = 1
+      d.headDy = 4 - (Math.floor(now / 140) % 3 === 0 ? 1 : 0)
+      d.tailAngle = wag(now, 1.1, 0.25, 5)
+      return d
+    case 'dig': {
+      d.headDx = 1
+      d.headDy = 3
+      const beat = Math.floor(now / 65) % 2
+      d.legs = HIPS.map(([hipX, far], i) => ({ hipX, far, len: LEG_LEN, dx: hipX > 0 ? (beat === i % 2 ? 1 : -1) : -1, lift: hipX > 0 && beat === i % 2 }))
+      d.tailAngle = wag(now, 1.0, 0.35, 5)
+      return d
+    }
+    case 'bow':
+      d.tilt = 2
+      d.legs = legsStill(1, 0)
+      d.tailAngle = wag(now, 1.3, 0.5, 6)
+      d.tongue = true
+      return d
+    case 'shake': {
+      const side = Math.floor(t / 55) % 2 === 0 ? 1 : -1
+      d.bodyDx = side
+      d.headDx = -side
+      d.eyeClosed = true
+      d.tailAngle = wag(now, 0.6, 0.8, 9)
+      return d
+    }
+    case 'scratch':
+      d.body = 'sit'
+      d.scratch = 1 + (Math.floor(now / 70) % 2)
+      d.eyeClosed = true
+      d.headDy = 1
+      d.tailAngle = 0
+      return d
+    case 'yawn':
+      d.mouthOpen = t > 150 && t < 650
+      d.eyeClosed = t > 100 && t < 700
+      d.headDy = t > 150 && t < 650 ? -1 : 0
+      d.tailAngle = 0.4
+      return d
+    case 'stretch': {
+      const first = t < 450
+      d.tilt = first ? 2 : -1
+      d.legs = first ? legsStill(1, 0) : legsStill(0, -1)
+      d.eyeClosed = true
+      d.tailAngle = first ? 1.2 : 0.3
+      return d
+    }
+    case 'sit':
+      d.body = 'sit'
+      d.tailAngle = wag(now, 0.1, happy ? 0.6 : 0.3, happy ? 4 : 1.2)
+      d.tongue = happy
+      return d
+    case 'frontSit':
+      d.body = 'frontSit'
+      d.tailAngle = wag(now, 0, 1, happy || p.emote?.kind === 'heart' ? 4 : 1.5)
+      d.tongue = happy || p.emote?.kind === 'heart'
+      return d
+    case 'lie':
+      d.body = 'lie'
+      d.tailAngle = wag(now, 0.05, 0.25, 0.8)
+      return d
+    case 'lieRest':
+      d.body = 'lie'
+      d.headDy = 2
+      // 눈을 감고 있다가 가끔 뜬다
+      d.eyeClosed = Math.floor(now / 3000) % 4 !== 0
+      d.tailAngle = 0
+      return d
+    case 'wake':
+      d.body = 'lie'
+      d.headDy = t < 300 ? 2 : 0
+      d.eyeClosed = t < 350
+      d.tailAngle = wag(now, 0.05, 0.3, 2)
+      return d
+    case 'sleep':
+      d.body = now % 2400 < 1100 ? 'curlA' : 'curlB'
+      d.head = 'none'
+      d.tailLen = 0
+      return d
+  }
+}
