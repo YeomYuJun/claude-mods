@@ -18,7 +18,7 @@ export function summaryOf(model: TraceModel): string {
   const running = agents.filter(node => node.status === 'running').length
   const idle = agents.filter(node => node.status === 'idle').length
   const failed = agents.filter(node => node.status === 'failed').length
-  return `${agents.length} agent${agents.length === 1 ? '' : 's'} · 실행 ${running} · 대기 ${idle} · 실패 ${failed}`
+  return `에이전트 ${agents.length} · 실행 ${running} · 대기 ${idle} · 실패 ${failed}`
 }
 
 export function paneView(input: { kit: Kit; model: TraceModel; state: PaneState; width: number; rows: number; now: number; act: Act; canStop: boolean; stop: (id: string) => void }): { tree: RenderElement; maxTop: number; density: Density } {

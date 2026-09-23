@@ -38,7 +38,7 @@ describe('flow view', () => {
   test('node lines read like the reference map', () => {
     const text = Fixtures.textOf(flowOf(90))
     expect(text).toContain('Cnd-lea-be ARIA 전환 테스트')
-    expect(text).toContain('Opus 5 (1M) · 262.3k in context')
+    expect(text).toContain('Opus 5 (1M) · 컨텍스트 262.3k')
     expect(text).toContain('12m 42s · 289.0k')
     expect(text).toContain('3m 51s · 111.5k')
   })
@@ -50,14 +50,14 @@ describe('flow view', () => {
   test('the session model drops the claude- prefix', () => {
     const model: TraceModel = { ...MODEL, nodes: [node('S', undefined, { model: 'claude-opus-5-5[1m]', contextTokens: 69_600 })] }
     const layout = Layout.layoutOf({ model, width: 90, collapsed: new Set() })
-    expect(Fixtures.textOf(Views.flowView({ kit: KIT, model, layout, top: 0, rows: 10, now: 0, act: () => {} }))).toContain('opus-5-5[1m] · 69.6k in context')
+    expect(Fixtures.textOf(Views.flowView({ kit: KIT, model, layout, top: 0, rows: 10, now: 0, act: () => {} }))).toContain('opus-5-5[1m] · 컨텍스트 69.6k')
   })
 
   test('each node is a button, and the background shell is listed apart', () => {
     const tree = flowOf(90)
     expect(Fixtures.keysOf(tree)).toEqual(expect.arrayContaining(['node:S', 'node:a1', 'node:a2', 'node:sh', 'fold:S']))
-    expect(Fixtures.textOf(tree)).toContain('1 background task')
-    expect(Fixtures.textOf(tree)).toContain('shell · 3m 51s')
+    expect(Fixtures.textOf(tree)).toContain('백그라운드 작업 1')
+    expect(Fixtures.textOf(tree)).toContain('셸 · 3m 51s')
   })
 
   test('rows scrolled past are not drawn', () => {
@@ -89,20 +89,20 @@ describe('detail view', () => {
   test('the lines of the reference detail', () => {
     const text = Fixtures.textOf(detailOf(true))
     expect(text).toContain('admin2 IT part B menu/msg')
-    expect(text).toContain('Working · general-purpose · Opus 5 (1M) · background')
-    expect(text).toContain('Spawned by lea ARIA tests admin2')
+    expect(text).toContain('실행 중 · general-purpose · Opus 5 (1M) · 백그라운드')
+    expect(text).toContain('부모 lea ARIA tests admin2')
     expect(text).toContain('11m 41s · 136.9k')
-    expect(text).toContain('Now  Bash')
+    expect(text).toContain('지금  Bash')
     expect(text).toContain('Read and follow helper_prompt.md fully.')
-    expect(text).toContain('Tool calls (2)')
-    expect(text).toContain('[Open transcript](file:///C:/Users/u/.claude/projects/D--work/S1/subagents/agent-c.jsonl)')
+    expect(text).toContain('도구 호출 (2)')
+    expect(text).toContain('[기록 열기](file:///C:/Users/u/.claude/projects/D--work/S1/subagents/agent-c.jsonl)')
   })
 
   test('the session detail shows its model once and no tool list', () => {
     const model: TraceModel = { rootId: 'S', files: [], nodes: [node('S', undefined, { label: 'main', model: 'claude-opus-5-5[1m]', contextTokens: 69_600 })] }
     const text = Fixtures.textOf(Views.detailView({ kit: KIT, model, id: 'S', width: 60, now: 0, act: () => {}, canStop: true, stop: () => {} }))
-    expect(text).not.toContain('Working')
-    expect(text).not.toContain('Tool calls')
+    expect(text).not.toContain('실행 중')
+    expect(text).not.toContain('도구 호출')
     expect(text.split('opus-5-5[1m]').length).toBe(2)
   })
 
@@ -113,10 +113,10 @@ describe('detail view', () => {
       node('t1', 'team:x', { kind: 'teammate', label: 'ticker', status: 'idle', sentTo: [{ to: 'team-lead', count: 1 }] }),
     ] }
     const detail = (id: string) => Fixtures.textOf(Views.detailView({ kit: KIT, model, id, width: 60, now: 0, act: () => {}, canStop: true, stop: () => {} }))
-    expect(detail('team:x')).toContain('Members (1)')
+    expect(detail('team:x')).toContain('멤버 (1)')
     expect(detail('team:x')).toContain('ticker')
-    expect(detail('t1')).toContain('Sent → team-lead ×1')
-    expect(detail('t1')).toContain('Idle · teammate')
+    expect(detail('t1')).toContain('보냄 → team-lead ×1')
+    expect(detail('t1')).toContain('대기 · 팀원')
   })
 
   test('newest tool call first', () => {
@@ -179,7 +179,7 @@ describe('pane view', () => {
 
   test('header summarises, tabs and density are buttons', () => {
     const { tree } = Views.paneView({ kit: KIT, model: MODEL, state: STATE, width: 90, rows: 30, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
-    expect(Fixtures.textOf(tree)).toContain('2 agents · 실행 1 · 대기 0 · 실패 0')
+    expect(Fixtures.textOf(tree)).toContain('에이전트 2 · 실행 1 · 대기 0 · 실패 0')
     expect(Fixtures.keysOf(tree)).toEqual(expect.arrayContaining(['tab:flow', 'tab:files', 'density']))
   })
 

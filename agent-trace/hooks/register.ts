@@ -25,6 +25,22 @@ type Host = {
   taskStop: (target: string, label: string) => Promise<StopNote>
 }
 
+// TaskStop 은 결과를 { message, task_id, ... } 로 주고, 엔진의 text 는 그 JSON 문자열이다.
+function messageOf(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    try {
+      return messageOf(JSON.parse(value) as unknown) ?? value
+    } catch {
+      return value
+    }
+  }
+  if (value && typeof value === 'object') {
+    const message = Reflect.get(value, 'message')
+    return typeof message === 'string' ? message : undefined
+  }
+  return undefined
+}
+
 export function register(on: On) {
   let host: Host | undefined
   let isOpen = false
@@ -40,6 +56,7 @@ export function register(on: On) {
   const firstSeen = new Map<string, number>()
   const nowTools = new Map<string, string>()
   const stopNotes = new Map<string, StopNote>()
+  const stopped = new Map<string, number>()
 
   async function dirOf(h: Host): Promise<string> {
     const configDir = await h.envConfigDir()
@@ -57,7 +74,7 @@ export function register(on: On) {
     model = Collect.traceOf({
       rootId, rootLabel: 'main', model: sessionModel, contextTokens: usage.context.tokens,
       main: Collect.mainOf({ rootId, messages, firstSeen, now }),
-      agents: read.agents, workflows: read.workflows, live, nowTools, now,
+      agents: read.agents, workflows: read.workflows, live, nowTools, stopped, now,
     })
     h.invalidate()
     const isRunning = model.nodes.some(node => node.kind !== 'session' && node.kind !== 'team' && node.status === 'running')
@@ -82,6 +99,7 @@ export function register(on: On) {
     // 팀원을 기록 파일 이름의 id 로 부르면 TaskStop 이 검증 오류를 낸다. 이름이 있으면 이름으로 부른다.
     const note = await host.taskStop(node.name ?? id, node.label)
     stopNotes.set(id, note)
+    if (!note.isError) stopped.set(id, await host.now())
     await refresh(host)
   }
 
@@ -99,6 +117,7 @@ export function register(on: On) {
     firstSeen.clear()
     nowTools.clear()
     stopNotes.clear()
+    stopped.clear()
     closedByPerson = false
     poll?.cancel()
     poll = undefined
@@ -124,8 +143,7 @@ export function register(on: On) {
       taskStop: async (target, label) => {
         const result = await $.tool.call({ tool: 'TaskStop', task_id: target, consent: `The user pressed "Stop agent" for ${label} in the agent-trace panel` })
         if (result.deny !== undefined) return { text: result.deny, isError: true }
-        const message = result.result && typeof result.result === 'object' ? Reflect.get(result.result, 'message') : result.result
-        const text = typeof result.text === 'string' ? result.text : typeof message === 'string' ? message : ''
+        const text = messageOf(result.result) ?? messageOf(result.text) ?? ''
         return { text: text.trim().split('\n')[0] ?? '', isError: result.isError === true }
       },
     }

@@ -19,6 +19,7 @@ export type ModelInput = {
   workflows: Row[]
   live: AgentInfo[]
   nowTools: Map<string, string>
+  stopped?: Map<string, number>
   now: number
 }
 
@@ -76,10 +77,14 @@ export function traceOf(input: ModelInput): TraceModel {
     const notified = node.toolUseId ? main.notified.get(node.toolUseId) : undefined
     const liveStatus = statusOf(liveAgent?.status)
     const isWaiting = node.kind === 'teammate' && node.status === 'idle' && (liveStatus === undefined || liveStatus === 'running')
-    const status = isWaiting ? 'idle' : liveStatus ?? statusOf(notified) ?? node.status
+    const judged = isWaiting ? 'idle' : liveStatus ?? statusOf(notified) ?? node.status
+    // 정지된 팀원은 목록에서 빠지고 기록은 끝나지 않은 도구 호출로 멈춰 있다. 정지 성공을 기억해 둔 값이 이긴다.
+    const stoppedAt = input.stopped?.get(id)
+    const isStopped = stoppedAt !== undefined && (judged === 'running' || judged === 'idle')
+    const status = isStopped ? 'stopped' : judged
     const nowTool = status === 'running' ? nowTools.get(id) ?? node.nowTool : undefined
     const name = liveAgent?.name ?? node.name
-    nodes.set(id, { ...node, ...(name ? { name } : {}), status, rawStatus: liveAgent?.status ?? notified ?? node.rawStatus, nowTool })
+    nodes.set(id, { ...node, ...(name ? { name } : {}), status, rawStatus: isStopped ? undefined : liveAgent?.status ?? notified ?? node.rawStatus, nowTool, ...(isStopped ? { endedAt: stoppedAt } : {}) })
   }
 
   for (const [id, node] of nodes) {

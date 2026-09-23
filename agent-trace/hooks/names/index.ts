@@ -2,9 +2,9 @@ export const PLUGIN_NAME = 'agent-trace'
 export const PANE_ID = 'trace'
 export const COMMAND_NAME = 'trace'
 export const COMMAND_DESCRIPTION = '병행 에이전트 흐름 패널을 열고 닫는다'
-export const PANE_TITLE = 'Agent trace'
-export const PANEL_SHOWN_TEXT = 'Agent trace panel shown'
-export const PANEL_HIDDEN_TEXT = 'Agent trace panel hidden'
+export const PANE_TITLE = '에이전트 추적'
+export const PANEL_SHOWN_TEXT = '에이전트 추적 패널을 열었다'
+export const PANEL_HIDDEN_TEXT = '에이전트 추적 패널을 닫았다'
 
 export const POLL_MS = 2000
 export const DONE_IDLE_MS = 60_000

@@ -44,7 +44,7 @@ export function filesView(input: { kit: Kit; model: TraceModel; width: number })
       {rows.map(row => (
         <Box key={`f:${row.path}`} flexDirection="column">
           <Markdown text={`${row.isConflict ? '**충돌 가능** ' : ''}[${Text.clip(row.path, input.width - 14)}](${fileUrlOf(row.path)})`} />
-          <T dimColor wrap="truncate-end">{`  R${row.reads} E${row.edits} W${row.writes} · ${row.nodes.join(', ')}`}</T>
+          <T dimColor wrap="truncate-end">{`  읽기 ${row.reads} · 편집 ${row.edits} · 쓰기 ${row.writes} · ${row.nodes.join(', ')}`}</T>
         </Box>
       ))}
       <T dimColor>Bash 로 바꾼 파일은 빠져 있음</T>
