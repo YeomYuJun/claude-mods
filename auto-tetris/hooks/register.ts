@@ -92,6 +92,8 @@ export function register(on: On) {
       invalidate: () => $.ui.invalidate('ui.render'),
     }
     game = Game.create(((await $.clock.now()) | 0) ^ 0x1b873593)
+    // 첫 응답 전에도 세션 모델의 등급으로 둔다. 모델을 읽지 못하면 기본 등급 그대로
+    try { Game.setTier(game, Game.tierOf(await $.session.model())) } catch { /* 기본 등급 */ }
     await $.command.register({ name: Names.COMMAND_NAME, description: Names.COMMAND_DESCRIPTION })
     return next(e)
   })
@@ -146,6 +148,8 @@ export function register(on: On) {
   on('turn.step', async function* ($, e, next) {
     const step = `${e.agentId ?? 'main'}:${e.turnId}:${e.index}`
     Meter.onTurn(meter, e.turnId)
+    // 이 응답을 쓰는 모델(서브에이전트 포함)의 등급으로 다음 블록부터 둔다
+    Game.setTier(game, Game.tierOf(e.model))
     Meter.onStepStart(meter, step, await $.clock.now())
     const stream = next(e)
     for await (const chunk of stream) {

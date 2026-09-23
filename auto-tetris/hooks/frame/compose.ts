@@ -95,17 +95,17 @@ export function compose(input: FrameInput): Grid {
     }
   }
 
-  // AI 가 노리는 자리(░)와 지금 블록
+  // AI 가 노린 자리(░)와 지금 블록. 실행 실수가 나면 블록은 ░ 옆에 떨어진다
   const cur = game.cur
   if (cur && !game.clearing) {
-    if (Game.fits(game.board, cur.k, cur.tr, cur.tx, cur.y)) {
+    if (Game.fits(game.board, cur.k, cur.tr, cur.aimX, cur.y)) {
       let gy = cur.y
-      while (Game.fits(game.board, cur.k, cur.tr, cur.tx, gy + 1)) gy++
+      while (Game.fits(game.board, cur.k, cur.tr, cur.aimX, gy + 1)) gy++
       const ghost = mix(PIECE_COLORS[cur.k]!, WELL, 0.5)
       for (const [cx, cy] of Game.ROT[cur.k]![cur.tr]!) {
         const y = gy + cy
         if (y < Game.HID) continue
-        const x = bx + (cur.tx + cx) * 2
+        const x = bx + (cur.aimX + cx) * 2
         put(g, x, by + y - Game.HID, SHADE, ghost, WELL)
         put(g, x + 1, by + y - Game.HID, SHADE, ghost, WELL)
       }
@@ -152,6 +152,7 @@ export function compose(input: FrameInput): Grid {
   row(g, x0, y++, 'COMBO', `${game.combo} max ${game.maxCombo}`, game.combo >= 2 ? ACCENT : VALUE)
   row(g, x0, y++, 'PIECES', String(game.pieces), VALUE)
   row(g, x0, y++, 'GAME', String(game.games), VALUE)
+  row(g, x0, y++, 'AI', game.tier.toUpperCase(), ACCENT)
   y += 1
   row(g, x0, y++, 'OUT TOK', tokensOf(meter.out), ACCENT)
   row(g, x0, y++, 'IN TOK', tokensOf(meter.inp), VALUE)

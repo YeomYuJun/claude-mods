@@ -1,8 +1,10 @@
-// 테트리스 규칙과 스스로 두는 AI. 시간과 입력은 바깥에서 받는다(순수 모듈).
+// 테트리스 규칙. 블록을 둘 자리는 ai.ts 가 고른다. 시간과 입력은 바깥에서 받는다(순수 모듈).
 
-export const BW = 10
-export const BH = 22
-export const HID = 2
+import { BH, BW, HID, I_PIECE, O_PIECE, ROT, collapse, fits, fullRowsOf } from './board.js'
+import { DEFAULT_TIER, choose, type Tier } from './ai.js'
+
+export * from './board.js'
+export { DEFAULT_TIER, TIERS, holesOf, tierOf, type Tier } from './ai.js'
 
 export const CLEAR_MS = 400
 export const OVER_MS = 2500
@@ -14,38 +16,9 @@ const CLEAR_NAMES = ['', 'SINGLE', 'DOUBLE', 'TRIPLE', 'TETRIS']
 // 속도를 주지 않은 advance 의 낙하: 한 번에 바닥까지
 export const INSTANT_ROWS = 1_000_000
 
-type Shape = number[][]
-const SHAPES: Shape[] = [
-  [[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]], // I
-  [[1, 1], [1, 1]], // O
-  [[0, 1, 0], [1, 1, 1], [0, 0, 0]], // T
-  [[0, 1, 1], [1, 1, 0], [0, 0, 0]], // S
-  [[1, 1, 0], [0, 1, 1], [0, 0, 0]], // Z
-  [[1, 0, 0], [1, 1, 1], [0, 0, 0]], // J
-  [[0, 0, 1], [1, 1, 1], [0, 0, 0]], // L
-]
-export const O_PIECE = 1
-export const I_PIECE = 0
-
-function rotate(m: Shape): Shape {
-  return m.map((row, y) => row.map((_, x) => m[m.length - 1 - x]![y]!))
-}
-
-function cellsOf(m: Shape): Array<[number, number]> {
-  const out: Array<[number, number]> = []
-  m.forEach((row, y) => row.forEach((v, x) => { if (v) out.push([x, y]) }))
-  return out
-}
-
-// ROT[piece][rotation] = 칸 좌표 목록
-export const ROT: Array<Array<Array<[number, number]>>> = SHAPES.map(shape => {
-  const turns: Shape[] = [shape]
-  for (let i = 1; i < 4; i++) turns.push(rotate(turns[i - 1]!))
-  return turns.map(cellsOf)
-})
-
 // falling: 도구 호출로 떨어지는 중. fallAcc 는 아직 내려가지 않은 행의 몫
-export type Piece = { k: number; r: number; x: number; y: number; tr: number; tx: number; falling: boolean; fallAcc: number }
+// tr·tx: 실제로 가는 회전·열. aimX: AI 가 노린 열(░ 로 그린다). 실행 실수가 나면 tx 와 다르다
+export type Piece = { k: number; r: number; x: number; y: number; tr: number; tx: number; aimX: number; falling: boolean; fallAcc: number }
 
 export type Game = {
   board: Uint8Array
@@ -60,6 +33,8 @@ export type Game = {
   // 줄을 지운 배치가 몇 번 이어졌는가. 줄을 못 지운 배치에서 0
   combo: number
   maxCombo: number
+  // 블록을 두는 AI 의 등급. 다음에 나오는 블록부터 적용된다
+  tier: Tier
   lines: number
   score: number
   pieces: number
@@ -76,16 +51,6 @@ function rnd(g: Game): number {
   return (s >>> 0) / 4294967296
 }
 
-export function fits(board: Uint8Array, k: number, r: number, x: number, y: number): boolean {
-  for (const [cx, cy] of ROT[k]![r]!) {
-    const X = x + cx
-    const Y = y + cy
-    if (X < 0 || X >= BW || Y >= BH) return false
-    if (Y >= 0 && board[Y * BW + X]) return false
-  }
-  return true
-}
-
 function drawBag(g: Game): number {
   if (g.bag.length === 0) {
     g.bag = [0, 1, 2, 3, 4, 5, 6]
@@ -99,62 +64,6 @@ function drawBag(g: Game): number {
   return g.bag.pop()!
 }
 
-export function fullRowsOf(board: Uint8Array): number[] {
-  const full: number[] = []
-  for (let y = 0; y < BH; y++) {
-    let isFull = true
-    for (let x = 0; x < BW; x++) if (!board[y * BW + x]) { isFull = false; break }
-    if (isFull) full.push(y)
-  }
-  return full
-}
-
-export function collapse(board: Uint8Array, rows: number[]): void {
-  for (const r of rows) {
-    board.copyWithin(BW, 0, r * BW)
-    board.fill(0, 0, BW)
-  }
-}
-
-// 고전 가중치(높이·지운 줄·구멍·울퉁불퉁함). 한 수 앞만 본다.
-export function scoreOf(board: Uint8Array, lines: number): number {
-  let agg = 0
-  let holes = 0
-  let bump = 0
-  let prev = -1
-  for (let x = 0; x < BW; x++) {
-    let h = 0
-    let seen = false
-    for (let y = 0; y < BH; y++) {
-      const v = board[y * BW + x]
-      if (v && !seen) { seen = true; h = BH - y } else if (!v && seen) holes++
-    }
-    agg += h
-    if (prev >= 0) bump += Math.abs(h - prev)
-    prev = h
-  }
-  return -0.510066 * agg + 0.760666 * lines - 0.35663 * holes - 0.184483 * bump
-}
-
-export function plan(g: Game, k: number, fromY: number): { r: number; x: number } {
-  let best: { sc: number; r: number; x: number } | undefined
-  for (let r = 0; r < (k === O_PIECE ? 1 : 4); r++) {
-    for (let x = -2; x < BW; x++) {
-      if (!fits(g.board, k, r, x, fromY)) continue
-      let y = fromY
-      while (fits(g.board, k, r, x, y + 1)) y++
-      const b = g.board.slice()
-      for (const [cx, cy] of ROT[k]![r]!) { const Y = y + cy; if (Y >= 0) b[Y * BW + x + cx] = k + 1 }
-      const full = fullRowsOf(b)
-      collapse(b, full)
-      // 약간의 잡음: 가끔 최선이 아닌 수를 둬서 판이 끝나기도 한다
-      const sc = scoreOf(b, full.length) + rnd(g) * 0.35
-      if (!best || sc > best.sc) best = { sc, r, x }
-    }
-  }
-  return best ? { r: best.r, x: best.x } : { r: 0, x: 3 }
-}
-
 function spawn(g: Game): void {
   const k = g.next
   g.next = drawBag(g)
@@ -165,8 +74,8 @@ function spawn(g: Game): void {
     g.over = { ms: 0 }
     return
   }
-  const target = plan(g, k, y)
-  g.cur = { k, r: 0, x, y, tr: target.r, tx: target.x, falling: false, fallAcc: 0 }
+  const target = choose(g.board, k, g.next, y, g.tier, () => rnd(g))
+  g.cur = { k, r: 0, x, y, tr: target.r, tx: target.x, aimX: target.aimX, falling: false, fallAcc: 0 }
   g.pieces++
 }
 
@@ -194,8 +103,12 @@ function lock(g: Game): void {
   }
 }
 
+export function setTier(g: Game, tier: Tier): void {
+  g.tier = tier
+}
+
 export function create(seed: number): Game {
-  const g: Game = { board: new Uint8Array(BW * BH), bag: [], next: 0, combo: 0, maxCombo: 0, lines: 0, score: 0, pieces: 0, games: 1, seed: seed | 0 || 0x1b873593 }
+  const g: Game = { board: new Uint8Array(BW * BH), bag: [], next: 0, tier: DEFAULT_TIER, combo: 0, maxCombo: 0, lines: 0, score: 0, pieces: 0, games: 1, seed: seed | 0 || 0x1b873593 }
   g.next = drawBag(g)
   spawn(g)
   return g

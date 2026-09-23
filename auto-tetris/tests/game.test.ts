@@ -41,7 +41,7 @@ describe('game', () => {
     const clearOne = () => {
       g.board.fill(0)
       g.board.fill(1, (Game.BH - 1) * Game.BW, Game.BH * Game.BW - 1)
-      g.cur = { k: Game.I_PIECE, r: 1, x: Game.BW - 3, y: Game.BH - 4, tr: 1, tx: Game.BW - 3, falling: false, fallAcc: 0 }
+      g.cur = { k: Game.I_PIECE, r: 1, x: Game.BW - 3, y: Game.BH - 4, tr: 1, tx: Game.BW - 3, aimX: Game.BW - 3, falling: false, fallAcc: 0 }
       Game.move(g)
       Game.advance(g, Game.CLEAR_MS)
     }
@@ -54,7 +54,7 @@ describe('game', () => {
     expect(g.score - before).toBe(100 + Game.COMBO_BONUS)
     expect(g.popup?.lines).toEqual(['SINGLE', 'COMBO x2'])
     g.board.fill(0)
-    g.cur = { k: Game.O_PIECE, r: 0, x: 0, y: Game.BH - 2, tr: 0, tx: 0, falling: false, fallAcc: 0 }
+    g.cur = { k: Game.O_PIECE, r: 0, x: 0, y: Game.BH - 2, tr: 0, tx: 0, aimX: 0, falling: false, fallAcc: 0 }
     Game.move(g)
     expect(g.combo).toBe(0)
     expect(g.maxCombo).toBe(2)
