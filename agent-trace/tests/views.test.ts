@@ -89,13 +89,35 @@ describe('detail view', () => {
   test('the lines of the reference detail', () => {
     const text = Fixtures.textOf(detailOf(true))
     expect(text).toContain('admin2 IT part B menu/msg')
-    expect(text).toContain('실행 중 · general-purpose · Opus 5 (1M) · 백그라운드')
-    expect(text).toContain('부모 lea ARIA tests admin2')
-    expect(text).toContain('11m 41s · 136.9k')
+    expect(text).toContain('실행 중 · 11m 41s · 136.9k')
+    expect(text).toContain('유형  general-purpose · 백그라운드')
+    expect(text).toContain('모델  Opus 5 (1M)')
+    expect(text).toContain('부모  lea ARIA tests admin2')
     expect(text).toContain('지금  Bash')
+    expect(text).toContain('지시문 ─')
     expect(text).toContain('Read and follow helper_prompt.md fully.')
-    expect(text).toContain('도구 호출 (2)')
-    expect(text).toContain('[기록 열기](file:///C:/Users/u/.claude/projects/D--work/S1/subagents/agent-c.jsonl)')
+    expect(text).toContain('도구 호출 2 ─')
+    expect(text).not.toContain('file:///')
+  })
+
+  test('the stop button sits on the third row, before the fields', () => {
+    const text = Fixtures.textOf(detailOf(true))
+    expect(text.indexOf('에이전트 정지')).toBeLessThan(text.indexOf('유형'))
+  })
+
+  test('a tool call row starts with the time since the agent started, names in one column', () => {
+    const model: TraceModel = { ...MODEL_D, nodes: MODEL_D.nodes.map(item => item.id === 'c' ? { ...item, toolCalls: [{ id: 'x', name: 'Bash', summary: 'date', ok: true, at: 5_000 }] } : item) }
+    const text = Fixtures.textOf(Views.detailView({ kit: KIT, model, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {} }))
+    expect(text).toContain('  5s      ✓  Bash    date')
+  })
+
+  test('tool calls fill the rows left and count the rest', () => {
+    const calls = Array.from({ length: 30 }, (_, index) => ({ id: `t${index}`, name: 'Bash', summary: `cmd ${index}`, ok: true }))
+    const model: TraceModel = { ...MODEL_D, nodes: MODEL_D.nodes.map(item => item.id === 'c' ? { ...item, toolCalls: calls } : item) }
+    const text = Fixtures.textOf(Views.detailView({ kit: KIT, model, id: 'c', width: 60, rows: 25, now: 0, act: () => {}, canStop: true, stop: () => {} }))
+    expect(text).toContain('cmd 29')
+    expect(text).not.toContain('cmd 10')
+    expect(text).toMatch(/… 외 \d+개/)
   })
 
   test('the session detail shows its model once and no tool list', () => {
@@ -113,10 +135,36 @@ describe('detail view', () => {
       node('t1', 'team:x', { kind: 'teammate', label: 'ticker', status: 'idle', sentTo: [{ to: 'team-lead', count: 1 }] }),
     ] }
     const detail = (id: string) => Fixtures.textOf(Views.detailView({ kit: KIT, model, id, width: 60, now: 0, act: () => {}, canStop: true, stop: () => {} }))
-    expect(detail('team:x')).toContain('멤버 (1)')
+    expect(detail('team:x')).toContain('멤버 1 ─')
     expect(detail('team:x')).toContain('ticker')
-    expect(detail('t1')).toContain('보냄 → team-lead ×1')
-    expect(detail('t1')).toContain('대기 · 팀원')
+    expect(detail('t1')).toContain('보냄  → team-lead ×1')
+    expect(detail('t1')).toContain('유형  팀원')
+  })
+
+  test('a long prompt shows four rows and a button for the rest', () => {
+    const long = Array.from({ length: 10 }, (_, index) => `line ${index}`).join('\n')
+    const model: TraceModel = { ...MODEL_D, nodes: MODEL_D.nodes.map(item => item.id === 'c' ? { ...item, prompt: long } : item) }
+    const closed = Views.detailView({ kit: KIT, model, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {} })
+    expect(Fixtures.textOf(closed)).toContain('line 3')
+    expect(Fixtures.textOf(closed)).not.toContain('line 4')
+    expect(Fixtures.textOf(closed)).toContain('▸ 전체 보기 (10행)')
+    const open = Views.detailView({ kit: KIT, model, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {}, isPromptOpen: true })
+    expect(Fixtures.textOf(open)).toContain('line 9')
+    expect(Fixtures.keysOf(open)).toContain('prompt')
+  })
+
+  test('a teammate whose type is its own name does not repeat it', () => {
+    const model: TraceModel = { rootId: 'S', files: [], nodes: [node('S', undefined), node('t1', 'S', { kind: 'teammate', label: 'x', name: 'date-15s', agentType: 'date-15s', model: 'claude-opus-5-5' })] }
+    const text = Fixtures.textOf(Views.detailView({ kit: KIT, model, id: 't1', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {} }))
+    expect(text).toContain('유형  팀원')
+    expect(text).toContain('모델  opus-5-5')
+    expect(text).not.toContain('date-15s')
+  })
+
+  test('the transcript path can be copied', () => {
+    const copied: string[] = []
+    const tree = Views.detailView({ kit: KIT, model: MODEL_D, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {}, copy: text => copied.push(text) })
+    expect(Fixtures.keysOf(tree)).toContain('copy')
   })
 
   test('newest tool call first', () => {
@@ -169,8 +217,10 @@ describe('files view', () => {
     expect(text).toContain('Bash 로 바꾼 파일은 빠져 있음')
   })
 
-  test('a windows path becomes a file url', () => {
-    expect(Views.fileUrlOf('D:\\a b.ts')).toBe('file:///D:/a%20b.ts')
+  test('file rows show the path tail without a link', () => {
+    const text = Fixtures.textOf(Views.filesView({ kit: KIT, model: MODEL_F, width: 20 }))
+    expect(text).not.toContain('file:///')
+    expect(text).toContain('D:/y.ts')
   })
 })
 

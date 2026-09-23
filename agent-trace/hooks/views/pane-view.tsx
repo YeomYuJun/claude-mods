@@ -21,7 +21,7 @@ export function summaryOf(model: TraceModel): string {
   return `에이전트 ${agents.length} · 실행 ${running} · 대기 ${idle} · 실패 ${failed}`
 }
 
-export function paneView(input: { kit: Kit; model: TraceModel; state: PaneState; width: number; rows: number; now: number; act: Act; canStop: boolean; stop: (id: string) => void }): { tree: RenderElement; maxTop: number; density: Density } {
+export function paneView(input: { kit: Kit; model: TraceModel; state: PaneState; width: number; rows: number; now: number; act: Act; canStop: boolean; stop: (id: string) => void; copy?: (text: string) => void }): { tree: RenderElement; maxTop: number; density: Density } {
   const { kit, model, state, width, now, act } = input
   const { Box, Text: T, Button } = kit
   const bodyRows = Math.max(1, input.rows - HEAD_ROWS)
@@ -29,7 +29,7 @@ export function paneView(input: { kit: Kit; model: TraceModel; state: PaneState;
   const maxTop = Math.max(0, contentRowsOf(model, layout) - bodyRows)
 
   const body = state.detail !== undefined
-    ? detailView({ kit, model, id: state.detail, width, now, act, canStop: input.canStop, stop: input.stop })
+    ? detailView({ kit, model, id: state.detail, width, rows: bodyRows, now, act, canStop: input.canStop, stop: input.stop, isPromptOpen: state.isPromptOpen, isCopied: state.isCopied, copy: input.copy })
     : state.tab === 'files'
       ? filesView({ kit, model, width })
       : flowView({ kit, model, layout, top: Math.min(state.top, maxTop), rows: bodyRows, now, act })

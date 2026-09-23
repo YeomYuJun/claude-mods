@@ -23,6 +23,7 @@ type Host = {
   fsRead: (path: string) => Promise<string>
   invalidate: () => void
   taskStop: (target: string, label: string) => Promise<StopNote>
+  openDocked: () => Promise<void>
 }
 
 // TaskStop 은 결과를 { message, task_id, ... } 로 주고, 엔진의 text 는 그 JSON 문자열이다.
@@ -140,6 +141,7 @@ export function register(on: On) {
       fsList: path => $.fs.list(path),
       fsRead: path => $.fs.read(path),
       invalidate: () => $.ui.invalidate('ui.render'),
+      openDocked: async () => { await $.ui.open({ id: Names.PANE_ID, title: Names.PANE_TITLE, holdToasts: true }) },
       taskStop: async (target, label) => {
         const result = await $.tool.call({ tool: 'TaskStop', task_id: target, consent: `The user pressed "Stop agent" for ${label} in the agent-trace panel` })
         if (result.deny !== undefined) return { text: result.deny, isError: true }
@@ -198,7 +200,7 @@ export function register(on: On) {
     const now = await $.clock.now()
     const view = Views.paneView({
       kit: { Box, Text, Button, Markdown }, model: withNowTools(model), state, width: e.props.bodyColumns, rows: e.props.scroll.bodyRows,
-      now, act, canStop: true, stop: id => { void stop(id) },
+      now, act, canStop: true, stop: id => { void stop(id) }, copy: text => { void $.ui.copy({ text, surface: e.surface }) },
     })
     maxTop = Math.max(0, view.maxTop)
     return view.tree
@@ -211,7 +213,8 @@ export function register(on: On) {
   })
 
   on('ui.render', { component: 'PromptHint' }, ($, e, next) => {
-    if (e.viewport) hint = { isFullscreen: e.viewport.isFullscreen === true, columns: e.viewport.columns }
+    // 값이 빠진 그리기가 앞서 잰 전체 화면 여부를 지우지 않게 한다. 패널을 붙이는 곳은 터미널이다.
+    if (e.surface === 'terminal' && e.viewport) hint = { isFullscreen: e.viewport.isFullscreen ?? hint?.isFullscreen ?? false, columns: e.viewport.columns }
     return next(e)
   })
 
@@ -227,8 +230,9 @@ export function register(on: On) {
         && hint?.isFullscreen === true && hint.columns >= Names.AUTO_OPEN_COLUMNS
       if (shouldOpen && host) {
         isOpen = true
+        // 이 tool.call 이 끝난 뒤에 여는 일이라 세션 시작 때 받은 $ 로 연다.
         const opening = host
-        void refresh(opening).then(() => $.ui.open({ id: Names.PANE_ID, title: Names.PANE_TITLE, holdToasts: true }))
+        void refresh(opening).then(() => opening.openDocked()).catch(() => { isOpen = false })
       }
     }
   })

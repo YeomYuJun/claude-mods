@@ -129,7 +129,8 @@ describe('register', () => {
     await $.ui.press({ plugin: 'agent-trace', key: 'stop' })
     await world.clock.settle()
     const tree = await $.ui.render(PANE)
-    expect(Fixtures.textOf(tree)).toContain('정지 · 팀원')
+    expect(Fixtures.textOf(tree)).toContain('정지 · 1m 40s')
+    expect(Fixtures.textOf(tree)).toContain('유형  팀원')
     expect(Fixtures.keysOf(tree)).not.toContain('stop')
     const afterStop = world.calls['agent.list']
     await world.clock.advance(10_000)
@@ -173,6 +174,18 @@ describe('register', () => {
     on('ui.render', { component: 'PromptHint' }, () => HINT_DRAWN)
     await $.session.start(Fixtures.START)
     await $.ui.render(HINT)
+    await $.tool.call({ tool: 'Agent', description: 'x', prompt: 'p', subagent_type: 'general-purpose' })
+    await world.clock.settle()
+    expect(world.opened).toEqual(['trace'])
+  })
+
+  test('a hint drawn without the fullscreen flag keeps the one measured before', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: { status: 'async_launched', agentId: 'a1' } }))
+    on('ui.render', { component: 'PromptHint' }, () => HINT_DRAWN)
+    await $.session.start(Fixtures.START)
+    await $.ui.render(HINT)
+    await $.ui.render({ ...HINT, viewport: { columns: 160, rows: 40 } })
     await $.tool.call({ tool: 'Agent', description: 'x', prompt: 'p', subagent_type: 'general-purpose' })
     await world.clock.settle()
     expect(world.opened).toEqual(['trace'])

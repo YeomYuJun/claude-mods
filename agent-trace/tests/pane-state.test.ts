@@ -26,6 +26,14 @@ describe('pane-state', () => {
     expect(PaneState.reduce(down, { type: 'scroll', by: -10, max: 3 }).top).toBe(0)
   })
 
+  test('the prompt opens and closes, and a new detail starts closed', () => {
+    const opened = PaneState.reduce({ ...PaneState.INITIAL, detail: 'a1' }, { type: 'prompt' })
+    expect(opened.isPromptOpen).toBe(true)
+    expect(PaneState.reduce(opened, { type: 'prompt' }).isPromptOpen).toBe(false)
+    const copied = PaneState.reduce(opened, { type: 'copied' })
+    expect(PaneState.reduce(copied, { type: 'open', id: 'a2' })).toMatchObject({ isPromptOpen: false, isCopied: false })
+  })
+
   test('a tab change leaves the detail and the scroll', () => {
     const state = { ...PaneState.INITIAL, detail: 'a1', top: 4 }
     expect(PaneState.reduce(state, { type: 'tab', tab: 'files' })).toMatchObject({ tab: 'files', detail: undefined, top: 0 })

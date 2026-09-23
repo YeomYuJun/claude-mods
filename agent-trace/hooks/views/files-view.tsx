@@ -9,11 +9,6 @@ import type { Kit } from './flow-view.jsx'
 
 export type FileRow = { path: string; reads: number; edits: number; writes: number; nodes: string[]; isConflict: boolean }
 
-export function fileUrlOf(path: string): string {
-  const slashed = path.replace(/\\/g, '/')
-  return `file:///${encodeURI(slashed.replace(/^\/+/, ''))}`
-}
-
 function keyOf(path: string): string {
   return path.replace(/\\/g, '/').toLowerCase()
 }
@@ -37,13 +32,16 @@ export function fileRowsOf(model: TraceModel): FileRow[] {
 }
 
 export function filesView(input: { kit: Kit; model: TraceModel; width: number }): RenderElement {
-  const { Box, Text: T, Markdown } = input.kit
+  const { Box, Text: T } = input.kit
   const rows = fileRowsOf(input.model)
   return (
     <Box flexDirection="column">
       {rows.map(row => (
         <Box key={`f:${row.path}`} flexDirection="column">
-          <Markdown text={`${row.isConflict ? '**충돌 가능** ' : ''}[${Text.clip(row.path, input.width - 14)}](${fileUrlOf(row.path)})`} />
+          <Box flexDirection="row">
+            {row.isConflict ? <T bold color="yellow">충돌 가능 </T> : null}
+            <T>{Text.clipStart(row.path.replace(/\\/g, '/'), Math.max(1, input.width - (row.isConflict ? 7 : 0)))}</T>
+          </Box>
           <T dimColor wrap="truncate-end">{`  읽기 ${row.reads} · 편집 ${row.edits} · 쓰기 ${row.writes} · ${row.nodes.join(', ')}`}</T>
         </Box>
       ))}
