@@ -106,8 +106,8 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   const tx = (x - y) * proj.hw - view.ox
   const ty = (x + y) * proj.hh - z - view.oy
   const base = x + y
-  const isEdgeLeft = y + 1 >= world.h
-  const isEdgeRight = x + 1 >= world.w
+  const isEdgeLeft = !World.inside(world, x, y + 1)
+  const isEdgeRight = !World.inside(world, x + 1, y)
   const frontLeft = isEdgeLeft ? z + proj.base : (hgt - World.heightAt(world, x, y + 1)) * proj.step
   const frontRight = isEdgeRight ? z + proj.base : (hgt - World.heightAt(world, x + 1, y)) * proj.step
   const w = b.w
@@ -169,13 +169,14 @@ export function drawWorld(b: Buffer, world: WorldState, view: View, proj: Proj =
   const hh = proj.hh
   const maxZ = World.MAX_HEIGHT * proj.step
   const maxFace = maxZ + proj.base
-  const dMin = Math.max(0, Math.floor((view.oy - 2 * hh - maxFace) / hh))
-  const dMax = Math.min(world.w + world.h - 2, Math.ceil((view.oy + b.h + maxZ) / hh))
+  const { x0, y0, x1, y1 } = World.bounds(world)
+  const dMin = Math.max(x0 + y0, Math.floor((view.oy - 2 * hh - maxFace) / hh))
+  const dMax = Math.min(x1 + y1, Math.ceil((view.oy + b.h + maxZ) / hh))
   let drawn = 0
   for (let d = dMin; d <= dMax; d++) {
     // sx = (2x - d) × hw 가 [ox - hw, ox + w + hw] 안에 드는 x
-    const xLo = Math.max(0, d - (world.h - 1), Math.ceil(((view.ox - hw) / hw + d) / 2))
-    const xHi = Math.min(world.w - 1, d, Math.floor(((view.ox + b.w + hw) / hw + d) / 2))
+    const xLo = Math.max(x0, d - y1, Math.ceil(((view.ox - hw) / hw + d) / 2))
+    const xHi = Math.min(x1, d - y0, Math.floor(((view.ox + b.w + hw) / hw + d) / 2))
     for (let x = xLo; x <= xHi; x++) {
       drawTile(b, world, x, d - x, view, proj, theme.shadowOf)
       drawn++

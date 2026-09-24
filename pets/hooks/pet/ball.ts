@@ -1,4 +1,4 @@
-// 놀이용 공: 걷어차이면 굴러가다 마찰로 멈춘다. 더 높은 칸이나 못 가는 칸에 부딪히면 튕기고,
+// 놀이용 공: 걷어차이면 굴러가다 마찰로 멈춘다. 더 높은 칸, 맵 밖, 장애물 소품에 부딪히면 튕기고,
 // 낮은 칸으로는 떨어져 통통 튄다(순수 모듈).
 
 import Names from '../names'
@@ -32,9 +32,9 @@ export function tileOf(b: Ball): { x: number; y: number } {
   return { x: Math.round(b.x), y: Math.round(b.y) }
 }
 
-// 공이 들어갈 수 있는 칸: 맵 안이고, 지금 높이보다 높지 않다
+// 공이 들어갈 수 있는 칸: 맵 안이고, 나무 같은 장애물 소품이 없고, 지금 높이보다 높지 않다
 function canEnter(world: WorldState, x: number, y: number, z: number): boolean {
-  if (!World.inside(world, x, y)) return false
+  if (!World.inside(world, x, y) || World.isObstacle(world, x, y)) return false
   return World.heightAt(world, x, y) * Names.STEP_PX <= z + 0.5
 }
 

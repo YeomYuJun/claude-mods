@@ -81,11 +81,7 @@ describe('palette', () => {
     const tops = new Set<number>()
     for (const proj of [Iso.NEAR, Iso.FAR]) {
       for (const seed of [3, 7, 11, 42]) {
-        const world = World.create(seed)
-        const maxZ = World.MAX_HEIGHT * proj.step
-        const b = Pixel.bufferOf((world.w + world.h) * proj.hw + 8, Math.ceil(((world.w + world.h) * proj.hh + maxZ + 8) / 2), 1)
-        Pixel.clear(b)
-        Iso.drawWorld(b, world, { ox: -world.h * proj.hw - 4, oy: -maxZ - 4 }, proj)
+        const { b } = Fixtures.drawAround(World.create(seed), proj)
         for (let i = 0; i < b.px.length; i++) if (b.surf[i] === SURF_TOP) tops.add(b.px[i]!)
       }
     }

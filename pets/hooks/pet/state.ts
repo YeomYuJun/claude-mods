@@ -1,7 +1,7 @@
 // 강아지 상태(순수 모듈). 이동(motion.ts), 행동 고르기(brain.ts), 그릴 모습(pose.ts)이 이 값을 나눠 쓴다.
 
 import Rng from '../rng'
-import type { Tile } from '../path'
+import type { Reach, Tile } from '../path'
 import World, { type World as WorldState } from '../world'
 import Names from '../names'
 import * as Ball from './ball.js'
@@ -49,6 +49,16 @@ export type ActName =
 // started: 시작 처리를 마친 단계 번호. i 와 다르면 그 단계를 막 시작한 것이다
 export type Activity = { name: ActName; steps: Step[]; i: number; t: number; started: number }
 
+// 행동 부류. 신호가 지금 행동을 끊을지는 부류로 정한다.
+// N 평소, S 잠, A 가벼운 반응, T 도구 반응, P 권한 대기, E 턴 결과, G 사람 직접
+export type ActClass = 'N' | 'S' | 'A' | 'T' | 'P' | 'E' | 'G'
+
+// 행동을 고를 때 한 번 돌리는 BFS. 그 선택에서 만드는 모든 목적지가 이것을 나눠 쓴다
+export type Survey = { from: Tile; reach: Reach }
+
+// 최근 평소 행동을 이만큼 기억한다([0] 이 직전)
+export const HISTORY_SIZE = 6
+
 export type Hop = { fx: number; fy: number; tx: number; ty: number; z0: number; z1: number; t: number; dur: number; peak: number; isPath: boolean }
 
 export type Pet = {
@@ -72,7 +82,11 @@ export type Pet = {
   act: Activity
   // 이벤트가 만든 행동. 지금 이벤트 행동이 끝나면 차례로 한다
   queue: Activity[]
-  last: ActName
+  // 끝났거나 끊긴 평소 행동, [0] 이 직전. 그 행동이 끝난 시뮬레이션 시각
+  history: ActName[]
+  lastEndAt: Partial<Record<ActName, number>>
+  // 시뮬레이션 시각(ms). 고정 스텝마다 늘어난다. 행동의 대기 시간·기록은 실제 시각이 아니라 이것으로 잰다
+  simMs: number
   pose: PoseName
   // 0~1. 뛰고 놀면 줄고 쉬고 자면 찬다. 낮으면 앉고 눕는 쪽을 고른다
   energy: number
@@ -88,7 +102,9 @@ export type Pet = {
   particles: Particle[]
   fxClock: number
   ball: BallState
+  // 행동 난수. 깜빡임·파티클은 fxRng 를 써서, 그리기 쪽을 바꿔도 행동 순서가 달라지지 않는다
   rng: Rng.Rng
+  fxRng: Rng.Rng
   // 실제 시각(ms). 신호가 마지막으로 온 때, 흐름(스트리밍)이 이어지는 동안
   lastSignalAt: number
   busyUntil: number
@@ -114,12 +130,12 @@ export function create(world: WorldState, seed: number, now: number): Pet {
   return {
     x, y, z: World.heightAt(world, x, y) * Names.STEP_PX,
     dir: 'SE', speed: 0, gait: 'walk', path: [], crouchMs: 0, landMs: 0, stride: 0, turnMs: 0,
-    act: idleActivity(), queue: [], last: 'idle', pose: 'stand',
+    act: idleActivity(), queue: [], history: [], lastEndAt: {}, simMs: 0, pose: 'stand',
     energy: 0.8, excite: 0.3, isAsleep: false,
     tail: 0, breath: 0, blinkIn: 2500, blinkMs: 0,
     particles: [], fxClock: 0,
     ball: Ball.create(bx, by, world),
-    rng, lastSignalAt: now, busyUntil: 0, toolsRunning: 0, lastDigAt: -Infinity,
+    rng, fxRng: Rng.create(seed ^ 0x51f15e), lastSignalAt: now, busyUntil: 0, toolsRunning: 0, lastDigAt: -Infinity,
   }
 }
 

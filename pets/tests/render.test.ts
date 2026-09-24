@@ -11,10 +11,7 @@ const TOP = Palette.kind(0) + Palette.Top.TOP0
 const SIDE = Palette.material(0) + Palette.Side.SIDE_L
 const BODY = Palette.bank(0) + Palette.Role.body
 
-function flatWorld(w: number, h: number): WorldState {
-  const world = World.create(1)
-  return { ...world, w, h, height: new Uint8Array(w * h), walk: new Uint8Array(w * h).fill(1), block: new Uint8Array(w * h), spawn: { x: 5, y: 5 } }
-}
+const flatWorld = Fixtures.flatWorld
 
 const STAND: DogPose = {
   body: 'stand', flip: false, back: false, bodyDx: 0, bodyDy: 0, tilt: 0, head: 'face', headDx: 0, headDy: 0,
@@ -83,10 +80,8 @@ describe('iso', () => {
   })
 
   test('a tall block in front of the dog hides it, one behind it does not', async () => {
-    const front = flatWorld(12, 12)
-    front.height[6 * 12 + 5] = 3 // (5, 6): 강아지 (5, 5) 의 바로 앞(+y)
-    const behind = flatWorld(12, 12)
-    behind.height[4 * 12 + 5] = 3 // (5, 4): 바로 뒤(-y)
+    const front = flatWorld(12, 12, [[5, 6, 3]]) // (5, 6): 강아지 (5, 5) 의 바로 앞(+y)
+    const behind = flatWorld(12, 12, [[5, 4, 3]]) // (5, 4): 바로 뒤(-y)
     const visible = (world: WorldState) => {
       const b = Pixel.bufferOf(40, 20, 1)
       Pixel.clear(b)
@@ -115,17 +110,8 @@ describe('iso', () => {
 // 두 투영에 똑같이 거는 기하 검사
 const PROJS: ReadonlyArray<readonly [string, Proj]> = [['near', Iso.NEAR], ['far', Iso.FAR]]
 
-// 맵 전체가 들어가는 버퍼와 그 원점
-function fullOf(world: WorldState, proj: Proj) {
-  const maxZ = World.MAX_HEIGHT * proj.step
-  const cols = (world.w + world.h) * proj.hw + 8
-  const rows = Math.ceil(((world.w + world.h) * proj.hh + maxZ + proj.base + 8) / 2)
-  const b = Pixel.bufferOf(cols, rows, 1)
-  Pixel.clear(b)
-  const view = { ox: -world.h * proj.hw - 4, oy: -maxZ - 4 }
-  Iso.drawWorld(b, world, view, proj)
-  return { b, view }
-}
+// 시작 칸 둘레 ±24 칸이 모두 들어가는 버퍼와 그 원점
+const fullOf = (world: WorldState, proj: Proj) => Fixtures.drawAround(world, proj)
 
 describe('iso projections', () => {
   test('diamond tops of both projections tile the plane: every pixel is covered exactly once', async () => {
@@ -169,7 +155,7 @@ describe('iso projections', () => {
           Pixel.clear(b)
           const view = { ox: full.view.ox + dx!, oy: full.view.oy + dy! }
           const drawn = Iso.drawWorld(b, world, view, proj)
-          expect(drawn < world.w * world.h).toBe(true)
+          expect(drawn < Fixtures.tilesAround(world).filter(t => World.inside(world, t.x, t.y)).length).toBe(true)
           let same = true
           for (let y = 0; y < sh && same; y++) {
             for (let x = 0; x < sw; x++) {
@@ -185,10 +171,8 @@ describe('iso projections', () => {
   })
 
   test('far: a tall block in front of the dog hides it, one behind it does not', async () => {
-    const front = flatWorld(12, 12)
-    front.height[6 * 12 + 5] = 3
-    const behind = flatWorld(12, 12)
-    behind.height[4 * 12 + 5] = 3
+    const front = flatWorld(12, 12, [[5, 6, 3]])
+    const behind = flatWorld(12, 12, [[5, 4, 3]])
     const visible = (world: WorldState) => {
       const b = Pixel.bufferOf(40, 20, 1)
       Pixel.clear(b)
