@@ -28,7 +28,7 @@ export const PETS_DOCKED = { ...PETS, presentation: { isFullscreen: true, column
 export const BAND = { ...PETS, args: 'band' } as const
 export const ZOOM = { ...PETS, args: 'zoom' } as const
 
-export function paneOf(columns: number, rows: number, surface: 'terminal' | 'desktop' = 'terminal') {
+export function paneOf(columns: number, rows: number, surface: 'terminal' | 'desktop' | 'vscode' = 'terminal') {
   return {
     component: 'Pane', surface, requestId: 'pets', viewport: { columns: 160, rows: 50 },
     props: { title: '강아지', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {} },

@@ -4,7 +4,7 @@ import Band from './band'
 import Names from './names'
 import Pet from './pet'
 import Rng from './rng'
-import Scene from './scene'
+import Scene, { type Zoom } from './scene'
 import View from './view'
 
 type Host = {
@@ -26,7 +26,7 @@ export function register(on: On) {
   let host: Host | undefined
   let isOpen = false
   let isBandOn = false
-  let scale: 1 | 2 = 1
+  let zoom: Zoom = 1
   let scene = Scene.create(0x5eed, 0)
   let band = Band.create(0x5eed, 0)
   let timer: Timer | undefined
@@ -54,7 +54,7 @@ export function register(on: On) {
     const p = pane
     if (isOpen && p) {
       Scene.step(scene, dt, now)
-      if (now - p.lastAt >= Scene.renderEveryMs(scene) - 1) await paint(h, p, Names.RASTER_KEY, Scene.compose(scene, p.cols, p.rows, scale), now)
+      if (now - p.lastAt >= Scene.renderEveryMs(scene) - 1) await paint(h, p, Names.RASTER_KEY, Scene.compose(scene, p.cols, p.rows, zoom), now)
     }
     const s = strip
     if (isBandOn && s) {
@@ -89,15 +89,15 @@ export function register(on: On) {
     band = Band.create(seed, now)
     try {
       isBandOn = (await $.store.get(Names.STORE_BAND)) === true
-      scale = (await $.store.get(Names.STORE_SCALE)) === 2 ? 2 : 1
+      zoom = Scene.zoomOf(await $.store.get(Names.STORE_SCALE))
     } catch { /* 저장한 값이 없으면 기본값 */ }
     await $.command.register({ name: Names.COMMAND_NAME, description: Names.COMMAND_DESCRIPTION })
     return next(e)
   })
 
   on('command.run', { command: Names.COMMAND_NAME }, async ($, e) => {
-    const arg = e.args.trim().toLowerCase()
-    if (arg === 'band') {
+    const [arg = '', sub = '', ...rest] = e.args.trim().toLowerCase().split(/\s+/)
+    if (arg === 'band' && sub === '') {
       isBandOn = !isBandOn
       if (!isBandOn) strip = undefined
       await host?.store(Names.STORE_BAND, isBandOn)
@@ -105,12 +105,15 @@ export function register(on: On) {
       syncTimer()
       return { text: isBandOn ? Names.BAND_SHOWN_TEXT : Names.BAND_HIDDEN_TEXT }
     }
-    if (arg === 'zoom') {
-      scale = scale === 1 ? 2 : 1
-      await host?.store(Names.STORE_SCALE, scale)
+    // zoom 은 원거리 → 1 배 → 2 배 를 돌고, zoom in · out 은 한 단계씩 가다 끝에서 멈춘다
+    if (arg === 'zoom' && (sub === '' || sub === 'in' || sub === 'out') && rest.length === 0) {
+      const next = sub === '' ? Scene.zoomNext(zoom) : Scene.zoomBy(zoom, sub === 'in' ? 1 : -1)
+      if (next === zoom) return { text: Names.ZOOM_LIMIT_TEXT(zoom) }
+      zoom = next
+      await host?.store(Names.STORE_SCALE, zoom)
       if (pane) pane.lastCells = ''
       $.ui.invalidate('ui.render')
-      return { text: Names.ZOOM_TEXT(scale) }
+      return { text: Names.ZOOM_TEXT(zoom) }
     }
     if (arg !== '') return { text: Names.USAGE_TEXT }
     if (isOpen) {
@@ -138,21 +141,22 @@ export function register(on: On) {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== Names.PANE_ID) return next(e)
-    const kit = $.ui.resolve(e)
     const cols = e.props.bodyColumns
     const rows = e.props.scroll.bodyRows
-    if (!('Raster' in kit)) {
+    // Raster 는 터미널 표면에만 있다. 요소 표에 이름이 있는지로는 가를 수 없어 표면으로 가른다
+    if (e.surface !== 'terminal') {
       pane = undefined
       syncTimer()
-      return View.noticeView(kit, View.NOT_TERMINAL_LINES)
+      return View.noticeView($.ui.resolve(e), View.NOT_TERMINAL_LINES)
     }
+    const kit = $.ui.resolve(e)
     if (cols < Names.MIN_COLS || rows < Names.MIN_ROWS) {
       pane = undefined
       syncTimer()
       return View.noticeView(kit, View.tooSmallLines(cols, rows))
     }
     const now = await $.clock.now()
-    const cells = Scene.compose(scene, cols, rows, scale)
+    const cells = Scene.compose(scene, cols, rows, zoom)
     pane = { requestId: e.requestId, cols, rows, lastCells: cells, lastAt: now }
     if (isOpen) syncTimer()
     return View.rasterView(kit.Raster, Names.RASTER_KEY, cols, rows, cells)
@@ -166,8 +170,8 @@ export function register(on: On) {
       syncTimer()
       return next(e)
     }
+    if (e.surface !== 'terminal') return next(e)
     const kit = $.ui.resolve(e)
-    if (!('Raster' in kit)) return next(e)
     const cols = Math.max(1, Math.min(512, e.props.bodyColumns))
     const now = await $.clock.now()
     const cells = Band.compose(band, cols)

@@ -15,7 +15,8 @@ const GAITS: Record<Gait, GaitShape> = {
   trot: { sigma: 0.5, amp: 1, phase: [0, 0.5, 0.5, 0] },
   run: { sigma: 0.38, amp: 2, phase: [0, 0.08, 0.5, 0.58] },
 }
-const HIPS: ReadonlyArray<readonly [number, boolean]> = [[-3, false], [-2, true], [2, false], [3, true]]
+// 엉덩이 x. 다리는 이 칸과 앞 칸, 두 픽셀 폭이라 몸통(x -5..3) 안에 들어온다
+const HIPS: ReadonlyArray<readonly [number, boolean]> = [[-4, false], [-3, true], [1, false], [2, true]]
 const LEG_LEN = 2
 
 function foot(ph: number, sigma: number, amp: number): { dx: number; lift: boolean } {
@@ -135,6 +136,8 @@ export function poseOf(p: Pet): DogPose {
       d.headDx = -side
       d.eyeClosed = true
       d.tailAngle = wag(now, 0.6, 0.8, 9)
+      // 몸이 좌우로 흔들려도 꼬리 끝이 16 픽셀 폭을 넘지 않게 짧게 접는다
+      d.tailLen = 2
       return d
     }
     case 'scratch':

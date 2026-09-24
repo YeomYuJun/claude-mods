@@ -2,6 +2,9 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import Fixtures from './fixtures'
 
+const ZOOM_IN = { ...Fixtures.PETS, args: 'zoom in' } as const
+const ZOOM_OUT = { ...Fixtures.PETS, args: ' Zoom  OUT ' } as const
+
 function propsOf(tree: unknown): Record<string, unknown> {
   return Reflect.get(tree as object, 'props') as Record<string, unknown>
 }
@@ -41,6 +44,17 @@ describe('register', () => {
     await $.command.run(Fixtures.PETS_DOCKED)
     const tree = await $.ui.render(Fixtures.paneOf(30, 30))
     expect(Fixtures.textOf(tree)).toContain('32열 × 24행 이상')
+  })
+
+  test('outside the terminal the pane says so instead of drawing a Raster', async ($, on) => {
+    Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.PETS_DOCKED)
+    for (const surface of ['vscode', 'desktop'] as const) {
+      const tree = await $.ui.render(Fixtures.paneOf(40, 30, surface))
+      expect(Reflect.get(tree, 'type') === 'Raster').toBe(false)
+      expect(Fixtures.textOf(tree)).toContain('터미널 패널에서만')
+    }
   })
 
   test('a new prompt sets the dog running: the frames keep changing for a while', async ($, on) => {
@@ -88,5 +102,49 @@ describe('register', () => {
     let spaces = 0
     for (let i = 0; i < words.length; i += 3) if (words[i] === 0x20) spaces++
     expect(spaces).toBe(40 * 30)
+  })
+
+  test('/pets zoom cycles 1 → 2 → far → 1, and zoom in · out move one step and stop at the ends', async ($, on) => {
+    Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    const texts: string[] = []
+    for (const e of [Fixtures.ZOOM, Fixtures.ZOOM, Fixtures.ZOOM, ZOOM_OUT, ZOOM_OUT, ZOOM_IN, ZOOM_IN, ZOOM_IN]) texts.push(String((await $.command.run(e)).text))
+    expect(texts).toEqual([
+      '도트 크기를 2 배로 바꿨다',
+      '원거리로 넓게 보게 바꿨다',
+      '도트 크기를 1 배로 바꿨다',
+      '원거리로 넓게 보게 바꿨다',
+      '이미 가장 넓게(원거리) 보고 있다',
+      '도트 크기를 1 배로 바꿨다',
+      '도트 크기를 2 배로 바꿨다',
+      '이미 가장 크게(2 배) 보고 있다',
+    ])
+    const bad = await $.command.run({ ...Fixtures.PETS, args: 'zoom far away' })
+    expect(bad.text).toContain('/pets zoom in')
+  })
+
+  test('the zoom is kept in the store: far comes back as far, and a 2 saved before far existed still reads as 2', async ($, on) => {
+    Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.ZOOM)
+    await $.session.start(Fixtures.START)
+    expect((await $.command.run(ZOOM_IN)).text).toBe('이미 가장 크게(2 배) 보고 있다')
+    await $.command.run(Fixtures.ZOOM)
+    await $.session.start(Fixtures.START)
+    expect((await $.command.run(ZOOM_OUT)).text).toBe('이미 가장 넓게(원거리) 보고 있다')
+  })
+
+  test('far zoom keeps the Raster size and paints a different frame from 1 ×', async ($, on) => {
+    Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.PETS_DOCKED)
+    const near = Fixtures.wordsOf(String(propsOf(await $.ui.render(Fixtures.paneOf(40, 30))).cells))
+    await $.command.run(ZOOM_OUT)
+    const tree = await $.ui.render(Fixtures.paneOf(40, 30))
+    expect(propsOf(tree).columns).toBe(40)
+    expect(propsOf(tree).rows).toBe(30)
+    const far = Fixtures.wordsOf(String(propsOf(tree).cells))
+    expect(far.length).toBe(near.length)
+    expect(far.join(',') === near.join(',')).toBe(false)
   })
 })

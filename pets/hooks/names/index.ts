@@ -1,17 +1,19 @@
 export const PLUGIN_NAME = 'pets'
 export const PANE_ID = 'pets'
 export const COMMAND_NAME = 'pets'
-export const COMMAND_DESCRIPTION = '강아지 패널을 열고 닫는다. band: 프롬프트 위 띠, zoom: 도트 크기 1·2 배'
+export const COMMAND_DESCRIPTION = '강아지 패널을 열고 닫는다. band: 프롬프트 위 띠, zoom [in|out]: 원거리·1 배·2 배'
 export const PANE_TITLE = '강아지'
 export const PANEL_SHOWN_TEXT = '강아지 패널을 열었다'
 export const PANEL_HIDDEN_TEXT = '강아지 패널을 닫았다'
 export const BAND_SHOWN_TEXT = '프롬프트 위 띠에 강아지를 띄웠다'
 export const BAND_HIDDEN_TEXT = '프롬프트 위 띠에서 강아지를 내렸다'
-export const ZOOM_TEXT = (scale: number) => `도트 크기를 ${scale} 배로 바꿨다`
-export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets band (띠 켜고 끄기), /pets zoom (도트 1·2 배)'
+export const ZOOM_TEXT = (zoom: 'far' | 1 | 2) => zoom === 'far' ? '원거리로 넓게 보게 바꿨다' : `도트 크기를 ${zoom} 배로 바꿨다`
+export const ZOOM_LIMIT_TEXT = (zoom: 'far' | 1 | 2) => zoom === 'far' ? '이미 가장 넓게(원거리) 보고 있다' : '이미 가장 크게(2 배) 보고 있다'
+export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets band (띠 켜고 끄기), /pets zoom (원거리 → 1 배 → 2 배 순환), /pets zoom in · out (한 단계씩)'
 export const RASTER_KEY = 'map'
 export const BAND_KEY = 'band'
 export const STORE_BAND = 'band'
+// 줌 단계('far' | 1 | 2). 이 키에 숫자 1·2 만 저장된 세션도 그대로 읽는다(scene 의 zoomOf)
 export const STORE_SCALE = 'scale'
 
 // 패널: 요청 폭과 최소 크기(셀). 사람이 끈 폭이 이긴다
@@ -29,6 +31,12 @@ export const TILE_W = 12
 export const TILE_H = 6
 export const STEP_PX = 4
 export const BASE_PX = 3
+// 원거리 줌: 그릴 때만 쓰는 8 × 4 픽셀 다이아몬드, 한 단 3 픽셀, 밑판 2 픽셀. 모눈선은 3 칸마다만 긋는다
+export const FAR_TILE_W = 8
+export const FAR_TILE_H = 4
+export const FAR_STEP_PX = 3
+export const FAR_BASE_PX = 2
+export const FAR_LINE_EVERY = 3
 
 // 맵 크기(타일): 시드로 MIN~MAX 사이에서 정한다
 export const MAP_MIN = 20

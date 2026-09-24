@@ -3,7 +3,7 @@
 // 배율 2: 논리 픽셀 하나 = 2 열 × 1 행. 버퍼는 ceil(cols/2) × rows.
 
 import { DEFAULT_COLOR, SPACE, type Grid } from './grid.js'
-import { RGB, VOID } from './palette.js'
+import { VOID } from './palette.js'
 
 const HALF_TOP = 0x2580 // ▀
 const HALF_BOTTOM = 0x2584 // ▄
@@ -52,13 +52,13 @@ export function plotDepth(b: Buffer, x: number, y: number, color: number, depth:
   b.px[i] = color
 }
 
-// 버퍼를 셀 격자로 접는다. 격자는 호출하는 쪽이 크기를 맞춰 넘긴다
-export function fold(b: Buffer, g: Grid): void {
+// 버퍼를 셀 격자로 접는다. 격자는 호출하는 쪽이 크기를 맞춰 넘기고, rgb 는 번호마다의 색이다(패널은 Theme, 띠는 자기 표)
+export function fold(b: Buffer, g: Grid, rgb: readonly number[]): void {
   const words = g.words
   if (b.scale === 2) {
     for (let cy = 0; cy < g.rows; cy++) {
       for (let cx = 0; cx < g.cols; cx++) {
-        const c = RGB[b.px[cy * b.w + (cx >> 1)]!]!
+        const c = rgb[b.px[cy * b.w + (cx >> 1)]!]!
         const i = (cy * g.cols + cx) * 3
         words[i] = SPACE
         words[i + 1] = DEFAULT_COLOR
@@ -77,16 +77,16 @@ export function fold(b: Buffer, g: Grid): void {
       if (t === u) {
         words[i] = SPACE
         words[i + 1] = DEFAULT_COLOR
-        words[i + 2] = RGB[t]!
+        words[i + 2] = rgb[t]!
       } else if (t === VOID) {
         // 전경의 기본색은 터미널 글자색이라 비워 둘 수 없다. 아래 반쪽 글자로 뒤집는다
         words[i] = HALF_BOTTOM
-        words[i + 1] = RGB[u]!
+        words[i + 1] = rgb[u]!
         words[i + 2] = DEFAULT_COLOR
       } else {
         words[i] = HALF_TOP
-        words[i + 1] = RGB[t]!
-        words[i + 2] = RGB[u]!
+        words[i + 1] = rgb[t]!
+        words[i + 2] = rgb[u]!
       }
     }
   }

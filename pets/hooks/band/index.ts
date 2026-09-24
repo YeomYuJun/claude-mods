@@ -34,22 +34,36 @@ const WALK_PX_S = 9
 const RUN_PX_S = 24
 const SNIFF_GAP_MS = 1500
 
-const TRANSPARENT = 255
+// 띠는 패널 세트·품종 색 표를 빌리지 않고 자기 번호 표와 색 표로 접는다
+export const FLOOR = 1
+export const BODY = 2
+export const UNDER = 3
+export const LINE = 4
+export const EYE = 5
+export const EAR = 6
+export const EAR_DARK = 7
+export const COLLAR = 8
+export const Z = 9
 // 띠의 바탕은 터미널 기본색(대개 어둡다)이라 패널처럼 진한 윤곽을 쓰면 묻힌다.
-// 몸은 흰색·밝은 회색으로 채우고 다리·꼬리는 중간 회색으로 그려 어두운 바탕과 밝은 바탕 모두에서 읽히게 한다
-const CODE: Record<string, number> = { w: Palette.WHITE, s: Palette.SHADE, l: Palette.LINE_HEAVY, k: Palette.BLACK }
+// 몸은 흰색·밝은 회색으로 채우고 다리는 중간 회색으로 그려 어두운 바탕과 밝은 바탕 모두에서 읽히게 한다.
+// 패널 강아지와 같은 개로 보이도록 늘어진 귀·꼬리는 갈색(두 칸 꼬리의 끝은 짙은 갈색), 목줄은 빨간색이다
+export const RGB: readonly number[] = [
+  Palette.DEFAULT_COLOR, 0x8f8b8d, 0xfdfdfd, 0xd9d6d7, 0xa29ea0, 0x141212, 0xc47f4a, 0x8e5433, 0xe2433b, 0xa29ea0,
+]
+const CODE: Record<string, number> = { w: BODY, s: UNDER, l: LINE, k: EYE, e: EAR, d: EAR_DARK, c: COLLAR }
 
 type Frame = { w: number; rows: readonly string[] }
 
-// 오른쪽 보기, 아래 줄이 바닥 바로 위(y = 4). 가로 가운데가 x
-const WALK_A: Frame = { w: 9, rows: ['......ww.', 'l....wwkw', '.lwwwwwwk', '.sssssss.', '.l.l..l.l'] }
-const WALK_B: Frame = { w: 9, rows: ['......ww.', 'l....wwkw', '.lwwwwwwk', '.sssssss.', '..l.l.l.l'] }
-const RUN_A: Frame = { w: 9, rows: ['......ww.', '.....wwkw', 'lwwwwwwwk', '.sssssss.', 'l.......l'] }
-const RUN_B: Frame = { w: 9, rows: ['......ww.', 'l....wwkw', '.lwwwwwwk', '.sssssss.', '...ll.l..'] }
-const SNIFF: Frame = { w: 9, rows: ['.........', 'l........', '.lwwwwww.', '.ssssswwk', '.l.l..l..'] }
-const SIT_A: Frame = { w: 8, rows: ['.....ww.', '....wwkw', '...wwwwk', 'l.swwws.', '.ssssss.'] }
-const SIT_B: Frame = { w: 8, rows: ['.....ww.', '....wwkw', '...wwwwk', '..swwws.', 'lssssss.'] }
-const SLEEP: Frame = { w: 9, rows: ['.........', '.........', '...wwwww.', '.lwwwwwwk', '.sssssss.'] }
+// 오른쪽 보기, 아래 줄이 바닥 바로 위(y = 4). 가로 가운데가 x.
+// 글자: . 투명  w 흰 털  s 그늘  l 다리  k 눈·코  e 귀·꼬리(갈색)  d 꼬리 끝(짙은 갈색)  c 목줄
+const WALK_A: Frame = { w: 9, rows: ['......ww.', 'd....wekw', '.ewwwcewk', '.sssssss.', '.l.l..l.l'] }
+const WALK_B: Frame = { w: 9, rows: ['......ww.', 'd....wekw', '.ewwwcewk', '.sssssss.', '..l.l.l.l'] }
+const RUN_A: Frame = { w: 9, rows: ['......ww.', '.....wekw', 'ewwwwcewk', '.sssssss.', 'l.......l'] }
+const RUN_B: Frame = { w: 9, rows: ['......ww.', 'd....wekw', '.ewwwcewk', '.sssssss.', '...ll.l..'] }
+const SNIFF: Frame = { w: 9, rows: ['.........', 'd........', '.ewwwcew.', '.sssssewk', '.l.l..l..'] }
+const SIT_A: Frame = { w: 8, rows: ['.....ww.', '....wekw', '...wcewk', 'e.swwws.', '.ssssss.'] }
+const SIT_B: Frame = { w: 8, rows: ['.....ww.', '....wekw', '...wcewk', '..swwws.', 'essssss.'] }
+const SLEEP: Frame = { w: 9, rows: ['.........', '.........', '...wwwew.', '.ewwwcewk', '.sssssss.'] }
 
 export function create(seed: number, now: number): Band {
   const rng = Rng.create(seed ^ 0xba5d)
@@ -156,14 +170,14 @@ export function compose(band: Band, cols: number): string {
   const [b, g] = buffersFor(band, cols)
   Pixel.clear(b)
   // 바닥 점선
-  for (let x = 0; x < cols; x += 2) Pixel.plot(b, x, FLOOR_Y, Palette.FLOOR)
+  for (let x = 0; x < cols; x += 2) Pixel.plot(b, x, FLOOR_Y, FLOOR)
   const f = frameOf(band)
   const left = Math.round(band.x) - Math.floor(f.w / 2)
   const top = FLOOR_Y - f.rows.length
   f.rows.forEach((row, y) => {
     for (let i = 0; i < row.length; i++) {
-      const c = CODE[row[i]!] ?? TRANSPARENT
-      if (c === TRANSPARENT) continue
+      const c = CODE[row[i]!]
+      if (c === undefined) continue
       const x = band.dir === 1 ? left + i : left + (f.w - 1 - i)
       Pixel.plot(b, x, top + y, c)
     }
@@ -172,9 +186,9 @@ export function compose(band: Band, cols: number): string {
     // z 가 머리 위로 한 칸씩 올라갔다 사라진다
     const phase = Math.floor((band.clock - band.zAt) / 700) % 3
     const hx = Math.round(band.x) + band.dir * 3
-    if (phase < 2) Pixel.plot(b, hx + band.dir * phase, 1 - phase, Palette.LINE_HEAVY)
+    if (phase < 2) Pixel.plot(b, hx + band.dir * phase, 1 - phase, Z)
   }
-  Pixel.fold(b, g)
+  Pixel.fold(b, g, RGB)
   return Pixel.encode(g)
 }
 

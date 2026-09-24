@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import Band from '../hooks/band'
+import Band, { type Band as BandState } from '../hooks/band'
 import Names from '../hooks/names'
 import Pet, { type Pet as PetState } from '../hooks/pet'
 import Scene from '../hooks/scene'
@@ -153,5 +153,43 @@ describe('band', () => {
     let now = T0 + 100
     for (let i = 0; i < 70; i++) { now += 1000; Band.step(band, 1000, now, false) }
     expect(band.mode).toBe('sleep')
+  })
+
+  test('the band dog has the panel dog\'s brown ears and red collar in every mode, within 64 color pairs', async () => {
+    const ear = Band.RGB[Band.EAR]!
+    const collar = Band.RGB[Band.COLLAR]!
+    // [모드, 걸은 거리, 시계]: 걷기·뛰기·앉기는 두 위상을 모두 본다
+    const cases: Array<[BandState['mode'], number, number]> = [
+      ['walk', 0, 0], ['walk', 3, 0], ['run', 0, 0], ['run', 4, 0], ['sniff', 0, 0],
+      ['sit', 0, 0], ['sit', 0, 250], ['sleep', 0, 0], ['idle', 0, 0], ['idle', 0, 600],
+    ]
+    let most = 0
+    for (const dir of [1, -1] as const) {
+      for (const [mode, walked, clock] of cases) {
+        const band = Band.create(1, T0)
+        band.x = 30
+        band.dir = dir
+        band.mode = mode
+        band.walked = walked
+        band.clock = clock
+        const words = Fixtures.wordsOf(Band.compose(band, 60))
+        const colors = new Set<number>()
+        const pairs = new Set<string>()
+        for (let i = 0; i + 2 < words.length; i += 3) {
+          colors.add(words[i + 1]!)
+          colors.add(words[i + 2]!)
+          pairs.add(`${words[i + 1]},${words[i + 2]}`)
+        }
+        expect(colors.has(ear)).toBe(true)
+        expect(colors.has(collar)).toBe(true)
+        // 꼬리도 같은 갈색이라, 귀는 몸 가운데보다 보는 쪽에 있는 갈색 픽셀로 따로 센다
+        const b = band.buf!
+        let ears = 0
+        for (let i = 0; i < b.px.length; i++) if (b.px[i] === Band.EAR && ((i % b.w) - Math.round(band.x)) * band.dir > 0) ears++
+        expect(ears > 0).toBe(true)
+        most = Math.max(most, pairs.size)
+      }
+    }
+    expect(most <= 64).toBe(true)
   })
 })
