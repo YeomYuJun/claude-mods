@@ -36,10 +36,12 @@ export type PoseName =
   | 'sit' | 'frontSit' | 'lie' | 'lieRest' | 'sleep' | 'wake'
 
 // go: to 가 있으면 그 칸, pick 이 있으면 단계를 시작할 때 지금 자리에서 걸음 수 [lo, hi] 인 칸을 고른다(front 면 화면 앞쪽 칸).
-// must 면 길이 없을 때 행동 전체를 그만둔다(목적지가 핵심인 행동). 아니면 그 단계만 건너뛴다
+// must 면 길이 없을 때 행동 전체를 그만둔다(목적지가 핵심인 행동). 아니면 그 단계만 건너뛴다.
+// pose 의 grow: 도구 호출이 이어지면 이 자세를 늘린다(새로 시작하지 않는다). hop: 제자리에서 솟았다 내려온다
 export type Step =
   | { k: 'go'; to?: Tile; pick?: { lo: number; hi: number; front?: boolean }; gait: Gait; must?: boolean }
-  | { k: 'pose'; pose: PoseName; ms: number; face?: Dir; emote?: Emote['kind'] }
+  | { k: 'pose'; pose: PoseName; ms: number; face?: Dir; emote?: Emote['kind']; grow?: boolean }
+  | { k: 'hop'; peakPx: number; ms: number }
   | { k: 'spin'; quarters: number; msPer: number }
   | { k: 'pounce' }
   | { k: 'kick' }
@@ -52,6 +54,7 @@ export type ActName =
   | 'idle' | 'walk' | 'run' | 'sniff' | 'play' | 'sit' | 'lie'
   | 'explore' | 'patrol' | 'perch' | 'rollOver' | 'watch' | 'nap'
   | 'greet' | 'dig' | 'settle' | 'bedtime'
+  | 'attend' | 'ponder' | 'seeOff' | 'shakeOff' | 'nose' | 'alert' | 'bark' | 'wait' | 'beg' | 'sulk' | 'startle' | 'puzzled'
 
 // 놀이 변형
 export type PlayName = 'ball' | 'fetch' | 'spin' | 'pounce' | 'stalk' | 'chaseTail' | 'zoomies'
@@ -72,6 +75,17 @@ export type Survey = { from: Tile; reach: Reach; memo: Map<string, unknown> }
 
 // 최근 평소 행동을 이만큼 기억한다([0] 이 직전)
 export const HISTORY_SIZE = 6
+
+// 신호 종류마다 따로 두는 토큰 통. 통이 비면 그 신호는 행동을 바꾸지 않는다
+export type BucketName = 'toolMain' | 'toolSub' | 'attend' | 'error'
+export type Bucket = { tokens: number; at: number }
+// 통마다 담을 수 있는 토큰 수와 토큰 하나가 다시 차는 시간(ms). 메인 도구 호출, 서브에이전트 도구 호출, 타이핑, 도구 실패
+export const BUCKETS: Readonly<Record<BucketName, { cap: number; everyMs: number }>> = {
+  toolMain: { cap: 2, everyMs: 1500 },
+  toolSub: { cap: 1, everyMs: 4000 },
+  attend: { cap: 1, everyMs: 4000 },
+  error: { cap: 1, everyMs: 3000 },
+}
 
 export type Hop = { fx: number; fy: number; tx: number; ty: number; z0: number; z1: number; t: number; dur: number; peak: number; isPath: boolean }
 
@@ -112,8 +126,20 @@ export type Pet = {
   // 칸 키마다 마지막으로 서 있던 시뮬레이션 시각. 새 칸을 고르는 데 쓴다. 가장 오래된 것부터 버린다
   visits: Map<number, number>
   tileKey: number
-  // 사람이 직접 보낸 신호(프롬프트)의 실제 시각
+  // 사람이 직접 보낸 신호(프롬프트, 타이핑)의 실제 시각
   lastHumanAt: number
+  // 실제 시각(ms). 메인 턴이 시작한 때(턴이 없으면 undefined), 메인 도구가 0 개에서 1 개가 된 때,
+  // 권한 대기가 시작한 때, 도구 실패 반응이 마지막으로 나온 때, 메인 루프 생각 조각이 글·도구 조각 없이 이어지기 시작한 때
+  turnStartedAt?: number
+  toolSince?: number
+  permissionSince?: number
+  lastFailAt: number
+  thinkSince?: number
+  buckets: Record<BucketName, Bucket>
+  // 행동·자세를 그대로 두고 얼굴만 잠깐 돌린다. 돌리기 전 방향으로 되돌린다
+  glance?: { dir: Dir; back: Dir; ms: number }
+  // 자는 중 신호가 오면 다음 z 하나를 건너뛴다
+  skipZ: boolean
   // 공을 입에 물고 있다
   carrying: boolean
   pose: PoseName
@@ -137,8 +163,9 @@ export type Pet = {
   // 실제 시각(ms). 신호가 마지막으로 온 때, 흐름(스트리밍)이 이어지는 동안
   lastSignalAt: number
   busyUntil: number
+  // 돌고 있는 도구 수(서브에이전트 것 포함, 잠들지 않게 한다)와 그중 메인 루프 것
   toolsRunning: number
-  lastDigAt: number
+  mainTools: number
 }
 
 function idleActivity(): Activity {
@@ -166,7 +193,12 @@ export function create(world: WorldState, seed: number, now: number, species: Sp
     tail: 0, breath: 0, blinkIn: 2500, blinkMs: 0,
     particles: [], fxClock: 0,
     ball: Ball.create(bx, by, world),
-    rng, fxRng: Rng.create(seed ^ 0x51f15e), lastSignalAt: now, busyUntil: 0, toolsRunning: 0, lastDigAt: -Infinity,
+    rng, fxRng: Rng.create(seed ^ 0x51f15e), lastSignalAt: now, busyUntil: 0, toolsRunning: 0, mainTools: 0,
+    lastFailAt: -Infinity, skipZ: false,
+    buckets: {
+      toolMain: { tokens: BUCKETS.toolMain.cap, at: now }, toolSub: { tokens: BUCKETS.toolSub.cap, at: now },
+      attend: { tokens: BUCKETS.attend.cap, at: now }, error: { tokens: BUCKETS.error.cap, at: now },
+    },
   }
 }
 

@@ -36,6 +36,14 @@ export function register(on: On) {
   let isWorking = false
   let lastAt: number | undefined
 
+  // 패널이 열려 있으면 강아지가 반응하고, 닫혀 있으면 신호 시각만 적는다(시뮬레이션도 멈춰 있다)
+  function signal(now: number, react: () => void): void {
+    safely(() => {
+      if (isOpen) react()
+      else scene.pet.lastSignalAt = now
+    })
+  }
+
   async function paint(h: Host, m: Mount, key: string, cells: string, now: number): Promise<void> {
     m.lastAt = now
     if (cells === m.lastCells) return
@@ -184,11 +192,8 @@ export function register(on: On) {
     try {
       const now = await $.clock.now()
       isWorking = true
-      safely(() => {
-        if (isOpen) Scene.onTurnStart(scene, now)
-        else scene.pet.lastSignalAt = now
-        Band.onTurnStart(band, now)
-      })
+      signal(now, () => Scene.onTurnStart(scene, now, e.text))
+      safely(() => Band.onTurnStart(band, now))
     } catch { /* 강아지 쪽 오류는 무시한다 */ }
     return next(e)
   })
@@ -201,53 +206,106 @@ export function register(on: On) {
     } catch { /* 시계를 못 읽으면 이번에는 건너뛴다 */ }
   }
 
+  // 메인 루프 생각 조각은 첫 조각과 16 개마다 시각을 읽어 넘긴다. 글·도구 조각이 오면 생각이 끝난 것이다
+  async function markThinking(now: () => Promise<number>): Promise<void> {
+    try {
+      const t = await now()
+      signal(t, () => Pet.onThinkPiece(scene.pet, scene.world, t))
+    } catch { /* 시계를 못 읽으면 이번에는 건너뛴다 */ }
+  }
+
   on('turn.step', async function* ($, e, next) {
     const clock = () => $.clock.now()
+    const isMain = e.agentId === undefined
     await markBusy(clock)
     const stream = next(e)
     let pieces = 0
+    let thoughts = 0
     for await (const chunk of stream) {
       if ((chunk.kind === 'text' || chunk.kind === 'thinking' || chunk.kind === 'input') && ++pieces % 16 === 0) await markBusy(clock)
+      if (isMain && chunk.kind === 'thinking' && thoughts++ % 16 === 0) await markThinking(clock)
+      if (isMain && (chunk.kind === 'text' || chunk.kind === 'tool') && thoughts > 0) {
+        thoughts = 0
+        safely(() => Pet.onThinkEnd(scene.pet))
+      }
       yield chunk
     }
     return await stream.result
   })
 
+  // 메인 턴 끝에는 끝난 이유대로 반응하고, 서브에이전트의 턴 끝에는 잠깐 사람 쪽만 본다
   on('turn.complete', async ($, e, next) => {
-    // 서브에이전트의 턴 끝에는 앉지 않는다
-    if (e.agentId === undefined) {
+    try {
+      const now = await $.clock.now()
+      if (e.agentId === undefined) {
+        isWorking = false
+        signal(now, () => Scene.onTurnEnd(scene, now, e.reason, e.durationMs))
+        safely(() => Band.onTurnEnd(band, now))
+      } else {
+        signal(now, () => Pet.onSubagentEnd(scene.pet, scene.world, now))
+      }
+    } catch { /* 강아지 쪽 오류는 무시한다 */ }
+    return next(e)
+  })
+
+  // 타이핑·턴 도중 입력은 키 입력 경로라 시계를 기다리지 않고 마지막 프레임 시각을 쓴다. 패널이 닫혀 있으면 아무것도 하지 않는다
+  on('prompt.edit', async ($, e, next) => {
+    const t = lastAt
+    if (isOpen && t !== undefined) safely(() => Pet.onTyping(scene.pet, scene.world, t))
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    const t = lastAt
+    if (isOpen && t !== undefined && e.turnId !== undefined && e.origin.kind === 'composer') safely(() => Pet.onPromptQueued(scene.pet, scene.world, t))
+    return next(e)
+  })
+
+  on('agent.spawn', async ($, e, next) => {
+    try {
+      const now = await $.clock.now()
+      signal(now, () => Pet.onSubagentStart(scene.pet, scene.world, now))
+    } catch { /* 강아지 쪽 오류는 무시한다 */ }
+    return next(e)
+  })
+
+  // 사람이 부른 압축과 자동 압축만. 미리 계산해 두는 압축과 서브에이전트의 압축은 넘긴다
+  on('session.compact', async ($, e, next) => {
+    if (e.agentId === undefined && (e.trigger === 'manual' || e.trigger === 'auto')) {
       try {
         const now = await $.clock.now()
-        isWorking = false
-        safely(() => {
-          if (isOpen) Scene.onTurnEnd(scene, now)
-          else scene.pet.lastSignalAt = now
-          Band.onTurnEnd(band, now)
-        })
+        signal(now, () => Pet.onCompact(scene.pet, scene.world, now))
       } catch { /* 강아지 쪽 오류는 무시한다 */ }
     }
     return next(e)
   })
 
+  // 메인 루프 도구는 이름에 따라 반응하고 오류·거부에도 반응한다. 서브에이전트 도구는 얼굴만 돌린다
   on('tool.call', async ($, e, next) => {
+    const isMain = e.agentId === undefined
     let started = false
     try {
       const now = await $.clock.now()
-      safely(() => {
-        Pet.onToolStart(scene.pet, now)
-        if (isOpen) Scene.onTool(scene, now)
-        Band.onToolStart(band, now)
-        Band.onTool(band, now)
-      })
+      safely(() => Pet.onToolStart(scene.pet, now, isMain))
+      signal(now, () => isMain ? Scene.onTool(scene, now, e.tool) : Pet.onSubTool(scene.pet, now))
+      safely(() => { Band.onToolStart(band, now); Band.onTool(band, now) })
       started = true
     } catch { /* 강아지 쪽 오류는 무시한다 */ }
     try {
-      return await next(e)
+      const result = await next(e)
+      const fail = result.deny !== undefined ? 'deny' : result.isError === true ? 'error' : undefined
+      if (isMain && fail) {
+        try {
+          const now = await $.clock.now()
+          signal(now, () => Pet.onToolFail(scene.pet, scene.world, now, fail))
+        } catch { /* 강아지 쪽 오류는 무시한다 */ }
+      }
+      return result
     } finally {
       // 도구가 도는 동안은 프레임마다 마지막 신호 시각이 갱신되므로 끝날 때는 세기만 줄인다
       if (started) {
         safely(() => {
-          Pet.onToolEnd(scene.pet, scene.pet.lastSignalAt)
+          Pet.onToolEnd(scene.pet, scene.pet.lastSignalAt, isMain)
           Band.onToolEnd(band, band.lastSignalAt)
         })
       }

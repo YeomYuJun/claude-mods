@@ -3,7 +3,7 @@
 
 import Iso, { type Camera, type Proj } from '../iso'
 import Names from '../names'
-import Pet, { type Pet as PetState } from '../pet'
+import Pet, { type Pet as PetState, type TurnEnd } from '../pet'
 import Pixel, { Palette, type Buffer, type Grid } from '../pixel'
 import Sprite from '../sprite'
 import World, { type World as WorldState } from '../world'
@@ -158,16 +158,16 @@ export function compose(scene: Scene, cols: number, rows: number, zoom: Zoom): s
   return Pixel.encode(g)
 }
 
-export function onTurnStart(scene: Scene, now: number): void {
-  Pet.onTurnStart(scene.pet, scene.world, now)
+export function onTurnStart(scene: Scene, now: number, text?: string): void {
+  Pet.onTurnStart(scene.pet, scene.world, now, text)
 }
 
-export function onTool(scene: Scene, now: number): void {
-  Pet.onTool(scene.pet, scene.world, now)
+export function onTool(scene: Scene, now: number, tool?: string): void {
+  Pet.onTool(scene.pet, scene.world, now, tool)
 }
 
-export function onTurnEnd(scene: Scene, now: number): void {
-  Pet.onTurnEnd(scene.pet, scene.world, now)
+export function onTurnEnd(scene: Scene, now: number, reason?: TurnEnd, durationMs?: number): void {
+  Pet.onTurnEnd(scene.pet, scene.world, now, reason, durationMs)
 }
 
 export * as default from '.'

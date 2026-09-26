@@ -61,6 +61,12 @@ export function pounce(p: Pet, world: WorldState, dx: number, dy: number): void 
   }
 }
 
+// 제자리에서 솟았다 내려온다(놀랐을 때)
+export function hopInPlace(p: Pet, peakPx: number, ms: number): void {
+  p.speed = 0
+  p.hop = { fx: p.x, fy: p.y, tx: p.x, ty: p.y, z0: p.z, z1: p.z, t: 0, dur: ms, peak: peakPx, isPath: false }
+}
+
 export function step(p: Pet, world: WorldState, dtMs: number): void {
   const dt = dtMs / 1000
   p.turnMs = Math.max(0, p.turnMs - dtMs)

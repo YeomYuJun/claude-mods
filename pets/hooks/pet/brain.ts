@@ -8,7 +8,8 @@
 //   반복 벌점 = max(0.1, 1 - 최근 6 개 중 같은 행동 자리마다 0.65, 0.30, 0.15, 0.08, 0.04, 0.02 를 더한 값)
 //   욕구 항 = min(3, 0.35 + Σ 욕구 계수 × 욕구). 욕구는 호기심·놀고 싶음·사람 곁·목마름과 쉬고 싶음(1 - 기운)
 // 기운이 아주 낮으면 뽑기 전에 낮잠을 고르고, 모든 점수가 0 이면 가만히 선다.
-// 세션 신호는 지금 행동을 끊고 들어온다(인사 > 턴 끝 자리잡기 > 파기).
+// 세션 신호가 지금 행동에 하는 일은 신호 종류 × 지금 행동 부류 표(RULES)가 정한다: 끊고 시작, 대기열 앞·뒤, 늘리기, 되돌려 놓고 끊기, 버리기, 얼굴만 돌리기.
+// 도구 호출·서브에이전트 도구 호출·타이핑·도구 실패는 토큰 통을 거쳐, 몰려 와도 행동이 몇 번만 바뀐다.
 // 한 번 고를 때 BFS 는 한 번만 돌리고(Survey), 그 선택의 판정과 목적지가 모두 그 결과를 쓴다.
 
 import Iso from '../iso'
@@ -20,8 +21,8 @@ import * as Ball from './ball.js'
 import * as Fx from './fx.js'
 import * as Motion from './motion.js'
 import {
-  DIR_VEC, DIRS, HISTORY_SIZE, isMoving, isRight, keyOf, tileOf,
-  type ActClass, type ActName, type Activity, type Dir, type Needs, type Pet, type PlayName, type PoseName, type Step, type Survey,
+  BUCKETS, DIR_VEC, DIRS, HISTORY_SIZE, isMoving, isRight, keyOf, tileOf,
+  type ActClass, type ActName, type Activity, type BucketName, type Dir, type Needs, type Pet, type PlayName, type PoseName, type Step, type Survey,
 } from './state.js'
 
 type Drive = keyof Needs | 'rest'
@@ -55,10 +56,29 @@ const FRESH_MS = 120_000
 const VISITS_MAX = 512
 // 사람 신호가 이만큼 없으면 사람 곁에 가고 싶어진다
 const SOCIAL_QUIET_MS = 30_000
-// 도구 호출이 몰려 와도 파기를 다시 시작하지 않고 늘리기만 하는 간격, 늘리는 양, 한 번에 파는 최대 시간
-const DIG_GAP_MS = 1500
-const DIG_EXTEND_MS = 900
-const DIG_MAX_MS = 4000
+// 도구 반응 중에 또 도구 호출이 오면 그 자세를 이만큼 늘린다(최대 GROW_MAX_MS)
+const GROW_MS = 900
+const GROW_MAX_MS = 4000
+// 메인 도구가 이만큼 넘게 돌면 앞쪽에 와서 앉아 기다린다
+const WAIT_AFTER_MS = 4000
+// 권한 대기가 이만큼 넘으면 조르기를 그만두고 엎드려 기다린다
+const BEG_FOR_MS = 90_000
+// 이 시간 안에 두 번째 도구 실패가 오면 풀이 죽는다
+const FAIL_STREAK_MS = 20_000
+// 메인 루프가 글·도구 없이 이만큼 넘게 생각하면 앉아서 생각한다. 생각 자세는 최대 PONDER_MAX_MS
+const PONDER_AFTER_MS = 3000
+const PONDER_MAX_MS = 20_000
+// 이보다 짧은 프롬프트에는 속보로 조금만 간다
+const SHORT_PROMPT = 40
+// 이보다 긴 턴이 답으로 끝나면 자리잡기 전에 기지개를 켜고 턴다
+const LONG_TURN_MS = 120_000
+// 턴이 이만큼 넘게 이어지면 앉기·눕기 비중을 LONG_TURN_REST 배로 줄인다
+const BUSY_TURN_MS = 90_000
+const LONG_TURN_REST = 0.8
+// 대기열 최대 길이. 넘으면 뒤쪽의 가벼운 반응부터 버린다
+const QUEUE_MAX = 3
+// 얼굴만 돌리는 반응의 길이
+const GLANCE_MS = 400
 const CHASE_REPATH_MS = 300
 const CHASE_GIVEUP_MS = 8000
 const EXCITE_TAU_S = 40
@@ -124,7 +144,7 @@ function go(p: Pet, world: WorldState, s: Survey, lo: number, hi: number, gait: 
   return to ? [{ k: 'go', to, gait }] : []
 }
 
-function pose(pose: PoseName, ms: number, extra: { face?: Dir; emote?: 'heart' | '!' | '?' | 'note' } = {}): Step {
+function pose(pose: PoseName, ms: number, extra: { face?: Dir; emote?: 'heart' | '!' | '?' | 'note'; grow?: boolean } = {}): Step {
   return { k: 'pose', pose, ms, ...extra }
 }
 
@@ -378,15 +398,11 @@ export const ACTS: Record<ActName, ActDef> = {
   },
   greet: {
     name: 'greet', cls: 'G', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
-    build: (p, world, s) => {
-      const steps: Step[] = p.isAsleep ? [pose('wake', 700), pose('stretch', 900), pose('shake', 500)] : []
-      steps.push(pose('look', 350, { emote: '!' }), ...go(p, world, s, 5, 12, 'run'), pose('pant', ms(p, 900, 1400)))
-      return act('greet', steps)
-    },
+    build: (p, world, s) => greetOf(p, world, s),
   },
   dig: {
     name: 'dig', cls: 'T', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
-    build: p => act('dig', [pose('dig', ms(p, 1300, 1900), { emote: '?' }), pose('sniff', 600)]),
+    build: p => act('dig', [pose('dig', ms(p, 1300, 1900), { emote: '?', grow: true }), pose('sniff', 600)]),
   },
   settle: {
     name: 'settle', cls: 'E', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
@@ -401,6 +417,75 @@ export const ACTS: Record<ActName, ActDef> = {
       return act('bedtime', steps)
     },
   },
+  // 아래는 신호만 부르는 반응이다. 갸웃·귀 세움·조르기·귀 처짐·말줄임표 그림이 생기기 전까지는 있는 자세로 대신한다
+  // 사람 쪽을 본다(타이핑, 턴 도중 입력)
+  attend: {
+    name: 'attend', cls: 'A', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: p => act('attend', [pose('look', ms(p, 800, 1400))]),
+  },
+  // 왼쪽 위를 보고 앉아 생각한다. 생각이 끝나면 멈춘다
+  ponder: {
+    name: 'ponder', cls: 'A', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: () => act('ponder', [pose('sit', PONDER_MAX_MS, { face: 'NW' })]),
+  },
+  // 서브에이전트를 오른쪽 위로 배웅한다
+  seeOff: {
+    name: 'seeOff', cls: 'A', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: () => act('seeOff', [pose('stand', 400, { face: 'NE' }), pose('look', 400, { emote: 'note' })]),
+  },
+  // 대화를 압축하면 몸을 털고 기지개
+  shakeOff: {
+    name: 'shakeOff', cls: 'A', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: () => act('shakeOff', [pose('shake', 700), pose('stretch', 900)]),
+  },
+  // 읽기·찾기 도구: 한 걸음 안에서 코를 박는다
+  nose: {
+    name: 'nose', cls: 'T', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: (p, world, s) => act('nose', [...go(p, world, s, 0, 1, 'sniff'), pose('sniff', ms(p, 800, 1400), { grow: true })]),
+  },
+  // 바깥 도구(웹, MCP): 오른쪽 위를 보고 섰다가 한두 칸 가 본다
+  alert: {
+    name: 'alert', cls: 'T', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: (p, world, s) => act('alert', [pose('stand', ms(p, 1200, 2000), { face: 'NE', grow: true }), ...go(p, world, s, 1, 2, 'trot')]),
+  },
+  // 도구 오류: 사람 쪽을 보고 입을 벌려 짖는다
+  bark: {
+    name: 'bark', cls: 'T', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: () => act('bark', [pose('look', 200), pose('pant', 600, { emote: '!' }), pose('stand', 400)]),
+  },
+  // 오래 도는 도구: 앞쪽 칸에 와서 사람 쪽을 보고 앉아 기다린다. 도구가 끝나면 멈춘다
+  wait: {
+    name: 'wait', cls: 'T', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: () => act('wait', [{ k: 'go', pick: { lo: 1, hi: 3, front: true }, gait: 'walk' }, pose('frontSit', 6000)]),
+  },
+  // 권한 대기: 앞쪽 칸에서 사람 쪽을 보고 조른다
+  beg: {
+    name: 'beg', cls: 'P', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: p => act('beg', [{ k: 'go', pick: { lo: 1, hi: 3, front: true }, gait: 'walk' }, pose('frontSit', ms(p, 2500, 3500), { emote: '?' }), pose('frontSit', 3000)]),
+  },
+  // 턴 오류·연속 실패: 엎드려 있다가 기지개
+  sulk: {
+    name: 'sulk', cls: 'E', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: p => act('sulk', [pose('lie', ms(p, 3000, 5000)), pose('stretch', 900)]),
+  },
+  // 턴 중단: 제자리에서 솟았다가 사람 쪽을 본다
+  startle: {
+    name: 'startle', cls: 'E', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: () => act('startle', [{ k: 'hop', peakPx: 6, ms: 300 }, pose('look', 600, { emote: '!' })]),
+  },
+  // 거절: 사람 쪽을 보고 앉아 있다가 물음표
+  puzzled: {
+    name: 'puzzled', cls: 'E', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: () => act('puzzled', [pose('frontSit', 2000), pose('look', 700, { emote: '?' })]),
+  },
+}
+
+// 인사: 자고 있었으면 깨어나 털고, 사람 쪽을 보며 ! 를 띄운 뒤 달려간다. 짧은 프롬프트(글자 수를 알 때)에는 속보로 조금만 간다
+function greetOf(p: Pet, world: WorldState, s: Survey, text?: string): Activity {
+  const steps: Step[] = p.isAsleep ? [pose('wake', 700), pose('stretch', 900), pose('shake', 500)] : []
+  const isShort = text !== undefined && text.length < SHORT_PROMPT
+  steps.push(pose('look', 350, { emote: '!' }), ...(isShort ? go(p, world, s, 3, 6, 'trot') : go(p, world, s, 5, 12, 'run')), pose('pant', ms(p, 900, 1400)))
+  return act('greet', steps)
 }
 
 export const NORMAL_ACTS: readonly ActName[] = (Object.keys(ACTS) as ActName[]).filter(name => ACTS[name].cls === 'N')
@@ -418,12 +503,14 @@ function driveOf(p: Pet, def: ActDef): number {
 
 export function weightsOf(p: Pet, world: WorldState, s: Survey, now: number): Array<readonly [ActName, number]> {
   const busy = now < p.busyUntil
+  const longTurn = p.turnStartedAt !== undefined && now - p.turnStartedAt > BUSY_TURN_MS
   return NORMAL_ACTS.map(name => {
     const def = ACTS[name]
     const end = p.lastEndAt[name]
     const isCooling = (end !== undefined && p.simMs - end < def.cooldownMs) || p.simMs < (p.blockedUntil[name] ?? -Infinity)
     if (isCooling) return [name, 0] as const
-    const w = def.base * (p.species.behavior.actMul[name] ?? 1) * penaltyOf(name, p.history, REPEAT_PENALTY) * def.adjust(p, busy) * driveOf(p, def)
+    const rest = longTurn && (name === 'sit' || name === 'lie') ? LONG_TURN_REST : 1
+    const w = def.base * (p.species.behavior.actMul[name] ?? 1) * penaltyOf(name, p.history, REPEAT_PENALTY) * def.adjust(p, busy) * rest * driveOf(p, def)
     return [name, w > 0 && def.feasible(p, world, s) ? w : 0] as const
   })
 }
@@ -431,6 +518,8 @@ export function weightsOf(p: Pet, world: WorldState, s: Survey, now: number): Ar
 function choose(p: Pet, world: WorldState, now: number): Activity {
   const queued = p.queue.shift()
   if (queued) return queued
+  if (p.permissionSince !== undefined) return begOf(p, world, now)
+  if (isWaiting(p, now)) return build('wait', p, world)
   const s = surveyOf(p, world)
   if (p.energy <= NAP_NOW && !(p.simMs < (p.blockedUntil.nap ?? -Infinity)) && ACTS.nap.feasible(p, world, s)) return ACTS.nap.build(p, world, s)
   const weights = weightsOf(p, world, s, now)
@@ -482,43 +571,216 @@ function abort(p: Pet, a: Activity): void {
   a.i = a.steps.length
 }
 
-export function onTurnStart(p: Pet, world: WorldState, now: number): void {
+// 행동을 멈춘다: 걷던 길과 문 공을 버리고 남은 단계를 건너뛴다. 다음 스텝에 대기열이나 새 선택으로 넘어간다
+function end(p: Pet): void {
+  release(p)
+  p.path = []
+  p.crouchMs = 0
+  if (p.hop) p.hop.isPath = false
+  p.act.i = p.act.steps.length
+}
+
+// 신호 반응을 정하는 부류. 잠자리로 가는 중(아직 잠들지 않음)은 평소로 친다.
+// 그래야 그 사이에 온 도구 호출에도 반응하고, 도구가 도는 동안 잠들지 않는다
+function classOf(p: Pet): ActClass {
+  if (p.isAsleep) return 'S'
+  const cls = ACTS[p.act.name].cls
+  return cls === 'S' ? 'N' : cls
+}
+
+// 신호가 지금 행동에 하는 일.
+// cut: 끊고 반응 시작, queueFront·queueBack: 대기열 앞·뒤에 넣기(같은 이름이 있으면 안 넣음), extend: 도구 반응 자세 늘리기,
+// resume: 지금 행동의 남은 단계를 대기열 앞에 되돌려 놓고 끊기, drop: 시각만 적고 버리기, ear: 얼굴만 잠깐 돌리기(자면 z 하나 건너뛰기)
+export type Rule = 'cut' | 'queueFront' | 'queueBack' | 'extend' | 'resume' | 'drop' | 'ear'
+export type Signal = 'tool' | 'subTool' | 'fail' | 'permission' | 'turnEnd' | 'think' | 'typing' | 'spawn' | 'compact'
+
+function row(N: Rule, S: Rule, A: Rule, T: Rule, P: Rule, E: Rule, G: Rule): Readonly<Record<ActClass, Rule>> {
+  return { N, S, A, T, P, E, G }
+}
+
+// 신호 × 지금 행동 부류(평소, 잠, 가벼운 반응, 도구 반응, 권한 대기, 턴 결과, 사람 직접).
+// 프롬프트는 이 표 밖이다: 어느 부류든 끊고 대기열을 비운다(자고 있었으면 깨어나는 단계부터)
+export const RULES: Readonly<Record<Signal, Readonly<Record<ActClass, Rule>>>> = {
+  tool: row('cut', 'drop', 'cut', 'extend', 'drop', 'resume', 'queueFront'),
+  subTool: row('ear', 'drop', 'drop', 'drop', 'drop', 'drop', 'drop'),
+  fail: row('cut', 'drop', 'cut', 'cut', 'drop', 'drop', 'queueBack'),
+  permission: row('cut', 'drop', 'cut', 'cut', 'extend', 'queueFront', 'queueBack'),
+  turnEnd: row('cut', 'drop', 'cut', 'queueBack', 'queueBack', 'cut', 'queueBack'),
+  think: row('cut', 'drop', 'drop', 'drop', 'drop', 'drop', 'drop'),
+  typing: row('cut', 'ear', 'drop', 'drop', 'drop', 'drop', 'drop'),
+  spawn: row('cut', 'drop', 'drop', 'drop', 'drop', 'drop', 'drop'),
+  compact: row('cut', 'drop', 'queueBack', 'queueBack', 'queueBack', 'queueBack', 'queueBack'),
+}
+
+// 토큰 통에서 하나를 꺼낸다. 비었으면 false
+function take(p: Pet, name: BucketName, now: number): boolean {
+  const b = p.buckets[name]
+  const { cap, everyMs } = BUCKETS[name]
+  b.tokens = Math.min(cap, b.tokens + Math.max(0, now - b.at) / everyMs)
+  b.at = now
+  if (b.tokens < 1) return false
+  b.tokens -= 1
+  return true
+}
+
+function enqueue(p: Pet, a: Activity, front: boolean): void {
+  if (front) p.queue.unshift(a)
+  else p.queue.push(a)
+  while (p.queue.length > QUEUE_MAX) {
+    let i = p.queue.length - 1
+    while (i >= 0 && ACTS[p.queue[i]!.name].cls !== 'A') i--
+    p.queue.splice(i >= 0 ? i : p.queue.length - 1, 1)
+  }
+}
+
+function grow(p: Pet): void {
+  const step = p.act.steps[p.act.i]
+  if (step?.k === 'pose' && step.grow && step.ms < GROW_MAX_MS) step.ms = Math.min(GROW_MAX_MS, step.ms + GROW_MS)
+}
+
+function ear(p: Pet, dir?: Dir): void {
+  if (p.isAsleep) { p.skipZ = true; return }
+  if (!dir || isMoving(p) || p.glance) return
+  p.glance = { dir, back: p.dir, ms: GLANCE_MS }
+  Motion.faceTo(p, ...DIR_VEC[dir])
+}
+
+// 돌린 얼굴을 되돌린다. 그 사이 행동이 방향을 바꿨거나 걷기 시작했으면 그대로 둔다
+function settleGlance(p: Pet, dtMs: number): void {
+  const g = p.glance
+  if (!g) return
+  g.ms -= dtMs
+  if (g.ms > 0 && !isMoving(p)) return
+  if (!isMoving(p) && p.dir === g.dir) Motion.faceTo(p, ...DIR_VEC[g.back])
+  p.glance = undefined
+}
+
+// 표대로 반응한다. make 는 반응 행동이 실제로 필요할 때만 부른다(난수를 쓰므로)
+function react(p: Pet, world: WorldState, signal: Signal, name: ActName, make: () => Activity = () => build(name, p, world), dir?: Dir): Rule {
+  const rule = RULES[signal][classOf(p)]
+  switch (rule) {
+    case 'cut':
+      interrupt(p, make())
+      break
+    case 'resume': {
+      const cur = p.act
+      enqueue(p, act(cur.name, cur.steps.slice(cur.i).map(step => step.k === 'pose' ? { ...step, emote: undefined } : step)), true)
+      interrupt(p, make())
+      break
+    }
+    case 'queueFront':
+    case 'queueBack':
+      if (!p.queue.some(a => a.name === name)) enqueue(p, make(), rule === 'queueFront')
+      break
+    case 'extend':
+      grow(p)
+      break
+    case 'ear':
+      ear(p, dir)
+      break
+    case 'drop':
+      break
+  }
+  return rule
+}
+
+function isWaiting(p: Pet, now: number): boolean {
+  return p.toolSince !== undefined && now - p.toolSince >= WAIT_AFTER_MS
+}
+
+// 권한 대기가 오래 가면 조르기를 그만두고 앞쪽 칸에서 엎드려 기다린다(잠은 아니다)
+function begOf(p: Pet, world: WorldState, now: number): Activity {
+  if (now - (p.permissionSince ?? now) < BEG_FOR_MS) return build('beg', p, world)
+  return act('beg', [{ k: 'go', pick: { lo: 1, hi: 3, front: true }, gait: 'walk' }, pose('lieRest', 10_000)])
+}
+
+// 도구 이름에 따른 반응. 이름을 모르거나 없으면 판다
+const READ_TOOLS: ReadonlySet<string> = new Set(['Read', 'Grep', 'Glob', 'ToolSearch', 'TaskOutput', 'ListAgents'])
+const OUTSIDE_TOOLS: ReadonlySet<string> = new Set(['WebFetch', 'WebSearch'])
+
+export function toolReaction(tool?: string): 'nose' | 'alert' | 'dig' {
+  if (tool === undefined) return 'dig'
+  if (READ_TOOLS.has(tool)) return 'nose'
+  if (OUTSIDE_TOOLS.has(tool) || tool.startsWith('mcp__')) return 'alert'
+  return 'dig'
+}
+
+// 프롬프트: 무엇을 하든 끊고 대기열을 비운다. 글이 빈 턴(이어 하기)은 달려가지 않고 사람 쪽만 본다
+export function onTurnStart(p: Pet, world: WorldState, now: number, text?: string): void {
   p.lastSignalAt = now
   p.lastHumanAt = now
+  p.turnStartedAt = now
+  // 앞 턴이 생각 도중 끝났으면 그 생각 시작 시각이 남아 있다
+  p.thinkSince = undefined
   p.excite = Math.min(1, p.excite + p.species.behavior.exciteGain.turnStart)
   p.needs.social = Math.max(0, p.needs.social - 0.3)
   p.queue = []
-  interrupt(p, build('greet', p, world))
+  const s = surveyOf(p, world)
+  if (text === '') {
+    const wake: Step[] = p.isAsleep ? [pose('wake', 700), pose('stretch', 900)] : []
+    interrupt(p, act('attend', [...wake, ...ACTS.attend.build(p, world, s).steps]))
+  } else {
+    interrupt(p, greetOf(p, world, s, text))
+  }
   p.isAsleep = false
 }
 
-export function onTool(p: Pet, world: WorldState, now: number): void {
+// 메인 루프의 도구 호출. 도구 반응 중이면 자세를 늘리고, 아니면 통에 토큰이 있을 때만 반응한다
+export function onTool(p: Pet, world: WorldState, now: number, tool?: string): void {
   p.lastSignalAt = now
-  if (p.isAsleep) return
-  const cur = p.act
-  if (cur.name === 'dig') {
-    const step = cur.steps[cur.i]
-    if (step?.k === 'pose' && step.pose === 'dig' && step.ms < DIG_MAX_MS) step.ms = Math.min(DIG_MAX_MS, step.ms + DIG_EXTEND_MS)
-    return
-  }
-  if (now - p.lastDigAt < DIG_GAP_MS) return
-  p.lastDigAt = now
-  if (cur.name === 'greet') {
-    if (!p.queue.some(a => a.name === 'dig')) p.queue.unshift(build('dig', p, world))
-    return
-  }
-  // 자리잡기 중이었으면 파고 나서 다시 자리잡는다
-  if (cur.name === 'settle') p.queue.unshift(act('settle', cur.steps.slice(cur.i).map(step => step.k === 'pose' ? { ...step, emote: undefined } : step)))
-  interrupt(p, build('dig', p, world))
+  const rule = RULES.tool[classOf(p)]
+  if (rule === 'drop') return
+  if (rule === 'extend') { grow(p); return }
+  if (!take(p, 'toolMain', now)) return
+  react(p, world, 'tool', toolReaction(tool))
 }
 
-export function onTurnEnd(p: Pet, world: WorldState, now: number): void {
+// 서브에이전트의 도구 호출: 평소 행동 중일 때만 오른쪽 위로 얼굴을 잠깐 돌린다
+export function onSubTool(p: Pet, now: number): void {
   p.lastSignalAt = now
-  if (p.isAsleep) return
+  if (RULES.subTool[classOf(p)] === 'drop' || !take(p, 'toolSub', now)) return
+  ear(p, 'NE')
+}
+
+// 메인 도구의 오류(error)나 거부(deny). 20 초 안의 두 번째 실패면 풀이 죽는다
+export function onToolFail(p: Pet, world: WorldState, now: number, kind: 'error' | 'deny'): void {
+  p.lastSignalAt = now
+  if (RULES.fail[classOf(p)] === 'drop' || !take(p, 'error', now)) return
+  const name = now - p.lastFailAt < FAIL_STREAK_MS ? 'sulk' : kind === 'error' ? 'bark' : 'puzzled'
+  p.lastFailAt = now
+  react(p, world, 'fail', name)
+}
+
+// 권한 대기 시작·끝. 대기가 이어지는 동안은 행동을 고를 때마다 조르기를 고른다
+export function onPermission(p: Pet, world: WorldState, now: number): void {
+  p.lastSignalAt = now
+  p.permissionSince ??= now
+  react(p, world, 'permission', 'beg', () => begOf(p, world, now))
+}
+
+export function onPermissionEnd(p: Pet): void {
+  p.permissionSince = undefined
+  p.queue = p.queue.filter(a => a.name !== 'beg')
+  if (p.act.name === 'beg') end(p)
+}
+
+export type TurnEnd = 'answer' | 'aborted' | 'error' | 'refusal'
+
+// 메인 턴 끝: 답했으면 자리잡기(2 분 넘은 턴이면 기지개·털기 먼저), 중단이면 놀람, 오류면 풀 죽기, 거절이면 갸웃
+export function onTurnEnd(p: Pet, world: WorldState, now: number, reason: TurnEnd = 'answer', durationMs = 0): void {
+  p.lastSignalAt = now
+  p.turnStartedAt = undefined
+  p.thinkSince = undefined
+  if (classOf(p) === 'S') return
   p.excite = Math.min(1, p.excite + p.species.behavior.exciteGain.turnEnd)
-  p.queue = p.queue.filter(a => a.name !== 'settle')
-  if (p.act.name === 'greet' || p.act.name === 'dig') { p.queue.push(build('settle', p, world)); return }
-  interrupt(p, build('settle', p, world))
+  p.queue = p.queue.filter(a => ACTS[a.name].cls !== 'E')
+  const name = reason === 'aborted' ? 'startle' : reason === 'error' ? 'sulk' : reason === 'refusal' ? 'puzzled' : 'settle'
+  const make = () => {
+    const a = build(name, p, world)
+    if (name === 'settle' && durationMs >= LONG_TURN_MS) a.steps.unshift(pose('stretch', 900), pose('shake', 500))
+    return a
+  }
+  react(p, world, 'turnEnd', name, make)
 }
 
 export function onStream(p: Pet, now: number): void {
@@ -526,14 +788,73 @@ export function onStream(p: Pet, now: number): void {
   p.busyUntil = now + 2500
 }
 
-export function onToolStart(p: Pet, now: number): void {
+// 메인 루프 생각 조각(첫 조각과 그 뒤 몇 조각마다 시각을 받는다). 글·도구 조각 없이 3 초가 넘으면 앉아서 생각한다
+export function onThinkPiece(p: Pet, world: WorldState, now: number): void {
   p.lastSignalAt = now
-  p.toolsRunning++
+  if (p.thinkSince === undefined) { p.thinkSince = now; return }
+  if (now - p.thinkSince < PONDER_AFTER_MS || p.act.name === 'ponder') return
+  react(p, world, 'think', 'ponder')
 }
 
-export function onToolEnd(p: Pet, now: number): void {
+// 메인 루프의 글이나 도구 조각: 생각이 끝났다
+export function onThinkEnd(p: Pet): void {
+  p.thinkSince = undefined
+  if (p.act.name === 'ponder') end(p)
+}
+
+// 사람이 프롬프트 칸에 타이핑한다. 4 초에 한 번까지 사람 쪽을 본다. 자고 있으면 z 하나만 건너뛴다
+export function onTyping(p: Pet, world: WorldState, now: number): void {
+  p.lastSignalAt = now
+  p.lastHumanAt = now
+  if (RULES.typing[classOf(p)] === 'drop' || !take(p, 'attend', now)) return
+  p.needs.social = Math.max(0, p.needs.social - 0.03)
+  react(p, world, 'typing', 'attend')
+}
+
+// 턴이 도는 중에 사람이 프롬프트를 더 보냈다: 사람 쪽을 보고 !
+export function onPromptQueued(p: Pet, world: WorldState, now: number): void {
+  p.lastSignalAt = now
+  p.lastHumanAt = now
+  react(p, world, 'typing', 'attend', () => act('attend', [pose('look', ms(p, 800, 1400), { emote: '!' })]))
+}
+
+// 서브에이전트가 떠날 때 배웅하고, 끝나면 잠깐 사람 쪽을 본다(평소 행동 중일 때만)
+export function onSubagentStart(p: Pet, world: WorldState, now: number): void {
+  p.lastSignalAt = now
+  react(p, world, 'spawn', 'seeOff')
+}
+
+export function onSubagentEnd(p: Pet, world: WorldState, now: number): void {
+  p.lastSignalAt = now
+  react(p, world, 'spawn', 'seeOff', () => act('seeOff', [pose('look', 500, { emote: 'note' })]))
+}
+
+// 대화 압축: 오래된 방문 기록 절반을 잊고 몸을 턴다
+export function onCompact(p: Pet, world: WorldState, now: number): void {
+  p.lastSignalAt = now
+  let drop = p.visits.size >> 1
+  for (const key of p.visits.keys()) {
+    if (drop-- <= 0) break
+    p.visits.delete(key)
+  }
+  react(p, world, 'compact', 'shakeOff')
+}
+
+// 도구 시작·끝. 서브에이전트 것도 세어 잠들지 않게 하고, 메인 것만 기다리기 시계를 잰다
+export function onToolStart(p: Pet, now: number, isMain = true): void {
+  p.lastSignalAt = now
+  p.toolsRunning++
+  if (isMain && p.mainTools++ === 0) p.toolSince = now
+}
+
+export function onToolEnd(p: Pet, now: number, isMain = true): void {
   p.lastSignalAt = now
   p.toolsRunning = Math.max(0, p.toolsRunning - 1)
+  if (!isMain) return
+  p.mainTools = Math.max(0, p.mainTools - 1)
+  if (p.mainTools > 0) return
+  p.toolSince = undefined
+  if (p.act.name === 'wait') end(p)
 }
 
 function nearestTo(p: Pet, dx: number, dy: number): Dir {
@@ -590,6 +911,10 @@ function runStep(p: Pet, world: WorldState, step: Step, a: Activity, dtMs: numbe
     }
     case 'pounce': {
       if (isStart) Motion.pounce(p, world, ...DIR_VEC[p.dir])
+      return !p.hop
+    }
+    case 'hop': {
+      if (isStart && !p.hop) Motion.hopInPlace(p, step.peakPx, step.ms)
       return !p.hop
     }
     case 'kick': {
@@ -712,6 +1037,7 @@ export function update(p: Pet, world: WorldState, dtMs: number, now: number): vo
     p.queue = []
     interrupt(p, build('bedtime', p, world))
   }
+  if (isWaiting(p, now) && classOf(p) === 'N') interrupt(p, build('wait', p, world))
   // 한 스텝에 여러 단계가 끝날 수 있다(길이 0 인 go 등). 무한 반복을 막으려고 몇 번까지만
   for (let guard = 0; guard < 6; guard++) {
     const a = p.act
@@ -728,6 +1054,7 @@ export function update(p: Pet, world: WorldState, dtMs: number, now: number): vo
     if (!runStep(p, world, step, a, isStart ? 0 : dtMs, isStart)) break
     a.i++
   }
+  settleGlance(p, dtMs)
   Motion.step(p, world, dtMs)
   if (isMoving(p)) p.pose = 'stand'
   if (p.carrying) holdBall(p)
@@ -746,6 +1073,8 @@ function emit(p: Pet, dtMs: number): void {
   p.fxClock += dtMs
   if (p.fxClock < every) return
   p.fxClock = 0
+  // 자는 중 신호가 왔으면 z 하나를 건너뛴다
+  if (p.pose === 'sleep' && p.skipZ) { p.skipZ = false; return }
   const s = Iso.screenOf(p.x, p.y, p.z)
   const back = isRight(p.dir) ? -1 : 1
   if (p.pose === 'dig') {
