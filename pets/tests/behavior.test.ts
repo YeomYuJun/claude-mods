@@ -4,7 +4,8 @@ import Names from '../hooks/names'
 import Pet, { type ActName, type Pet as PetState } from '../hooks/pet'
 import Rng from '../hooks/rng'
 import World from '../hooks/world'
-import { metricsOf, simulateQuiet } from './fixtures/sim'
+import Fixtures from './fixtures'
+import { metricsOf, simulateQuiet, simulateSession, type SimLog } from './fixtures/sim'
 
 const T0 = 1_000_000
 
@@ -71,12 +72,72 @@ describe('behavior', () => {
     expect(p.history.includes('greet')).toBe(false)
   })
 
-  test('ten quiet minutes keep the everyday mix varied (the current weighted pick, seeds 1 to 4)', async () => {
-    for (let seed = 1; seed <= 4; seed++) {
-      const m = metricsOf(simulateQuiet(seed, 10))
-      expect(m.maxShare <= 0.5).toBe(true)
-      expect(m.repeat <= 0.2).toBe(true)
-      expect(m.entropy >= 0.7).toBe(true)
+  test('a fetch that a prompt interrupts drops the ball, which then rests on a walkable tile', async () => {
+    const world = World.create(7)
+    const p = Pet.create(world, 7, T0)
+    p.act = { name: 'play', steps: [{ k: 'chase' }, { k: 'pose', pose: 'bow', ms: 300 }, { k: 'grab' }, { k: 'go', pick: { lo: 3, hi: 6, front: true }, gait: 'trot' }, { k: 'pose', pose: 'bow', ms: 300 }, { k: 'drop' }, { k: 'pose', pose: 'frontSit', ms: 2000 }], i: 0, t: 0, started: -1 }
+    let now = T0
+    for (let t = 0; t < 12_000 && !p.carrying; t += Names.SIM_STEP_MS) { now += Names.SIM_STEP_MS; p.lastSignalAt = now; Pet.update(p, world, Names.SIM_STEP_MS, now) }
+    expect(p.carrying).toBe(true)
+    for (let t = 0; t < 300; t += Names.SIM_STEP_MS) { now += Names.SIM_STEP_MS; Pet.update(p, world, Names.SIM_STEP_MS, now) }
+    expect(Math.hypot(p.ball.x - p.x, p.ball.y - p.y) < 0.6).toBe(true)
+    Pet.onTurnStart(p, world, now)
+    expect(p.carrying).toBe(false)
+    for (let t = 0; t < 3000; t += Names.SIM_STEP_MS) { now += Names.SIM_STEP_MS; Pet.update(p, world, Names.SIM_STEP_MS, now) }
+    const at = Pet.Ball.tileOf(p.ball)
+    expect(Pet.Ball.isRolling(p.ball)).toBe(false)
+    expect(World.isWalkable(world, at.x, at.y)).toBe(true)
+  })
+
+  test('an action whose destination cannot be reached is dropped, not recorded, and not picked again for 30 seconds', async () => {
+    const world = Fixtures.flatWorld(12, 12, [[9, 9, 3]])
+    const p = Pet.create(world, 1, T0)
+    p.act = { name: 'explore', steps: [{ k: 'go', to: { x: 9, y: 9 }, gait: 'trot', must: true }, { k: 'pose', pose: 'sniff', ms: 1000 }], i: 0, t: 0, started: -1 }
+    p.lastSignalAt = T0 + Names.SIM_STEP_MS
+    Pet.update(p, world, Names.SIM_STEP_MS, T0 + Names.SIM_STEP_MS)
+    expect(p.aborts).toBe(1)
+    expect(p.act.name === 'explore').toBe(false)
+    expect(p.history.includes('explore')).toBe(false)
+    const weights = new Map(Pet.weightsOf(p, world, Pet.surveyOf(p, world), T0 + Names.SIM_STEP_MS))
+    expect(weights.get('explore')).toBe(0)
+  })
+})
+
+// 20 시드 × 10 분을 평소만·세션 대본 두 가지로 돌려 모든 기록을 합쳐 잰다. 테스트 하나가 5 초를 넘지 않게 5 시드씩 나눠 돌린다
+const quiet: SimLog[] = []
+const session: SimLog[] = []
+
+describe('behavior over ten minutes', () => {
+  for (const from of [1, 6, 11, 16]) {
+    test(`quiet and session runs, seeds ${from} to ${from + 4}`, async () => {
+      for (let seed = from; seed < from + 5; seed++) {
+        quiet.push(simulateQuiet(seed, 10))
+        session.push(simulateSession(seed, 10))
+      }
+    })
+  }
+
+  test('the everyday mix stays varied: no act over 30 %, repeats under 8 %, entropy at least 0.8, rarely possible acts still show up', async () => {
+    const m = metricsOf(quiet)
+    expect(m.maxShare <= 0.3).toBe(true)
+    expect(m.repeat <= 0.08).toBe(true)
+    expect(m.triple <= 0.05).toBe(true)
+    expect(m.entropy >= 0.8).toBe(true)
+    expect(m.inclusion >= 0.9).toBe(true)
+    expect(m.rareGapMs >= 90_000).toBe(true)
+    expect(m.coverage >= 1).toBe(true)
+  })
+
+  test('actions rarely fail for lack of a destination, last at least half a second, and the dog never freezes for more than 12 s', async () => {
+    for (const logs of [quiet, session]) {
+      const m = metricsOf(logs)
+      expect(m.abortRate <= 0.02).toBe(true)
+      expect(m.shortestMs >= 500).toBe(true)
+      expect(m.longestStallMs <= 12_000).toBe(true)
     }
+  })
+
+  test('every prompt starts a greeting at once', async () => {
+    expect(metricsOf(session).missed).toBe(0)
   })
 })

@@ -24,15 +24,14 @@ export type Scene = {
   grid?: Grid
 }
 
-// 카메라는 발이 아니라 몸통 가운데를 보고, 달리는 쪽을 조금 앞서 본다(가는 쪽 화면이 더 넓게 보인다)
-const LOOK_UP_PX = 5
+// 카메라는 발이 아니라 몸통 가운데(종마다 발에서 위로 lookUpPx)를 보고, 달리는 쪽을 조금 앞서 본다(가는 쪽 화면이 더 넓게 보인다)
 const LEAD_S = 0.35
 const LEAD_TAU_MS = 350
 const LEAD_MAX_PX = 12
 
 function focusOf(pet: PetState): { sx: number; sy: number } {
   const s = Iso.screenOf(pet.x, pet.y, pet.z)
-  return { sx: s.sx, sy: s.sy - LOOK_UP_PX }
+  return { sx: s.sx, sy: s.sy - pet.species.sprite.lookUpPx }
 }
 
 export function create(seed: number, now: number): Scene {
@@ -103,7 +102,7 @@ function buffersFor(scene: Scene, cols: number, rows: number, scale: 1 | 2): [Bu
   return [nb, ng]
 }
 
-// 시뮬레이션 값은 NEAR 픽셀이다. 위치는 투영으로 옮기고, 강아지·공·감정 표시·그림자 크기는 스프라이트 픽셀 그대로 둔다
+// 시뮬레이션 값은 NEAR 픽셀이다. 위치는 투영으로 옮기고, 동물·공·감정 표시·그림자 크기는 스프라이트 픽셀 그대로 둔다
 // (원거리에서도 스프라이트를 원래 크기로 그린다)
 function drawPet(b: Buffer, scene: Scene, ox: number, oy: number, proj: Proj): void {
   const p = scene.pet
@@ -119,7 +118,8 @@ function drawPet(b: Buffer, scene: Scene, ox: number, oy: number, proj: Proj): v
   const g = Iso.screenOf(p.x, p.y, groundZ, proj)
   const lift = Math.max(0, p.z - groundZ)
   const curled = p.pose === 'sleep' && !Pet.isMoving(p)
-  Iso.drawShadow(b, g.sx - ox + 0.5, g.sy - oy - 0.5, Math.max(2.5, (curled ? 6 : 5) - lift * 0.3), 1.6, World.heightAt(world, tx, ty) + 1, shadowOf)
+  const sprite = p.species.sprite
+  Iso.drawShadow(b, g.sx - ox + 0.5, g.sy - oy - 0.5, Math.max(2.5, (curled ? sprite.shadow.rxCurl : sprite.shadow.rx) - lift * 0.3), sprite.shadow.ry, World.heightAt(world, tx, ty) + 1, shadowOf)
   // 공과 공 그림자
   const ball = p.ball
   const bt = Pet.Ball.tileOf(ball)
@@ -127,7 +127,7 @@ function drawPet(b: Buffer, scene: Scene, ox: number, oy: number, proj: Proj): v
   Iso.drawShadow(b, bg.sx - ox + 0.5, bg.sy - oy - 0.5, 2, 1, World.heightAt(world, bt.x, bt.y) + 1, shadowOf)
   const bs = Iso.screenOf(ball.x, ball.y, ball.z, proj)
   Sprite.drawBall(b, Math.round(bs.sx) - ox, Math.round(bs.sy) - oy, ball.roll, ball.x + ball.y + 0.25)
-  Sprite.drawDog(b, Pet.poseOf(p), x, y, p.x + p.y + 0.4)
+  Sprite.drawPet(b, p.species, Pet.poseOf(p), x, y, p.x + p.y + 0.4)
   // 흙·물방울·z 는 강아지가 멈춰 있을 때만 생겨 강아지 기준 오프셋을 그대로 둔다.
   // 먼지는 달리거나 내려앉은 자리에 남으므로 카메라와 같은 비율로 옮긴다
   const near = Iso.screenOf(p.x, p.y, p.z)
@@ -141,9 +141,9 @@ function drawPet(b: Buffer, scene: Scene, ox: number, oy: number, proj: Proj): v
   if (p.emote) {
     // 떠오르며 나타났다가 제자리에서 머문다
     const rise = Math.max(0, 3 - Math.floor(p.emote.age / 50))
-    const side = Pet.isRight(p.dir) ? 3 : -3
+    const side = Pet.isRight(p.dir) ? sprite.emoteAt.side : -sprite.emoteAt.side
     const front = Pet.poseOf(p).body.startsWith('front')
-    Sprite.drawEmote(b, p.emote.kind, x + (front ? 0 : side), y - 13 + rise)
+    Sprite.drawEmote(b, p.emote.kind, x + (front ? 0 : side), y - sprite.emoteAt.up + rise)
   }
 }
 

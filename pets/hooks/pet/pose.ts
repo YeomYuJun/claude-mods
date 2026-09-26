@@ -1,23 +1,12 @@
-// 상태를 한 프레임의 모습(DogPose)으로 바꾼다(순수 모듈). 상태를 바꾸지 않는다.
+// 상태를 한 프레임의 모습(PetPose)으로 바꾼다(순수 모듈). 상태를 바꾸지 않는다.
 //
 // 걸음: 다리마다 위상이 다르고, 위상의 앞 σ 동안은 발이 바닥을 짚고 뒤로 밀리며(+amp 에서 -amp),
-// 나머지 동안은 들려서 앞으로 돌아온다. 걷기는 네 박자(뒤-앞-뒤-앞), 속보는 대각 짝, 달리기는 앞·뒤 짝이 모이고 벌어지며 몸이 뜬다.
+// 나머지 동안은 들려서 앞으로 돌아온다. 걸음마다 σ·amp·다리 위상, 엉덩이 자리, 다리 길이, 꼬리 길이는 종 정의에서 읽는다.
+// 자세마다 꼬리를 흔드는 폭·빠르기와 머리 움직임은 여기서 정한다. 달리기에서 네 발이 다 뜨면 몸이 솟는다.
 
-import type { DogPose, Leg } from '../sprite'
+import type { Leg, PetPose } from '../sprite'
 import { isBack, isMoving, isRight, type Gait, type Pet } from './state.js'
 
-type GaitShape = { sigma: number; amp: number; phase: readonly [number, number, number, number] }
-
-// 다리 순서: 가까운 뒷다리, 먼 뒷다리, 가까운 앞다리, 먼 앞다리
-const GAITS: Record<Gait, GaitShape> = {
-  walk: { sigma: 0.7, amp: 1, phase: [0, 0.5, 0.25, 0.75] },
-  sniff: { sigma: 0.75, amp: 1, phase: [0, 0.5, 0.25, 0.75] },
-  trot: { sigma: 0.5, amp: 1, phase: [0, 0.5, 0.5, 0] },
-  run: { sigma: 0.38, amp: 2, phase: [0, 0.08, 0.5, 0.58] },
-}
-// 엉덩이 x. 다리는 이 칸과 앞 칸, 두 픽셀 폭이라 몸통(x -5..3) 안에 들어온다
-const HIPS: ReadonlyArray<readonly [number, boolean]> = [[-4, false], [-3, true], [1, false], [2, true]]
-const LEG_LEN = 2
 
 function foot(ph: number, sigma: number, amp: number): { dx: number; lift: boolean } {
   const t = ph - Math.floor(ph)
@@ -25,15 +14,17 @@ function foot(ph: number, sigma: number, amp: number): { dx: number; lift: boole
   return { dx: Math.round(-amp + (2 * amp * (t - sigma)) / (1 - sigma)), lift: true }
 }
 
-function legsStill(dxFront = 0, dxBack = 0): Leg[] {
-  return HIPS.map(([hipX, far]) => ({ hipX, far, dx: hipX > 0 ? dxFront : dxBack, lift: false, len: LEG_LEN }))
+function legsStill(p: Pet, dxFront = 0, dxBack = 0): Leg[] {
+  const { hips, len } = p.species.sprite.legs
+  return hips.map(([hipX, far]) => ({ hipX, far, dx: hipX > 0 ? dxFront : dxBack, lift: false, len }))
 }
 
-function legsWalking(gait: Gait, stride: number): Leg[] {
-  const g = GAITS[gait]
-  return HIPS.map(([hipX, far], i) => {
+function legsWalking(p: Pet, gait: Gait, stride: number): Leg[] {
+  const g = p.species.gaits[gait]
+  const { hips, len } = p.species.sprite.legs
+  return hips.map(([hipX, far], i) => {
     const f = foot(stride + g.phase[i]!, g.sigma, g.amp)
-    return { hipX, far, dx: f.dx, lift: f.lift, len: LEG_LEN }
+    return { hipX, far, dx: f.dx, lift: f.lift, len }
   })
 }
 
@@ -41,17 +32,17 @@ function wag(t: number, base: number, amp: number, hz: number): number {
   return base + amp * Math.sin((2 * Math.PI * hz * t) / 1000)
 }
 
-function base(p: Pet): DogPose {
+function base(p: Pet): PetPose {
   return {
     body: 'stand', flip: !isRight(p.dir), back: isBack(p.dir), bodyDx: 0, bodyDy: 0, tilt: 0,
     head: isBack(p.dir) ? 'back' : 'face', headDx: 0, headDy: 0,
     eyeClosed: p.blinkMs > 0, tongue: false, mouthOpen: false,
-    legs: legsStill(), tailAngle: 0.8, tailLen: 3, scratch: 0,
+    legs: legsStill(p), tailAngle: p.species.sprite.tail.rest, tailLen: p.species.sprite.tail.len, scratch: 0,
   }
 }
 
 // t: 지금 단계가 시작한 뒤 흐른 시간(ms), now: 꼬리·숨 시계(ms)
-export function poseOf(p: Pet): DogPose {
+export function poseOf(p: Pet): PetPose {
   const d = base(p)
   const now = p.breath
   const t = p.act.t
@@ -59,14 +50,14 @@ export function poseOf(p: Pet): DogPose {
   if (p.hop) {
     const u = p.hop.t / p.hop.dur
     // 오를 때는 앞다리를 모으고 뒷다리를 뻗고, 내려올 때는 앞다리를 먼저 내민다
-    d.legs = HIPS.map(([hipX, far]) => ({ hipX, far, dx: hipX > 0 ? (u < 0.5 ? -1 : 1) : (u < 0.5 ? -1 : 0), lift: true, len: LEG_LEN }))
+    d.legs = legsStill(p).map(l => ({ ...l, dx: l.hipX > 0 ? (u < 0.5 ? -1 : 1) : (u < 0.5 ? -1 : 0), lift: true }))
     d.tailAngle = 1.0
     return d
   }
   if (p.crouchMs > 0) {
     d.bodyDy = 1
     d.headDy = 1
-    d.legs = legsStill(1, -1)
+    d.legs = legsStill(p, 1, -1)
     d.tailAngle = 0.9
     return d
   }
@@ -77,7 +68,7 @@ export function poseOf(p: Pet): DogPose {
   }
   if (isMoving(p)) {
     const g = p.gait
-    d.legs = legsWalking(g, p.stride)
+    d.legs = legsWalking(p, g, p.stride)
     const ph = p.stride - Math.floor(p.stride)
     if (g === 'run') {
       // 네 발이 다 떠 있는 순간 몸이 한 픽셀 솟는다
@@ -120,13 +111,13 @@ export function poseOf(p: Pet): DogPose {
       d.headDx = 1
       d.headDy = 3
       const beat = Math.floor(now / 65) % 2
-      d.legs = HIPS.map(([hipX, far], i) => ({ hipX, far, len: LEG_LEN, dx: hipX > 0 ? (beat === i % 2 ? 1 : -1) : -1, lift: hipX > 0 && beat === i % 2 }))
+      d.legs = legsStill(p).map((l, i) => ({ ...l, dx: l.hipX > 0 ? (beat === i % 2 ? 1 : -1) : -1, lift: l.hipX > 0 && beat === i % 2 }))
       d.tailAngle = wag(now, 1.0, 0.35, 5)
       return d
     }
     case 'bow':
       d.tilt = 2
-      d.legs = legsStill(1, 0)
+      d.legs = legsStill(p, 1, 0)
       d.tailAngle = wag(now, 1.3, 0.5, 6)
       d.tongue = true
       return d
@@ -156,7 +147,7 @@ export function poseOf(p: Pet): DogPose {
     case 'stretch': {
       const first = t < 450
       d.tilt = first ? 2 : -1
-      d.legs = first ? legsStill(1, 0) : legsStill(0, -1)
+      d.legs = first ? legsStill(p, 1, 0) : legsStill(p, 0, -1)
       d.eyeClosed = true
       d.tailAngle = first ? 1.2 : 0.3
       return d

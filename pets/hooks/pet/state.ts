@@ -4,6 +4,7 @@ import Rng from '../rng'
 import type { Reach, Tile } from '../path'
 import World, { type World as WorldState } from '../world'
 import Names from '../names'
+import Species, { type SpeciesDef } from '../species'
 import * as Ball from './ball.js'
 import type { Ball as BallState } from './ball.js'
 import type { Emote, Particle } from './fx.js'
@@ -34,27 +35,40 @@ export type PoseName =
   | 'stand' | 'look' | 'pant' | 'sniff' | 'dig' | 'bow' | 'shake' | 'scratch' | 'yawn' | 'stretch'
   | 'sit' | 'frontSit' | 'lie' | 'lieRest' | 'sleep' | 'wake'
 
+// go: to 가 있으면 그 칸, pick 이 있으면 단계를 시작할 때 지금 자리에서 걸음 수 [lo, hi] 인 칸을 고른다(front 면 화면 앞쪽 칸).
+// must 면 길이 없을 때 행동 전체를 그만둔다(목적지가 핵심인 행동). 아니면 그 단계만 건너뛴다
 export type Step =
-  | { k: 'go'; to: Tile; gait: Gait }
+  | { k: 'go'; to?: Tile; pick?: { lo: number; hi: number; front?: boolean }; gait: Gait; must?: boolean }
   | { k: 'pose'; pose: PoseName; ms: number; face?: Dir; emote?: Emote['kind'] }
   | { k: 'spin'; quarters: number; msPer: number }
   | { k: 'pounce' }
   | { k: 'kick' }
   | { k: 'chase' }
+  // 공을 입에 문다(가까이 있을 때), 내려놓는다
+  | { k: 'grab' }
+  | { k: 'drop' }
 
 export type ActName =
   | 'idle' | 'walk' | 'run' | 'sniff' | 'play' | 'sit' | 'lie'
+  | 'explore' | 'patrol' | 'perch' | 'rollOver' | 'watch' | 'nap'
   | 'greet' | 'dig' | 'settle' | 'bedtime'
 
-// started: 시작 처리를 마친 단계 번호. i 와 다르면 그 단계를 막 시작한 것이다
-export type Activity = { name: ActName; steps: Step[]; i: number; t: number; started: number }
+// 놀이 변형
+export type PlayName = 'ball' | 'fetch' | 'spin' | 'pounce' | 'stalk' | 'chaseTail' | 'zoomies'
+
+// 욕구 0~1. 쉬고 싶은 정도는 1 - energy 로 따로 계산한다
+export type Needs = { curiosity: number; play: number; social: number; thirst: number }
+
+// started: 시작 처리를 마친 단계 번호. i 와 다르면 그 단계를 막 시작한 것이다. aborted: 목적지를 못 찾아 그만뒀다
+export type Activity = { name: ActName; steps: Step[]; i: number; t: number; started: number; aborted?: boolean }
 
 // 행동 부류. 신호가 지금 행동을 끊을지는 부류로 정한다.
 // N 평소, S 잠, A 가벼운 반응, T 도구 반응, P 권한 대기, E 턴 결과, G 사람 직접
 export type ActClass = 'N' | 'S' | 'A' | 'T' | 'P' | 'E' | 'G'
 
 // 행동을 고를 때 한 번 돌리는 BFS. 그 선택에서 만드는 모든 목적지가 이것을 나눠 쓴다
-export type Survey = { from: Tile; reach: Reach }
+// memo: 여러 행동이 같은 선택 안에서 다시 쓰는 질의 결과(높은 칸, 블록 둘레 등)
+export type Survey = { from: Tile; reach: Reach; memo: Map<string, unknown> }
 
 // 최근 평소 행동을 이만큼 기억한다([0] 이 직전)
 export const HISTORY_SIZE = 6
@@ -62,6 +76,8 @@ export const HISTORY_SIZE = 6
 export type Hop = { fx: number; fy: number; tx: number; ty: number; z0: number; z1: number; t: number; dur: number; peak: number; isPath: boolean }
 
 export type Pet = {
+  // 종 정의. 걸음·그림·기운 수치를 여기서 읽는다
+  species: SpeciesDef
   // 위치(타일 좌표, 칸 가운데가 정수)와 발 높이(px)
   x: number
   y: number
@@ -87,6 +103,19 @@ export type Pet = {
   lastEndAt: Partial<Record<ActName, number>>
   // 시뮬레이션 시각(ms). 고정 스텝마다 늘어난다. 행동의 대기 시간·기록은 실제 시각이 아니라 이것으로 잰다
   simMs: number
+  // 목적지를 못 찾아 그만둔 행동은 이 시각(시뮬레이션 ms)까지 다시 고르지 않는다. aborts 는 그만둔 횟수
+  blockedUntil: Partial<Record<ActName, number>>
+  aborts: number
+  needs: Needs
+  // 최근 놀이 변형, [0] 이 직전
+  playHistory: PlayName[]
+  // 칸 키마다 마지막으로 서 있던 시뮬레이션 시각. 새 칸을 고르는 데 쓴다. 가장 오래된 것부터 버린다
+  visits: Map<number, number>
+  tileKey: number
+  // 사람이 직접 보낸 신호(프롬프트)의 실제 시각
+  lastHumanAt: number
+  // 공을 입에 물고 있다
+  carrying: boolean
   pose: PoseName
   // 0~1. 뛰고 놀면 줄고 쉬고 자면 찬다. 낮으면 앉고 눕는 쪽을 고른다
   energy: number
@@ -116,7 +145,7 @@ function idleActivity(): Activity {
   return { name: 'idle', steps: [{ k: 'pose', pose: 'stand', ms: 1500 }], i: 0, t: 0, started: -1 }
 }
 
-export function create(world: WorldState, seed: number, now: number): Pet {
+export function create(world: WorldState, seed: number, now: number, species: SpeciesDef = Species.DOG): Pet {
   const rng = Rng.create(seed ^ 0x9e3779b9)
   const { x, y } = world.spawn
   // 공은 시작 자리에서 몇 칸 떨어진 걷는 칸에 둔다
@@ -125,18 +154,25 @@ export function create(world: WorldState, seed: number, now: number): Pet {
   for (let i = 0; i < 60; i++) {
     const cx = x + Rng.int(rng, -5, 5)
     const cy = y + Rng.int(rng, -5, 5)
-    if (World.isWalkable(world, cx, cy) && (cx !== x || cy !== y)) { bx = cx; by = cy; break }
+    if (World.isWalkable(world, cx, cy, species.abilities) && (cx !== x || cy !== y)) { bx = cx; by = cy; break }
   }
   return {
-    x, y, z: World.heightAt(world, x, y) * Names.STEP_PX,
+    species, x, y, z: World.heightAt(world, x, y) * Names.STEP_PX,
     dir: 'SE', speed: 0, gait: 'walk', path: [], crouchMs: 0, landMs: 0, stride: 0, turnMs: 0,
-    act: idleActivity(), queue: [], history: [], lastEndAt: {}, simMs: 0, pose: 'stand',
-    energy: 0.8, excite: 0.3, isAsleep: false,
+    act: idleActivity(), queue: [], history: [], lastEndAt: {}, simMs: 0, blockedUntil: {}, aborts: 0,
+    needs: { curiosity: 0.4, play: 0.3, social: 0.3, thirst: 0 }, playHistory: [], visits: new Map(), tileKey: keyOf(x, y), lastHumanAt: now, carrying: false,
+    pose: 'stand',
+    energy: species.behavior.initial.energy, excite: species.behavior.initial.excite, isAsleep: false,
     tail: 0, breath: 0, blinkIn: 2500, blinkMs: 0,
     particles: [], fxClock: 0,
     ball: Ball.create(bx, by, world),
     rng, fxRng: Rng.create(seed ^ 0x51f15e), lastSignalAt: now, busyUntil: 0, toolsRunning: 0, lastDigAt: -Infinity,
   }
+}
+
+// 칸 좌표를 한 수로. |좌표| < 32768 에서 겹치지 않는다
+export function keyOf(x: number, y: number): number {
+  return (x & 0xffff) | (y << 16)
 }
 
 export function tileOf(p: Pet): Tile {

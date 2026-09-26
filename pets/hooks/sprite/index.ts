@@ -1,35 +1,20 @@
-// 강아지 도트 그림(순수 모듈). 오른쪽을 보는 모습으로 그리고 왼쪽은 좌우 반전한다.
+// 동물 도트 그림(순수 모듈). 종 정의(hooks/species)의 비트맵·기준점·다리·꼬리로 그린다.
+// 오른쪽을 보는 모습으로 그리고 왼쪽은 좌우 반전한다.
 //
 // 몸통·머리·정면·웅크린 잠은 비트맵이고, 다리·꼬리는 매 프레임 선으로 그린다.
 // 다리를 선으로 그리면 걸음 위상에 따라 발끝이 한 픽셀씩 앞뒤로 옮겨 가고 들리므로 속도와 상관없이 발이 바닥에 붙어 보인다.
-//
-// 좌표: (0, 0) 은 강아지가 선 바닥 점. y 는 위가 음수. 비트맵 글자:
-//   . 투명  o 윤곽  w 흰 털  s 그늘  k 코  p 혀  e 귀·꼬리(갈색)  d 짙은 갈색  c 목줄  l 감은 눈
-//   E 눈(검정, 자리를 기억해 감은 눈을 덧칠한다)  M 입(윤곽, 자리를 기억해 혀를 덧칠한다)
+// 비트맵 글자는 종이 정한 역할(윤곽, 몸, 눈 등)이고, 역할은 동물 뱅크 번호를 더해 팔레트 번호가 된다.
+// 종·뱅크마다 한 번만 번호로 바꿔 두고 다시 쓴다.
 
 import { Palette, plot, plotDepth, type Buffer } from '../pixel'
+import type { BitmapSpec, BodyKind, SpeciesDef } from '../species'
 
 type Mark = readonly [number, number]
 type Bitmap = { w: number; h: number; ax: number; ay: number; px: Uint8Array; eyes: Mark[]; mouth?: Mark }
 
 const TRANSPARENT = Palette.TRANSPARENT
-// 강아지는 동물 뱅크 0 의 역할 색으로 칠한다
-const B = Palette.bank(0)
-const R = Palette.Role
-const OUTLINE = B + R.outline
-const BODY = B + R.body
-const EYE = B + R.eye
-const LID = B + R.lid
-const TONGUE = B + R.tongue
-const EAR = B + R.ear
-const EAR_DARK = B + R.earDark
-const DOG_CODE: Record<string, number> = {
-  o: OUTLINE, w: BODY, s: B + R.under, k: EYE, p: TONGUE,
-  e: EAR, d: EAR_DARK, c: B + R.collar, l: LID, E: EYE, M: OUTLINE,
-}
 
-// ax, ay: 비트맵 안에서 (0, 0) 에 놓일 칸
-function bitmap(ax: number, ay: number, rows: readonly string[], code: Record<string, number> = DOG_CODE): Bitmap {
+function bitmap(ax: number, ay: number, rows: readonly string[], code: Readonly<Record<string, number>>): Bitmap {
   const h = rows.length
   const w = Math.max(...rows.map(r => r.length))
   const px = new Uint8Array(w * h).fill(TRANSPARENT)
@@ -48,115 +33,46 @@ function bitmap(ax: number, ay: number, rows: readonly string[], code: Record<st
   return { w, h, ax, ay, px, eyes, mouth }
 }
 
-// 서 있는 몸통: x -5..3, y -7..-3. 다리는 y -2, -1
-const BODY_LEFT = -5
-const BODY_SPAN = 8
-const BODY_STAND = bitmap(5, 7, [
-  '.ooooooo.',
-  'owwwwwwwo',
-  'owwwwwwwo',
-  'ossssssso',
-  '.ooooooo.',
-])
+// 종 하나를 뱅크 하나의 팔레트 번호로 바꾼 것
+type Compiled = {
+  species: SpeciesDef
+  bodies: Record<BodyKind, Bitmap>
+  face: Bitmap
+  back: Bitmap
+  role: (name: Palette.RoleName) => number
+  seeThrough: Set<number>
+}
 
-// 머리(오른쪽 보기). 늘어진 갈색 귀가 뒤쪽 절반을 덮고, 맨 아래 줄에 목줄이 있다.
-// 기준점은 맨 아래 줄 왼쪽에서 두 번째 칸이고, 서 있을 때 (0, -5) 에 놓인다
-const HEAD_FACE = bitmap(1, 6, [
-  '.ooooo...',
-  'oeewwwoo.',
-  'oeedwwwwo',
-  'oeedwEwwo',
-  'oeedwEwwk',
-  '.oeeswwoo',
-  '..occcMo.',
-])
+const compiled = new Map<string, Compiled>()
 
-// 뒷모습 머리(오른쪽 위로 멀어지는 쪽). 눈·코가 보이지 않는다
-const HEAD_BACK = bitmap(1, 6, [
-  '.ooooo...',
-  'oeewwwoo.',
-  'oeedwwweo',
-  'oeedwwwwo',
-  'oeedwwwwo',
-  '.oeeswwo.',
-  '..occco..',
-])
-
-// 옆으로 앉기. 앞다리는 그림에 들어 있다
-const BODY_SIT = bitmap(4, 6, [
-  '...owwwo.',
-  '..owwwwwo',
-  '.owwwwowo',
-  'owwwwwowo',
-  'owsswwowo',
-  '.oooooooo',
-])
-
-// 엎드리기(고개 듦). 앞발을 앞으로 뻗는다
-const BODY_LIE = bitmap(5, 4, [
-  '.oooooo......',
-  'owwwwwwo.....',
-  'owsssswwwwwwo',
-  '.oooooooooooo',
-])
-
-// 웅크려 자기. 머리를 앞발에 얹고 눈을 감았고, 꼬리는 엉덩이 밑으로 감았다. 숨 들이쉴 때(A)는 등이 한 픽셀 솟는다
-const CURL_A = bitmap(6, 6, [
-  '...ooooo......',
-  '..owwwwwoooo..',
-  '.owwwwwweewwo.',
-  'owwwwwwcedllwo',
-  'oeeeswwcwwwwwk',
-  '.oooooooooooo.',
-])
-const CURL_B = bitmap(6, 6, [
-  '..............',
-  '..oooooooooo..',
-  '.owwwwwweewwo.',
-  'owwwwwwcedllwo',
-  'oeeeswwcwwwwwk',
-  '.oooooooooooo.',
-])
-
-// 정면 앉기(사람을 본다)
-const FRONT_SIT = bitmap(6, 13, [
-  '...ooooooo...',
-  '.oowwwwwwwoo.',
-  'oeewwwwwwweeo',
-  'oeewEwwwEweeo',
-  'oeewEwkwEweeo',
-  'odeowwwwwoedo',
-  '.oo.ooMoo.oo.',
-  '...occccco...',
-  '...owwwwwo...',
-  '..owwwwwwwo..',
-  '..owswwwswo..',
-  '..owsowoswo..',
-  '...oo.o.oo...',
-])
-
-// 정면 서기(방향을 바꾸는 순간, 사람을 쳐다볼 때)
-const FRONT_STAND = bitmap(6, 12, [
-  '...ooooooo...',
-  '.oowwwwwwwoo.',
-  'oeewwwwwwweeo',
-  'oeewEwwwEweeo',
-  'oeewEwkwEweeo',
-  'odeowwwwwoedo',
-  '.oo.ooMoo.oo.',
-  '...occccco...',
-  '...owwwwwo...',
-  '...ossssso...',
-  '...owo.owo...',
-  '...owo.owo...',
-])
+function compile(species: SpeciesDef, bank: number): Compiled {
+  const key = `${species.id}:${bank}`
+  const done = compiled.get(key)
+  if (done) return done
+  const base = Palette.bank(bank)
+  const role = (name: Palette.RoleName) => base + Palette.Role[name]
+  const code: Record<string, number> = {}
+  for (const [ch, name] of Object.entries(species.sprite.codes)) code[ch] = role(name)
+  const of = (s: BitmapSpec) => bitmap(s.ax, s.ay, s.rows, code)
+  const b = species.sprite.bodies
+  const out: Compiled = {
+    species,
+    bodies: { stand: of(b.stand), sit: of(b.sit), lie: of(b.lie), curlA: of(b.curlA), curlB: of(b.curlB), frontSit: of(b.frontSit), frontStand: of(b.frontStand) },
+    face: of(species.sprite.heads.face),
+    back: of(species.sprite.heads.back),
+    role,
+    seeThrough: new Set(species.sprite.seeThrough.map(role)),
+  }
+  compiled.set(key, out)
+  return out
+}
 
 export type Leg = { hipX: number; dx: number; lift: boolean; far: boolean; len: number }
 
-export type BodyKind = 'stand' | 'sit' | 'lie' | 'curlA' | 'curlB' | 'frontSit' | 'frontStand'
+export type { BodyKind } from '../species'
 
-// 한 프레임에 그릴 강아지 모습. pet/pose.ts 가 상태에서 만든다
-export type DogPose = {
+// 한 프레임에 그릴 동물 모습. pet/pose.ts 가 상태에서 만든다
+export type PetPose = {
   body: BodyKind
   // 왼쪽을 본다(좌우 반전)
   flip: boolean
@@ -181,13 +97,13 @@ export type DogPose = {
 
 type Painter = (x: number, y: number, color: number) => void
 
-function stamp(bm: Bitmap, ox: number, oy: number, paint: Painter, flip: boolean, tilt = 0): void {
+function stamp(bm: Bitmap, ox: number, oy: number, paint: Painter, flip: boolean, tilt = 0, tiltFrom = 0, tiltSpan = 1): void {
   for (let y = 0; y < bm.h; y++) {
     for (let x = 0; x < bm.w; x++) {
       const c = bm.px[y * bm.w + x]!
       if (c === TRANSPARENT) continue
       const lx = x - bm.ax + ox
-      const drop = tilt === 0 ? 0 : Math.round((tilt * Math.max(0, lx - BODY_LEFT)) / BODY_SPAN)
+      const drop = tilt === 0 ? 0 : Math.round((tilt * Math.max(0, lx - tiltFrom)) / tiltSpan)
       paint(flip ? -lx : lx, y - bm.ay + oy + drop, c)
     }
   }
@@ -199,41 +115,38 @@ function mark(bm: Bitmap, ox: number, oy: number, x: number, y: number, c: numbe
   paint(flip ? -lx : lx, oy + y - bm.ay, c)
 }
 
-// 눈을 감으면 아래 칸만 짙은 회색 선으로 남긴다
-function paintFace(bm: Bitmap, ox: number, oy: number, pose: DogPose, flip: boolean, paint: Painter): void {
+// 눈을 감으면 아래 칸만 감은 눈 색 선으로 남긴다
+function paintFace(k: Compiled, bm: Bitmap, ox: number, oy: number, pose: PetPose, flip: boolean, paint: Painter): void {
   if (pose.eyeClosed) {
     for (const [x, y] of bm.eyes) {
       const lower = bm.eyes.some(([ex, ey]) => ex === x && ey === y + 1)
-      mark(bm, ox, oy, x, y, lower ? BODY : LID, flip, paint)
+      mark(bm, ox, oy, x, y, lower ? k.role('body') : k.role('lid'), flip, paint)
     }
   }
   if (!bm.mouth) return
   const [mx, my] = bm.mouth
+  const tongue = k.role('tongue')
   if (pose.mouthOpen) {
-    mark(bm, ox, oy, mx, my, TONGUE, flip, paint)
-    mark(bm, ox, oy, mx, my + 1, TONGUE, flip, paint)
-  } else if (pose.tongue) mark(bm, ox, oy, mx, my, TONGUE, flip, paint)
-}
-
-function headOf(pose: DogPose): Bitmap | undefined {
-  if (pose.head === 'none') return undefined
-  return pose.head === 'back' ? HEAD_BACK : HEAD_FACE
+    mark(bm, ox, oy, mx, my, tongue, flip, paint)
+    mark(bm, ox, oy, mx, my + 1, tongue, flip, paint)
+  } else if (pose.tongue) mark(bm, ox, oy, mx, my, tongue, flip, paint)
 }
 
 // 머리를 그리고 눈·입을 덧칠한다. (hx, hy) 는 머리 기준점(맨 아래 줄).
 // 착지로 몸이 눌린 채 코를 박으면 머리가 바닥 아래로 내려가므로 맨 아래 줄을 y -1 에서 멈춘다
-function paintHead(pose: DogPose, hx: number, rawHy: number, paint: Painter): void {
-  const head = headOf(pose)
-  if (!head) return
+function paintHead(k: Compiled, pose: PetPose, hx: number, rawHy: number, paint: Painter): void {
+  if (pose.head === 'none') return
+  const head = pose.head === 'back' ? k.back : k.face
   const hy = Math.min(rawHy, -1)
   stamp(head, hx, hy, paint, pose.flip)
-  paintFace(head, hx, hy, pose, pose.flip, paint)
+  paintFace(k, head, hx, hy, pose, pose.flip, paint)
 }
 
-// 다리: 가까운 다리는 뒤쪽 윤곽 한 줄 + 앞쪽 흰 털 한 줄, 먼 다리는 회색 두 줄
-function paintLegs(pose: DogPose, paint: Painter, far: boolean): void {
-  const edge = far ? B + R.far : OUTLINE
-  const fill = far ? B + R.farLight : BODY
+// 다리: 가까운 다리는 뒤쪽 윤곽 한 줄 + 앞쪽 털 한 줄, 먼 다리는 옅은 두 줄
+function paintLegs(k: Compiled, pose: PetPose, paint: Painter, far: boolean): void {
+  const [edgeRole, fillRole] = far ? k.species.sprite.legs.far : k.species.sprite.legs.near
+  const edge = k.role(edgeRole)
+  const fill = k.role(fillRole)
   for (const leg of pose.legs) {
     if (leg.far !== far) continue
     const x = leg.hipX + pose.bodyDx
@@ -255,86 +168,92 @@ function paintLegs(pose: DogPose, paint: Painter, far: boolean): void {
   }
 }
 
-// 꼬리: 갈색 선, 끝 한 칸은 짙은 갈색. 아래로 흔들려도 바닥(y -1) 아래로 내려가지 않는다
-function paintTail(pose: DogPose, rootX: number, rootY: number, paint: Painter): void {
+// 꼬리: 선 한 줄, 끝 한 칸은 끝 역할 색. 아래로 흔들려도 바닥(y -1) 아래로 내려가지 않는다
+function paintTail(k: Compiled, pose: PetPose, root: readonly [number, number], paint: Painter): void {
   if (pose.tailLen <= 0) return
-  for (let k = 1; k <= pose.tailLen; k++) {
-    const lx = Math.round(rootX - k * Math.cos(pose.tailAngle))
-    const ly = Math.min(-1, Math.round(rootY - k * Math.sin(pose.tailAngle)))
-    paint(pose.flip ? -lx : lx, ly, k === pose.tailLen ? EAR_DARK : EAR)
+  const { role, tipRole } = k.species.sprite.tail
+  const rootX = root[0] + pose.bodyDx
+  const rootY = root[1] + pose.bodyDy
+  for (let i = 1; i <= pose.tailLen; i++) {
+    const lx = Math.round(rootX - i * Math.cos(pose.tailAngle))
+    const ly = Math.min(-1, Math.round(rootY - i * Math.sin(pose.tailAngle)))
+    paint(pose.flip ? -lx : lx, ly, k.role(i === pose.tailLen ? tipRole : role))
   }
 }
 
-// 강아지 한 마리를 칠한다. paint 는 오른쪽 보기 좌표를 받지 않고 이미 반전된 좌표를 받는다
-export function paintDog(pose: DogPose, paint: Painter): void {
+// 동물 한 마리를 칠한다. paint 는 이미 반전된 좌표를 받는다
+export function paintPet(species: SpeciesDef, pose: PetPose, paint: Painter, bank = 0): void {
+  const k = compile(species, bank)
+  const a = species.sprite.anchors
   const bx = pose.bodyDx
   const by = pose.bodyDy
   switch (pose.body) {
     case 'stand': {
-      if (!pose.back) paintTail(pose, -5 + bx, -6 + by, paint)
-      paintLegs(pose, paint, true)
-      stamp(BODY_STAND, bx, by, paint, pose.flip, pose.tilt)
-      paintLegs(pose, paint, false)
-      paintHead(pose, bx + pose.headDx, -5 + by + pose.headDy + Math.round(pose.tilt), paint)
-      if (pose.back) paintTail(pose, -5 + bx, -6 + by, paint)
+      const tilt = species.sprite.tilt
+      if (!pose.back) paintTail(k, pose, a.stand.tail, paint)
+      paintLegs(k, pose, paint, true)
+      stamp(k.bodies.stand, bx, by, paint, pose.flip, pose.tilt, tilt.x0, tilt.span)
+      paintLegs(k, pose, paint, false)
+      paintHead(k, pose, a.stand.head[0] + bx + pose.headDx, a.stand.head[1] + by + pose.headDy + Math.round(pose.tilt), paint)
+      if (pose.back) paintTail(k, pose, a.stand.tail, paint)
       return
     }
     case 'sit': {
-      paintTail(pose, -3 + bx, -1 + by, paint)
-      stamp(BODY_SIT, bx, by, paint, pose.flip)
+      paintTail(k, pose, a.sit.tail, paint)
+      stamp(k.bodies.sit, bx, by, paint, pose.flip)
       if (pose.scratch > 0) {
         // 뒷다리를 들어 귀 뒤를 긁는다
-        for (let k = 0; k < 3; k++) {
-          const lx = -1 + bx + k
-          const ly = -3 + by - Math.round(pose.scratch * k / 2)
-          paint(pose.flip ? -lx : lx, ly, OUTLINE)
-          paint(pose.flip ? -lx : lx, ly - 1, BODY)
+        const [edgeRole, fillRole] = species.sprite.legs.near
+        for (let i = 0; i < 3; i++) {
+          const lx = a.sit.scratch[0] + bx + i
+          const ly = a.sit.scratch[1] + by - Math.round(pose.scratch * i / 2)
+          paint(pose.flip ? -lx : lx, ly, k.role(edgeRole))
+          paint(pose.flip ? -lx : lx, ly - 1, k.role(fillRole))
         }
       }
-      paintHead(pose, 0 + bx + pose.headDx, -6 + by + pose.headDy, paint)
+      paintHead(k, pose, a.sit.head[0] + bx + pose.headDx, a.sit.head[1] + by + pose.headDy, paint)
       return
     }
     case 'lie': {
-      paintTail(pose, -5 + bx, -3 + by, paint)
-      stamp(BODY_LIE, bx, by, paint, pose.flip)
-      paintHead(pose, bx + pose.headDx, -3 + by + pose.headDy, paint)
+      paintTail(k, pose, a.lie.tail, paint)
+      stamp(k.bodies.lie, bx, by, paint, pose.flip)
+      paintHead(k, pose, a.lie.head[0] + bx + pose.headDx, a.lie.head[1] + by + pose.headDy, paint)
       return
     }
     case 'curlA':
     case 'curlB': {
-      stamp(pose.body === 'curlA' ? CURL_A : CURL_B, bx, by, paint, pose.flip)
+      stamp(k.bodies[pose.body], bx, by, paint, pose.flip)
       return
     }
     case 'frontSit':
     case 'frontStand': {
-      const bm = pose.body === 'frontSit' ? FRONT_SIT : FRONT_STAND
+      const bm = k.bodies[pose.body]
       // 꼬리는 몸 뒤에서 옆으로 흔든다
       if (pose.tailLen > 0) {
         const side = Math.sin(pose.tailAngle) > 0 ? 1 : -1
-        const ty = pose.body === 'frontSit' ? -3 : -4
-        for (let k = 1; k <= 2; k++) paint((4 + k) * side + bx, ty + by - (k === 2 ? 1 : 0), k === 2 ? EAR_DARK : EAR)
+        const ty = pose.body === 'frontSit' ? a.front.sitY : a.front.standY
+        const { role, tipRole } = species.sprite.tail
+        for (let i = 1; i <= 2; i++) paint((a.front.x + i) * side + bx, ty + by - (i === 2 ? 1 : 0), k.role(i === 2 ? tipRole : role))
       }
       stamp(bm, bx, by, paint, false)
-      paintFace(bm, bx, by, pose, false, paint)
+      paintFace(k, bm, bx, by, pose, false, paint)
       return
     }
   }
 }
 
-// 가림 뒤로 비쳐 보이는 진한 색
-const SEE_THROUGH = new Set<number>([OUTLINE, EYE, EAR_DARK])
-
-// 버퍼에 강아지를 그린다. 깊이가 앞선 타일 픽셀에 가려지고,
-// 가려진 윤곽은 가린 면 위에 한 칸 걸러 진한 선 색으로 비쳐 보여 블록 뒤에서도 어디 있는지 알 수 있다
-export function drawDog(b: Buffer, pose: DogPose, x: number, y: number, depth: number): void {
-  paintDog(pose, (px, py, c) => {
+// 버퍼에 동물을 그린다. 깊이가 앞선 타일 픽셀에 가려지고,
+// 가려진 진한 픽셀은 가린 면 위에 한 칸 걸러 굵은 모눈선 색으로 비쳐 보여 블록 뒤에서도 어디 있는지 알 수 있다
+export function drawPet(b: Buffer, species: SpeciesDef, pose: PetPose, x: number, y: number, depth: number, bank = 0): void {
+  const seeThrough = compile(species, bank).seeThrough
+  paintPet(species, pose, (px, py, c) => {
     const X = x + px
     const Y = y + py
     if (X < 0 || Y < 0 || X >= b.w || Y >= b.h) return
     const i = Y * b.w + X
     if (depth > b.depth[i]!) b.px[i] = c
-    else if (SEE_THROUGH.has(c) && ((X + Y) & 1) === 0) b.px[i] = Palette.LINE_HEAVY
-  })
+    else if (seeThrough.has(c) && ((X + Y) & 1) === 0) b.px[i] = Palette.LINE_HEAVY
+  }, bank)
 }
 
 // 작은 그림: 감정 표시, z, 공. 감정 표시는 동물 색을 빌리지 않고 효과 묶음의 고정 색으로 칠한다

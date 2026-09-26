@@ -2,7 +2,8 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import Iso, { type Proj } from '../hooks/iso'
 import Pixel, { Palette } from '../hooks/pixel'
-import Sprite, { type DogPose } from '../hooks/sprite'
+import Species from '../hooks/species'
+import Sprite, { type PetPose } from '../hooks/sprite'
 import World, { type World as WorldState } from '../hooks/world'
 import Fixtures from './fixtures'
 
@@ -13,7 +14,7 @@ const BODY = Palette.bank(0) + Palette.Role.body
 
 const flatWorld = Fixtures.flatWorld
 
-const STAND: DogPose = {
+const STAND: PetPose = {
   body: 'stand', flip: false, back: false, bodyDx: 0, bodyDy: 0, tilt: 0, head: 'face', headDx: 0, headDy: 0,
   eyeClosed: false, tongue: false, mouthOpen: false, tailAngle: 0.8, tailLen: 3, scratch: 0,
   legs: [[-3, false], [-2, true], [2, false], [3, true]].map(([hipX, far]) => ({ hipX: hipX as number, far: far as boolean, dx: 0, lift: false, len: 2 })),
@@ -88,7 +89,7 @@ describe('iso', () => {
       const s = Iso.screenOf(5, 5, 0)
       const view = { ox: Math.round(s.sx) - 20, oy: Math.round(s.sy) - 30 }
       Iso.drawWorld(b, world, view)
-      Sprite.drawDog(b, { ...STAND, flip: true }, 20, 30, 10.4)
+      Sprite.drawPet(b, Species.DOG, { ...STAND, flip: true }, 20, 30, 10.4)
       let n = 0
       for (const c of b.px) if (c === BODY) n++
       return n
@@ -178,7 +179,7 @@ describe('iso projections', () => {
       Pixel.clear(b)
       const s = Iso.screenOf(5, 5, 0, Iso.FAR)
       Iso.drawWorld(b, world, { ox: Math.round(s.sx) - 20, oy: Math.round(s.sy) - 30 }, Iso.FAR)
-      Sprite.drawDog(b, { ...STAND, flip: true }, 20, 30, 10.4)
+      Sprite.drawPet(b, Species.DOG, { ...STAND, flip: true }, 20, 30, 10.4)
       let n = 0
       for (const c of b.px) if (c === BODY) n++
       return n
@@ -192,12 +193,12 @@ describe('iso projections', () => {
     for (const [, proj] of PROJS) {
       const alone = Pixel.bufferOf(40, 20, 1)
       Pixel.clear(alone)
-      Sprite.drawDog(alone, STAND, 20, 30, 10.4)
+      Sprite.drawPet(alone, Species.DOG, STAND, 20, 30, 10.4)
       const b = Pixel.bufferOf(40, 20, 1)
       Pixel.clear(b)
       const s = Iso.screenOf(5, 5, 0, proj)
       Iso.drawWorld(b, flatWorld(12, 12), { ox: Math.round(s.sx) - 20, oy: Math.round(s.sy) - 30 }, proj)
-      Sprite.drawDog(b, STAND, 20, 30, 10.4)
+      Sprite.drawPet(b, Species.DOG, STAND, 20, 30, 10.4)
       for (let i = 0; i < alone.px.length; i++) if (alone.px[i] !== Palette.VOID) expect(b.px[i]).toBe(alone.px[i]!)
     }
   })

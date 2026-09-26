@@ -2,7 +2,8 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import Pet, { type Pet as PetState, type PoseName, type Gait, type Dir } from '../hooks/pet'
 import Pixel, { Palette } from '../hooks/pixel'
-import Sprite, { type DogPose } from '../hooks/sprite'
+import Species, { type SpeciesDef } from '../hooks/species'
+import Sprite, { type PetPose } from '../hooks/sprite'
 import World from '../hooks/world'
 
 const B = Palette.bank(0)
@@ -15,14 +16,17 @@ const POSES: readonly PoseName[] = [
 const GAITS: readonly Gait[] = ['walk', 'trot', 'run', 'sniff']
 const DIRS: readonly Dir[] = ['SE', 'SW', 'NW', 'NE']
 
-function petOf(): PetState {
+function petOfSpecies(species: SpeciesDef): PetState {
   const world = World.create(7)
-  return Pet.create(world, 7, 0)
+  return Pet.create(world, 7, 0, species)
 }
 
-// 자세 × 방향 × 시계(꼬리·숨·단계 시간)를 훑어 scene 이 그릴 수 있는 모습을 모은다
-function allPoses(): Array<{ name: string; pose: DogPose }> {
-  const out: Array<{ name: string; pose: DogPose }> = []
+const petOf = () => petOfSpecies(Species.DOG)
+
+// 자세 × 방향 × 시계(꼬리·숨·단계 시간) × 걸음을 훑어 scene 이 그릴 수 있는 모습을 모은다
+function allPoses(species: SpeciesDef = Species.DOG): Array<{ name: string; pose: PetPose }> {
+  const petOf = () => petOfSpecies(species)
+  const out: Array<{ name: string; pose: PetPose }> = []
   for (const dir of DIRS) {
     for (let ms = 0; ms < 3000; ms += 37) {
       for (const name of POSES) {
@@ -60,22 +64,26 @@ function allPoses(): Array<{ name: string; pose: DogPose }> {
   return out
 }
 
-function pixelsOf(pose: DogPose): Map<string, number> {
+function pixelsOf(pose: PetPose, species: SpeciesDef = Species.DOG): Map<string, number> {
   const m = new Map<string, number>()
-  Sprite.paintDog(pose, (x, y, c) => m.set(`${x},${y}`, c))
+  Sprite.paintPet(species, pose, (x, y, c) => m.set(`${x},${y}`, c))
   return m
 }
 
 describe('sprite', () => {
-  test('every pose fits in 16 × 13 pixels and never goes below the floor', async () => {
-    for (const { name, pose } of allPoses()) {
-      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
-      Sprite.paintDog(pose, (x, y) => {
-        x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
-      })
-      const fits = x1 - x0 + 1 <= 16 && y1 - y0 + 1 <= 13 && y1 <= -1
-      if (!fits) throw new Error(`${name}: x ${x0}..${x1}, y ${y0}..${y1}`)
-      expect(fits).toBe(true)
+  test('every species draws every pose, direction and gait inside 16 × 13 pixels, above the floor and never empty', async () => {
+    for (const species of Object.values(Species.SPECIES)) {
+      for (const { name, pose } of allPoses(species)) {
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+        const painted = pixelsOf(pose, species)
+        for (const key of painted.keys()) {
+          const [x, y] = key.split(',').map(Number) as [number, number]
+          x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+        }
+        const fits = painted.size >= 20 && x1 - x0 + 1 <= 16 && y1 - y0 + 1 <= 13 && y1 <= -1
+        if (!fits) throw new Error(`${species.id} ${name}: ${painted.size} px, x ${x0}..${x1}, y ${y0}..${y1}`)
+        expect(fits).toBe(true)
+      }
     }
   })
 
@@ -117,7 +125,7 @@ describe('sprite', () => {
   test('closing the eyes removes the black eye pixels, and the tongue adds pink', async () => {
     const p = petOf()
     const open = Pet.poseOf(p)
-    const count = (pose: DogPose, c: number) => [...pixelsOf(pose).values()].filter(v => v === c).length
+    const count = (pose: PetPose, c: number) => [...pixelsOf(pose).values()].filter(v => v === c).length
     expect(count({ ...open, eyeClosed: true }, B + R.eye) < count(open, B + R.eye)).toBe(true)
     expect(count({ ...open, eyeClosed: true }, B + R.lid) > 0).toBe(true)
     expect(count(open, B + R.tongue)).toBe(0)
@@ -131,7 +139,7 @@ describe('sprite', () => {
     b.px.fill(Palette.kind(0))
     b.depth.fill(100)
     const p = petOf()
-    Sprite.drawDog(b, Pet.poseOf(p), 15, 20, 10)
+    Sprite.drawPet(b, p.species, Pet.poseOf(p), 15, 20, 10)
     let heavy = 0
     for (let i = 0; i < b.px.length; i++) {
       const c = b.px[i]!

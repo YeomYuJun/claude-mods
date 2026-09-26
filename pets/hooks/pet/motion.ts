@@ -7,18 +7,8 @@ import Names from '../names'
 import Iso from '../iso'
 import World, { type World as WorldState } from '../world'
 import * as Fx from './fx.js'
-import { dirOf, isRight, type Gait, type Pet } from './state.js'
+import { dirOf, isRight, type Pet } from './state.js'
 
-export const SPEED: Record<Gait, number> = { walk: 2.4, trot: 3.6, run: 6.0, sniff: 1.1 }
-const ACCEL: Record<Gait, number> = { walk: 7, trot: 10, run: 14, sniff: 5 }
-const DECEL: Record<Gait, number> = { walk: 6, trot: 9, run: 12, sniff: 5 }
-// 걸음 한 주기에 가는 거리(타일)
-export const STRIDE: Record<Gait, number> = { walk: 0.62, trot: 0.9, run: 1.3, sniff: 0.45 }
-const CORNER = 0.22
-const CROUCH_MS = 80
-const LAND_MS = 90
-const TURN_MS = 110
-const DUST_EVERY_MS = 110
 
 function groundOf(world: WorldState, x: number, y: number): number {
   return World.heightAt(world, Math.round(x), Math.round(y)) * Names.STEP_PX
@@ -26,7 +16,7 @@ function groundOf(world: WorldState, x: number, y: number): number {
 
 function face(p: Pet, dx: number, dy: number): void {
   const next = dirOf(dx, dy)
-  if (isRight(next) !== isRight(p.dir)) p.turnMs = TURN_MS
+  if (isRight(next) !== isRight(p.dir)) p.turnMs = p.species.motion.turnMs
   p.dir = next
 }
 
@@ -47,11 +37,12 @@ function startHop(p: Pet, world: WorldState, tx: number, ty: number, isPath: boo
   const z1 = groundOf(world, tx, ty)
   const up = z1 > p.z
   const dist = Math.hypot(tx - p.x, ty - p.y)
-  const v = Math.max(p.speed, 2.2)
+  const j = p.species.jump
+  const v = Math.max(p.speed, j.minSpeed)
   p.hop = {
     fx: p.x, fy: p.y, tx, ty, z0: p.z, z1, t: 0,
-    dur: Math.min(420, Math.max(220, (dist / v) * 1000)),
-    peak: (up ? 5 : 3) + (p.gait === 'run' ? 2 : 0),
+    dur: Math.min(j.maxMs, Math.max(j.minMs, (dist / v) * 1000)),
+    peak: (up ? j.upPx : j.downPx) + (p.gait === 'run' ? j.runBonusPx : 0),
     isPath,
   }
 }
@@ -60,12 +51,13 @@ function startHop(p: Pet, world: WorldState, tx: number, ty: number, isPath: boo
 export function pounce(p: Pet, world: WorldState, dx: number, dy: number): void {
   const x0 = Math.round(p.x)
   const y0 = Math.round(p.y)
-  const ok = World.canStep(world, x0, y0, x0 + dx, y0 + dy)
+  const ok = World.canStep(world, x0, y0, x0 + dx, y0 + dy, p.species.abilities)
+  const { peakPx, ms } = p.species.jump.pounce
   p.gait = 'trot'
   p.speed = 0
   p.hop = {
     fx: p.x, fy: p.y, tx: ok ? x0 + dx : p.x, ty: ok ? y0 + dy : p.y, z0: p.z,
-    z1: ok ? groundOf(world, x0 + dx, y0 + dy) : p.z, t: 0, dur: 360, peak: 7, isPath: false,
+    z1: ok ? groundOf(world, x0 + dx, y0 + dy) : p.z, t: 0, dur: ms, peak: peakPx, isPath: false,
   }
 }
 
@@ -73,6 +65,7 @@ export function step(p: Pet, world: WorldState, dtMs: number): void {
   const dt = dtMs / 1000
   p.turnMs = Math.max(0, p.turnMs - dtMs)
   p.landMs = Math.max(0, p.landMs - dtMs)
+  const m = p.species.motion
   if (p.hop) {
     const h = p.hop
     h.t += dtMs
@@ -84,7 +77,7 @@ export function step(p: Pet, world: WorldState, dtMs: number): void {
     if (u >= 1) {
       p.z = h.z1
       p.hop = undefined
-      p.landMs = LAND_MS
+      p.landMs = m.landMs
       puff(p, 4, 14)
       if (h.isPath) p.path.shift()
     }
@@ -109,11 +102,11 @@ export function step(p: Pet, world: WorldState, dtMs: number): void {
   const dist = Math.hypot(dx, dy)
   const here = World.heightAt(world, Math.round(p.x), Math.round(p.y))
   const there = World.heightAt(world, wp.x, wp.y)
-  if (there !== here && dist <= 0.62) {
+  if (there !== here && dist <= m.hopAt) {
     faceTo(p, dx, dy)
     // 걷다가 오를 때는 멈칫 웅크리고, 뛰는 중에는 속도 그대로 뛰어오른다
     if (p.gait === 'run' || p.gait === 'trot') startHop(p, world, wp.x, wp.y, true)
-    else { p.crouchMs = CROUCH_MS; p.speed *= 0.4 }
+    else { p.crouchMs = m.crouchMs; p.speed *= 0.4 }
     return
   }
   let remaining = dist
@@ -123,9 +116,10 @@ export function step(p: Pet, world: WorldState, dtMs: number): void {
     remaining += Math.abs(q.x - prev.x) + Math.abs(q.y - prev.y)
     prev = q
   }
-  const target = Math.min(SPEED[p.gait], Math.sqrt(2 * DECEL[p.gait] * remaining))
-  if (p.speed < target) p.speed = Math.min(target, p.speed + ACCEL[p.gait] * dt)
-  else p.speed = Math.max(target, p.speed - DECEL[p.gait] * dt)
+  const g = p.species.gaits[p.gait]
+  const target = Math.min(g.speed, Math.sqrt(2 * g.decel * remaining))
+  if (p.speed < target) p.speed = Math.min(target, p.speed + g.accel * dt)
+  else p.speed = Math.max(target, p.speed - g.decel * dt)
   p.speed = Math.max(p.speed, 0.35)
   const move = Math.min(dist, p.speed * dt)
   if (dist > 1e-6) {
@@ -133,18 +127,18 @@ export function step(p: Pet, world: WorldState, dtMs: number): void {
     p.y += (dy / dist) * move
     faceTo(p, dx, dy)
   }
-  p.stride += move / STRIDE[p.gait]
+  p.stride += move / g.stride
   p.z = groundOf(world, p.x, p.y)
-  if (p.gait === 'run') {
+  if (p.gait === 'run' && m.runDustMs > 0) {
     p.fxClock += dtMs
-    if (p.fxClock >= DUST_EVERY_MS) { p.fxClock = 0; puff(p, 1, 6) }
+    if (p.fxClock >= m.runDustMs) { p.fxClock = 0; puff(p, 1, 6) }
   }
   const next = p.path[1]
   const left = dist - move
   // 다음 구간이 지금 가는 축과 다른 축이면 꺾는 칸이다
   const isTurn = next !== undefined && (next.x !== wp.x) !== (Math.abs(dx) > Math.abs(dy))
   const flat = next !== undefined && World.heightAt(world, next.x, next.y) === there && here === there
-  if (left <= 1e-4 || (isTurn && flat && left < CORNER)) {
+  if (left <= 1e-4 || (isTurn && flat && left < m.corner)) {
     p.path.shift()
     if (p.path.length === 0) { p.x = wp.x; p.y = wp.y; p.speed = 0 }
   }
