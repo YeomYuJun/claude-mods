@@ -4,12 +4,14 @@
 import Names from '../names'
 import Pixel, { Palette, type Buffer, type Grid } from '../pixel'
 import Rng from '../rng'
-import Species, { type BandFrame, type BandRole, type SpeciesDef } from '../species'
+import Species, { type BandColors, type BandFrame, type BandRole, type SpeciesDef } from '../species'
 
 type Mode = 'idle' | 'walk' | 'run' | 'sit' | 'sniff' | 'sleep'
 
 export type Band = {
   species: SpeciesDef
+  // 번호마다의 RGB(품종의 띠 색 한 벌로 만든다)
+  rgb: readonly number[]
   x: number
   // 1 = 오른쪽, -1 = 왼쪽
   dir: 1 | -1
@@ -44,16 +46,29 @@ export const EAR = 6
 export const EAR_DARK = 7
 export const COLLAR = 8
 export const Z = 9
-// 패널 강아지와 같은 개로 보이도록 늘어진 귀·꼬리는 갈색(두 칸 꼬리의 끝은 짙은 갈색), 목줄은 빨간색이다
-export const RGB: readonly number[] = [
-  Palette.DEFAULT_COLOR, 0x8f8b8d, 0xfdfdfd, 0xd9d6d7, 0xa29ea0, 0x141212, 0xc47f4a, 0x8e5433, 0xe2433b, 0xa29ea0,
-]
+// 바닥 점선과 z 는 품종과 상관없는 회색이다
+const FLOOR_RGB = 0x8f8b8d
+const Z_RGB = 0xa29ea0
+
+// 품종 띠 색 한 벌로 번호 표를 만든다. 패널 강아지와 같은 개로 보이도록 귀·꼬리·목줄 색도 품종이 정한다
+export function rgbOf(c: BandColors): readonly number[] {
+  return [Palette.DEFAULT_COLOR, FLOOR_RGB, c.body, c.under, c.line, c.eye, c.ear, c.earDark, c.collar, Z_RGB]
+}
+
+// 기본(흰 강아지, 어두운 터미널용)
+export const RGB: readonly number[] = rgbOf(Species.DOG.breeds[0]!.band.dark)
 const INDEX: Readonly<Record<BandRole, number>> = { body: BODY, under: UNDER, line: LINE, eye: EYE, ear: EAR, earDark: EAR_DARK, collar: COLLAR }
 
 // 프레임(종 정의의 band.frames)은 오른쪽 보기, 아래 줄이 바닥 바로 위(y = 4). 가로 가운데가 x
-export function create(seed: number, now: number, species: SpeciesDef = Species.DOG): Band {
+export function create(seed: number, now: number, species: SpeciesDef = Species.DOG, colors: BandColors = Species.DOG.breeds[0]!.band.dark): Band {
   const rng = Rng.create(seed ^ 0xba5d)
-  return { species, x: 20, dir: 1, mode: 'idle', targetX: 20, left: 1500, walked: 0, clock: 0, zAt: 0, rng, lastSignalAt: now, toolsRunning: 0, lastSniffAt: -Infinity, width: 80 }
+  return { species, rgb: rgbOf(colors), x: 20, dir: 1, mode: 'idle', targetX: 20, left: 1500, walked: 0, clock: 0, zAt: 0, rng, lastSignalAt: now, toolsRunning: 0, lastSniffAt: -Infinity, width: 80 }
+}
+
+// 품종이나 터미널 밝기가 바뀌면 모습과 색만 바꾼다(움직임 상태는 그대로)
+export function setLook(band: Band, species: SpeciesDef, colors: BandColors): void {
+  band.species = species
+  band.rgb = rgbOf(colors)
 }
 
 function go(band: Band, mode: 'walk' | 'run', minFrac: number): void {
@@ -177,7 +192,7 @@ export function compose(band: Band, cols: number): string {
     const hx = Math.round(band.x) + band.dir * 3
     if (phase < 2) Pixel.plot(b, hx + band.dir * phase, 1 - phase, Z)
   }
-  Pixel.fold(b, g, RGB)
+  Pixel.fold(b, g, band.rgb)
   return Pixel.encode(g)
 }
 

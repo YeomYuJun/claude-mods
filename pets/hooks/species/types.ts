@@ -2,7 +2,7 @@
 // 그리기·걸음·행동 코드는 종마다 다른 값을 여기서만 읽는다. 자세별 꼬리 흔들기·머리 움직임 같은 안무는 pet/pose.ts 에 둔다.
 
 import type { ActName, Gait, PoseName } from '../pet/state.js'
-import type { RoleName } from '../pixel/palette.js'
+import type { BankColors, RoleName } from '../pixel/palette.js'
 
 export type SpeciesId = 'dog'
 
@@ -70,9 +70,27 @@ export type BandSet = {
   weights: { busy: Readonly<Record<'walk' | 'idle' | 'sit' | 'sniff', number>>; calm: Readonly<Record<'walk' | 'idle' | 'sit' | 'sniff', number>> }
 }
 
+export type BreedId = 'dog' | 'shiba' | 'blackdog' | 'dalmatian' | 'brown'
+
+// 띠 색 한 벌(띠 역할마다 RGB)
+export type BandColors = Readonly<Record<BandRole, number>>
+
+// 품종: 같은 비트맵에 색만 다르다. spots 가 있으면 몸 털 칸 중 그 비율만큼을 무늬 역할로 바꾼 비트맵을 쓴다.
+// 띠 색은 어두운 터미널용(dark)과 밝은 터미널용(light) 두 벌
+export type BreedDef = {
+  id: BreedId
+  label: string
+  aliases: readonly string[]
+  bank: BankColors
+  band: { dark: BandColors; light: BandColors }
+  spots?: number
+}
+
 export type SpeciesDef = {
   id: SpeciesId
   label: string
+  // 이 종의 품종. 첫 번째가 기본
+  breeds: readonly BreedDef[]
   gaits: Readonly<Record<Gait, GaitDef>>
   // 꺾는 칸에서 미리 넘어가는 거리, 뛰기 전 웅크림·착지 눌림·돌아볼 때 정면 모습(ms), 단차를 이 거리 안에서 뛴다, 달릴 때 먼지 간격(ms)
   motion: { corner: number; crouchMs: number; landMs: number; turnMs: number; hopAt: number; runDustMs: number }

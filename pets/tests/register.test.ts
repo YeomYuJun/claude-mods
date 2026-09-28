@@ -4,6 +4,8 @@ import Fixtures from './fixtures'
 
 const ZOOM_IN = { ...Fixtures.PETS, args: 'zoom in' } as const
 const ZOOM_OUT = { ...Fixtures.PETS, args: ' Zoom  OUT ' } as const
+const WORLD = (name: string) => ({ ...Fixtures.PETS, args: `world ${name}` })
+const PET = (name: string) => ({ ...Fixtures.PETS, args: `pet ${name}` })
 
 function propsOf(tree: unknown): Record<string, unknown> {
   return Reflect.get(tree as object, 'props') as Record<string, unknown>
@@ -156,6 +158,98 @@ describe('register', () => {
     expect(denied).toEqual({ deny: 'no' })
     await world.clock.advance(3000)
     expect(world.blits.length > 0).toBe(true)
+  })
+
+  test('/pets world lists the sets; an id or a Korean alias switches the colors and is stored; an unknown name changes nothing', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.PETS_DOCKED)
+    const paper = String(propsOf(await $.ui.render(Fixtures.paneOf(40, 30))).cells)
+    const list = await $.command.run(WORLD(''))
+    expect(list.text).toContain('지금 맵 세트: 모눈종이')
+    for (const id of ['paper', 'meadow', 'mountain', 'forest', 'lake', 'auto']) expect(list.text).toContain(id)
+    expect((await $.command.run(WORLD('forest'))).text).toBe('맵 세트를 숲 세트로 바꿨다. 지금은 색만 바뀌고 맵 모양은 그대로다')
+    const forest = String(propsOf(await $.ui.render(Fixtures.paneOf(40, 30))).cells)
+    expect(forest === paper).toBe(false)
+    expect(world.store.get('world')).toEqual({ v: 1, set: 'forest' })
+    expect((await $.command.run(WORLD('초원'))).text).toBe('맵 세트를 초원 세트로 바꿨다. 지금은 색만 바뀌고 맵 모양은 그대로다')
+    expect(world.store.get('world')).toEqual({ v: 1, set: 'meadow' })
+    const bad = await $.command.run(WORLD('volcano'))
+    expect(bad.text).toContain("'volcano' 라는 맵 세트는 없다")
+    expect(bad.text).toContain('lake 호숫가')
+    expect(world.store.get('world')).toEqual({ v: 1, set: 'meadow' })
+    expect((await $.command.run(WORLD(''))).text).toContain('지금 맵 세트: 초원.')
+  })
+
+  test('/pets world auto picks a set other than graph paper from the session and keeps auto in the store', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    const auto = await $.command.run(WORLD('auto'))
+    expect(auto.text).toContain('자동으로 바꿨다')
+    expect(auto.text.includes('모눈종이')).toBe(false)
+    expect(world.store.get('world')).toEqual({ v: 1, set: 'auto' })
+    await $.session.start(Fixtures.START)
+    expect((await $.command.run(WORLD(''))).text).toContain('(자동)')
+  })
+
+  test('a stored set comes back next session; an unknown set, version or shape falls back to graph paper and stays in the store', async ($, on) => {
+    const world = Fixtures.worldOf(on, { world: { v: 1, set: 'lake' } })
+    await $.session.start(Fixtures.START)
+    expect((await $.command.run(WORLD(''))).text).toContain('지금 맵 세트: 호숫가.')
+    for (const value of [{ v: 1, set: 'volcano' }, { v: 9, set: 'lake' }, 'lake', null]) {
+      world.store.set('world', value)
+      await $.session.start(Fixtures.START)
+      expect((await $.command.run(WORLD(''))).text).toContain('지금 맵 세트: 모눈종이.')
+      expect(world.store.get('world')).toEqual(value)
+    }
+  })
+
+  test('/pets pet lists the breeds; an id or a Korean alias switches the dog and is stored; extra names are ignored; an unknown one changes nothing', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.PETS_DOCKED)
+    const white = String(propsOf(await $.ui.render(Fixtures.paneOf(40, 30))).cells)
+    const list = await $.command.run(PET(''))
+    expect(list.text).toContain('지금 강아지: 흰 강아지')
+    for (const id of ['dog', 'shiba', 'blackdog', 'dalmatian', 'brown', 'auto']) expect(list.text).toContain(id)
+    expect((await $.command.run(PET('시바'))).text).toBe('강아지를 바꿨다: 시바')
+    expect(String(propsOf(await $.ui.render(Fixtures.paneOf(40, 30))).cells) === white).toBe(false)
+    expect(world.store.get('pets')).toEqual({ v: 1, list: ['shiba'] })
+    expect((await $.command.run(PET('dalmatian brown dog'))).text).toBe('강아지를 바꿨다: 점박이. 지금은 한 마리만 두어 첫 번째만 썼다(2 개는 무시)')
+    expect(world.store.get('pets')).toEqual({ v: 1, list: ['dalmatian'] })
+    expect((await $.command.run(PET('unicorn'))).text).toContain("'unicorn' 라는 품종은 없다")
+    expect(world.store.get('pets')).toEqual({ v: 1, list: ['dalmatian'] })
+    const auto = await $.command.run(PET('auto'))
+    expect(auto.text).toContain('자동으로 바꿨다')
+    expect(auto.text.includes('흰 강아지')).toBe(false)
+    expect(world.store.get('pets')).toEqual({ v: 1, list: 'auto' })
+  })
+
+  test('a stored breed comes back next session; an unknown breed, version or shape falls back to the white dog and stays in the store', async ($, on) => {
+    const world = Fixtures.worldOf(on, { pets: { v: 1, list: ['blackdog'] } })
+    await $.session.start(Fixtures.START)
+    expect((await $.command.run(PET(''))).text).toContain('지금 강아지: 검은 강아지.')
+    for (const value of [{ v: 1, list: ['unicorn'] }, { v: 2, list: ['shiba'] }, ['shiba'], 'shiba']) {
+      world.store.set('pets', value)
+      await $.session.start(Fixtures.START)
+      expect((await $.command.run(PET(''))).text).toContain('지금 강아지: 흰 강아지.')
+      expect(world.store.get('pets')).toEqual(value)
+    }
+  })
+
+  test('the band dog switches to its light-terminal colors when the theme is light, and back when it turns dark', async ($, on) => {
+    Fixtures.worldOf(on, { band: true }, 'light')
+    on('config.set', ($, e) => ({ value: e.value }))
+    on('ui.render', () => ({ type: 'Engine', props: {}, children: [] }) as never)
+    await $.session.start(Fixtures.START)
+    const light = String(propsOf(await $.ui.render(Fixtures.bandOf(100, 10))).cells)
+    await $.config.set({ key: 'theme', value: 'dark', previous: 'light', provider: { kind: 'engine' }, origin: { kind: 'person' } } as never)
+    const dark = String(propsOf(await $.ui.render(Fixtures.bandOf(100, 10))).cells)
+    expect(light === dark).toBe(false)
+    const words = Fixtures.wordsOf(dark)
+    const colors = new Set<number>()
+    for (let i = 0; i + 2 < words.length; i += 3) { colors.add(words[i + 1]!); colors.add(words[i + 2]!) }
+    expect(colors.has(0xfdfdfd)).toBe(true)
   })
 
   test('far zoom keeps the Raster size and paints a different frame from 1 ×', async ($, on) => {

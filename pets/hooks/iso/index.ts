@@ -115,9 +115,10 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   if (frontRight > 0) face(b, proj.right, tx, ty, frontRight, base, SIDE + Palette.Side.SIDE_R, SIDE + Palette.Side.R_STEP, isEdgeRight, proj, w)
   const top = TOP_OF[hgt] ?? TOP_OF[4]!
   const hi = HI_OF[hgt] ?? HI_OF[4]!
+  // 맵 뒤쪽 변(뒤에 칸이 없는 NW·NE 변)은 테 색으로 긋는다. 밝은 터미널에서도 맵 경계가 보이게 세트가 어두운 색을 줄 수 있다
   const every = proj.lineEvery
-  const lineNW = x % every !== 0 ? 0 : x % 3 === 0 ? Palette.LINE_HEAVY : LINE
-  const lineNE = y % every !== 0 ? 0 : y % 3 === 0 ? Palette.LINE_HEAVY : LINE
+  const lineNW = !World.inside(world, x - 1, y) ? Palette.RIM : x % every !== 0 ? 0 : x % 3 === 0 ? Palette.LINE_HEAVY : LINE
+  const lineNE = !World.inside(world, x, y - 1) ? Palette.RIM : y % every !== 0 ? 0 : y % 3 === 0 ? Palette.LINE_HEAVY : LINE
   // 빛은 왼쪽 앞(+y 쪽)에서 온다(왼쪽 면이 밝고 오른쪽 면이 어둡다). 그래서 NW 이웃(x - 1)의 그늘은 +x 로 이 칸에 떨어지고,
   // NE 이웃(y - 1)의 밝은 벽 밑에는 좁은 접촉 그늘만 진다
   const upNW = x > 0 ? World.heightAt(world, x - 1, y) - hgt : 0

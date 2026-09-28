@@ -1,10 +1,12 @@
 // 패널 한 장(순수 모듈): 맵, 그림자, 공, 강아지, 효과를 픽셀 버퍼에 그리고 셀로 접어 인코딩한다.
 // 시뮬레이션은 고정 스텝으로 돌리고, 그리기는 지금 모습에 맞는 간격(renderEveryMs)으로만 한다.
 
+import Biome, { type BiomeId } from '../biome'
 import Iso, { type Camera, type Proj } from '../iso'
 import Names from '../names'
 import Pet, { type Pet as PetState, type TurnEnd } from '../pet'
 import Pixel, { Palette, type Buffer, type Grid } from '../pixel'
+import Species, { type BreedId } from '../species'
 import Sprite from '../sprite'
 import World, { type World as WorldState } from '../world'
 
@@ -12,7 +14,9 @@ export type Scene = {
   world: WorldState
   cam: Camera
   pet: PetState
-  // 번호마다의 색과 그림자 사슬. 세트·품종이 바뀔 때만 새로 만든다
+  // 맵 세트와 그 색 표(번호마다의 색과 그림자 사슬). 색 표는 세트·품종이 바뀔 때만 새로 만든다
+  biome: BiomeId
+  breed: BreedId
   theme: Palette.Theme
   // 고정 스텝에 못 미친 나머지 시간(ms)
   acc: number
@@ -34,11 +38,24 @@ function focusOf(pet: PetState): { sx: number; sy: number } {
   return { sx: s.sx, sy: s.sy - pet.species.sprite.lookUpPx }
 }
 
-export function create(seed: number, now: number): Scene {
+export function create(seed: number, now: number, biome: BiomeId = Biome.DEFAULT, breed: BreedId = Species.DEFAULT_BREED): Scene {
   const world = World.create(seed)
-  const pet = Pet.create(world, seed, now)
+  const pet = Pet.create(world, seed, now, Species.lookOf(breed))
   const f = focusOf(pet)
-  return { world, cam: Iso.cameraOf(f.sx, f.sy), pet, theme: Palette.PAPER_THEME, acc: 0, lead: { x: 0, y: 0 }, prev: f }
+  return { world, cam: Iso.cameraOf(f.sx, f.sy), pet, biome, breed, theme: Biome.themeOf(biome, Species.breedOf(breed).bank), acc: 0, lead: { x: 0, y: 0 }, prev: f }
+}
+
+// 세트를 바꾼다. 지금은 색만 바뀌고 맵과 강아지는 그대로다
+export function setBiome(scene: Scene, biome: BiomeId): void {
+  scene.biome = biome
+  scene.theme = Biome.themeOf(biome, Species.breedOf(scene.breed).bank)
+}
+
+// 품종을 바꾼다. 색과 무늬만 바뀌고 강아지의 자리·행동은 그대로다
+export function setBreed(scene: Scene, breed: BreedId): void {
+  scene.breed = breed
+  scene.pet.species = Species.lookOf(breed)
+  scene.theme = Biome.themeOf(scene.biome, Species.breedOf(breed).bank)
 }
 
 // 실제로 흐른 시간(상한 MAX_CATCHUP_MS)을 고정 스텝으로 잘라 돌린다

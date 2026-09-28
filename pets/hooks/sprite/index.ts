@@ -43,11 +43,13 @@ type Compiled = {
   seeThrough: Set<number>
 }
 
-const compiled = new Map<string, Compiled>()
+// 종 정의 객체마다(품종 무늬 사본은 따로), 뱅크마다
+const compiled = new WeakMap<SpeciesDef, Map<number, Compiled>>()
 
 function compile(species: SpeciesDef, bank: number): Compiled {
-  const key = `${species.id}:${bank}`
-  const done = compiled.get(key)
+  let byBank = compiled.get(species)
+  if (!byBank) { byBank = new Map(); compiled.set(species, byBank) }
+  const done = byBank.get(bank)
   if (done) return done
   const base = Palette.bank(bank)
   const role = (name: Palette.RoleName) => base + Palette.Role[name]
@@ -63,7 +65,7 @@ function compile(species: SpeciesDef, bank: number): Compiled {
     role,
     seeThrough: new Set(species.sprite.seeThrough.map(role)),
   }
-  compiled.set(key, out)
+  byBank.set(bank, out)
   return out
 }
 

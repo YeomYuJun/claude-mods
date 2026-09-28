@@ -6,13 +6,14 @@
 // 배치표
 //   0          VOID(터미널 기본색)
 //   1~55       지표 종류 5 개 × 11: 높이별 윗면 5, 윗면 그림자 2, 앞 모서리 하이라이트, 모눈선, 모눈선 그림자, 무늬
-//   56~59      세트 공통 지형: 굵은 모눈선, 그 그림자, 가장자리, 테
+//   56~59      세트 공통 지형: 굵은 모눈선, 그 그림자, 가장자리(밑판 맨 아래 줄), 테(맵 뒤쪽 변의 선)
 //   60~71      옆면 재질 3 개 × 4: 왼쪽 면, 오른쪽 면, 왼쪽 단 줄, 오른쪽 단 줄
 //   72~79      물
 //   80~99      소품
 //   100~111    효과
 //   112~159    동물 뱅크 4 개 × 12 역할
-//   160~254    예약
+//   160        그림자 사슬 끝: 가장자리 색이 굵은 선 그림자보다 밝은 세트에서 굵은 선 그림자를 한 번 더 어둡게 할 색
+//   161~254    예약
 
 export const VOID = 0
 export const TRANSPARENT = 255
@@ -33,6 +34,7 @@ export const LINE_HEAVY = 56
 export const LINE_HEAVY_SH = 57
 export const EDGE = 58
 export const RIM = 59
+export const SHADE_END = 160
 
 // 옆면 재질 묶음 안의 자리
 export const MATERIAL_COUNT = 3
@@ -95,7 +97,7 @@ export const PAPER: SetColors = {
   lineHeavy: 0xa29ea0,
   lineHeavySh: 0x928e90,
   edge: 0x8a8688,
-  rim: UNSET,
+  rim: 0xa29ea0,
   materials: [{ sideL: 0xc1c2c8, sideR: 0xa2a3ab, lStep: 0xb1b2b9, rStep: 0x92939c }],
   dust: 0xdcdadb,
   dirt: 0x8b8587,
@@ -112,6 +114,17 @@ export const WHITE_DOG: BankColors = {
 const FIXED: ReadonlyArray<readonly [number, number]> = [
   [ZZZ, 0x6d6a6b], [EMOTE_INK, 0x2b2426], [HEART, 0xe38a9b], [BALL, 0x5c5859], [BALL_HI, 0xf6f6f6],
 ]
+
+// 밝기(0~255). 그림자 색이 원래 색보다 어두운지 이것으로 가른다
+export function lumaOf(rgb: number): number {
+  return 0.299 * ((rgb >> 16) & 255) + 0.587 * ((rgb >> 8) & 255) + 0.114 * (rgb & 255)
+}
+
+// 채널마다 k 배
+export function scale(rgb: number, k: number): number {
+  const c = (shift: number) => Math.round(((rgb >> shift) & 255) * k)
+  return (c(16) << 16) | (c(8) << 8) | c(0)
+}
 
 export function themeOf(set: SetColors, banks: readonly BankColors[]): Theme {
   const rgb: number[] = new Array(256).fill(UNSET)
@@ -140,7 +153,13 @@ export function themeOf(set: SetColors, banks: readonly BankColors[]): Theme {
   rgb[EDGE] = set.edge
   rgb[RIM] = set.rim
   shadowOf[LINE_HEAVY] = LINE_HEAVY_SH
-  shadowOf[LINE_HEAVY_SH] = EDGE
+  shadowOf[RIM] = LINE_HEAVY_SH
+  // 가장자리 색이 더 어두우면 그것으로 사슬을 끝내고(모눈종이), 아니면 굵은 선 그림자를 한 번 더 어둡게 한 색으로 끝낸다
+  if (lumaOf(set.edge) < lumaOf(set.lineHeavySh)) shadowOf[LINE_HEAVY_SH] = EDGE
+  else {
+    rgb[SHADE_END] = scale(set.lineHeavySh, 0.9)
+    shadowOf[LINE_HEAVY_SH] = SHADE_END
+  }
   set.materials.slice(0, MATERIAL_COUNT).forEach((c, m) => {
     const base = material(m)
     rgb[base + Side.SIDE_L] = c.sideL

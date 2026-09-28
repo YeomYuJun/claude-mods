@@ -6,11 +6,16 @@ export type World = {
   closed: string[]
   blits: Array<{ requestId: string; key: string; cells: string; columns?: number; rows?: number }>
   clock: ReturnType<typeof mock.clock>
+  // 플러그인의 $.store 가 읽고 쓰는 값
+  store: Map<string, unknown>
 }
 
-export function worldOf(on: On): World {
-  const world: World = { opened: [], closed: [], blits: [], clock: mock.clock(on, { now: 1_000_000 }) }
-  mock.store(on)
+// store: 세션이 시작할 때 저장소에 들어 있는 값, theme: Claude Code 테마 설정 값
+export function worldOf(on: On, store: Readonly<Record<string, unknown>> = {}, theme = 'dark'): World {
+  const world: World = { opened: [], closed: [], blits: [], clock: mock.clock(on, { now: 1_000_000 }), store: new Map(Object.entries(store)) }
+  on('store.get', ($, e) => ({ value: world.store.get(e.key) }))
+  on('store.set', ($, e) => { world.store.set(e.key, e.value); return { value: undefined } })
+  on('config.list', () => ({ value: [{ key: 'theme', label: 'Theme', kind: 'choice', value: theme, provider: { kind: 'engine' }, isLocked: false }] }) as never)
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('ui.open', ($, e) => { world.opened.push({ ...e }); return { value: undefined } })

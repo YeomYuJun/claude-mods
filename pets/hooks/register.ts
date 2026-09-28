@@ -1,10 +1,12 @@
 import type { On, Timer } from 'claude-code'
 
 import Band from './band'
+import Biome, { type BiomeId } from './biome'
 import Names from './names'
 import Pet from './pet'
 import Rng from './rng'
 import Scene, { type Zoom } from './scene'
+import Species, { type BreedId } from './species'
 import View from './view'
 
 type Host = {
@@ -22,6 +24,28 @@ function safely(fn: () => void): void {
   try { fn() } catch { /* 강아지 쪽 오류는 무시한다 */ }
 }
 
+// 저장한 맵 세트 값을 읽는다. 모르는 모양·버전·세트면 기본 세트
+// 저장한 품종 값을 읽는다. 모르는 모양·버전·품종이면 기본 품종
+function petChoiceOf(value: unknown): BreedId | 'auto' {
+  if (typeof value !== 'object' || value === null) return Species.DEFAULT_BREED
+  const v = value as { v?: unknown; list?: unknown }
+  if (v.v !== Names.STORE_PETS_VERSION) return Species.DEFAULT_BREED
+  if (v.list === 'auto') return 'auto'
+  return Array.isArray(v.list) && Species.isBreedId(v.list[0]) ? v.list[0] : Species.DEFAULT_BREED
+}
+
+// Claude Code 테마가 밝은 계열이면 띠를 밝은 터미널용 색으로 그린다
+function isLightTheme(value: unknown): boolean {
+  return typeof value === 'string' && value.startsWith('light')
+}
+
+function worldChoiceOf(value: unknown): BiomeId | 'auto' {
+  if (typeof value !== 'object' || value === null) return Biome.DEFAULT
+  const v = value as { v?: unknown; set?: unknown }
+  if (v.v !== Names.STORE_WORLD_VERSION) return Biome.DEFAULT
+  return v.set === 'auto' || Biome.isId(v.set) ? v.set : Biome.DEFAULT
+}
+
 export function register(on: On) {
   let host: Host | undefined
   let isOpen = false
@@ -35,6 +59,26 @@ export function register(on: On) {
   let strip: Mount | undefined
   let isWorking = false
   let lastAt: number | undefined
+  // 고른 맵 세트('auto' 면 세션 시드로 고른다)와 세션 시드
+  let worldChoice: BiomeId | 'auto' = Biome.DEFAULT
+  let petChoice: BreedId | 'auto' = Species.DEFAULT_BREED
+  let isLight = false
+  let sessionSeed = 0x5eed
+
+  function biomeOf(choice: BiomeId | 'auto'): BiomeId {
+    return choice === 'auto' ? Biome.autoOf(sessionSeed) : choice
+  }
+
+  function breedOf(choice: BreedId | 'auto'): BreedId {
+    return choice === 'auto' ? Species.autoBreed(sessionSeed) : choice
+  }
+
+  // 띠 강아지를 지금 품종과 터미널 밝기에 맞춘다
+  function lookBand(): void {
+    const breed = Species.breedOf(scene.breed)
+    Band.setLook(band, Species.lookOf(breed.id), isLight ? breed.band.light : breed.band.dark)
+    if (strip) strip.lastCells = ''
+  }
 
   // 패널이 열려 있으면 강아지가 반응하고, 닫혀 있으면 신호 시각만 적는다(시뮬레이션도 멈춰 있다)
   function signal(now: number, react: () => void): void {
@@ -93,13 +137,18 @@ export function register(on: On) {
     const now = await $.clock.now()
     let seed = (now | 0) ^ 0x5eed
     try { seed = Rng.hashOf(await $.session.id()) } catch { /* 시각으로 만든 시드 그대로 */ }
-    scene = Scene.create(seed, now)
-    band = Band.create(seed, now)
+    sessionSeed = seed
     try {
       isBandOn = (await $.store.get(Names.STORE_BAND)) === true
       zoom = Scene.zoomOf(await $.store.get(Names.STORE_SCALE))
+      worldChoice = worldChoiceOf(await $.store.get(Names.STORE_WORLD))
+      petChoice = petChoiceOf(await $.store.get(Names.STORE_PETS))
     } catch { /* 저장한 값이 없으면 기본값 */ }
-    await $.command.register({ name: Names.COMMAND_NAME, description: Names.COMMAND_DESCRIPTION })
+    try { isLight = isLightTheme((await $.config.list()).find(row => row.key === 'theme')?.value) } catch { /* 모르면 어두운 터미널로 본다 */ }
+    scene = Scene.create(seed, now, biomeOf(worldChoice), breedOf(petChoice))
+    band = Band.create(seed, now)
+    lookBand()
+    await $.command.register({ name: Names.COMMAND_NAME, description: Names.COMMAND_DESCRIPTION, argumentHint: Names.ARGUMENT_HINT })
     return next(e)
   })
 
@@ -123,6 +172,33 @@ export function register(on: On) {
       $.ui.invalidate('ui.render')
       return { text: Names.ZOOM_TEXT(zoom) }
     }
+    // world 는 지금 세트와 목록을 보이고, world <세트|auto> 는 세트를 바꿔 저장한다. 모르는 세트면 아무것도 바꾸지 않는다
+    if (arg === 'world' && rest.length === 0) {
+      const choices = Names.WORLD_CHOICES(Biome.BIOMES)
+      if (sub === '') return { text: Names.WORLD_NOW_TEXT(Biome.byId(scene.biome).label, worldChoice === 'auto', choices) }
+      const picked = sub === 'auto' ? 'auto' : Biome.find(sub)?.id
+      if (picked === undefined) return { text: Names.WORLD_UNKNOWN_TEXT(sub, choices) }
+      worldChoice = picked
+      Scene.setBiome(scene, biomeOf(picked))
+      await host?.store(Names.STORE_WORLD, { v: Names.STORE_WORLD_VERSION, set: picked })
+      if (pane) pane.lastCells = ''
+      $.ui.invalidate('ui.render')
+      return { text: Names.WORLD_TEXT(Biome.byId(scene.biome).label, picked === 'auto') }
+    }
+    // pet 은 지금 품종과 목록을 보이고, pet <품종…|auto> 는 품종을 바꿔 저장한다. 지금은 한 마리라 첫 번째만 쓴다
+    if (arg === 'pet') {
+      const choices = Names.PET_CHOICES(Species.BREEDS)
+      if (sub === '') return { text: Names.PET_NOW_TEXT(Species.breedOf(scene.breed).label, petChoice === 'auto', choices) }
+      const picked = sub === 'auto' ? 'auto' : Species.findBreed(sub)?.id
+      if (picked === undefined) return { text: Names.PET_UNKNOWN_TEXT(sub, choices) }
+      petChoice = picked
+      Scene.setBreed(scene, breedOf(picked))
+      lookBand()
+      await host?.store(Names.STORE_PETS, { v: Names.STORE_PETS_VERSION, list: picked === 'auto' ? 'auto' : [picked] })
+      if (pane) pane.lastCells = ''
+      $.ui.invalidate('ui.render')
+      return { text: Names.PET_TEXT(Species.breedOf(scene.breed).label, picked === 'auto', rest.length) }
+    }
     if (arg !== '') return { text: Names.USAGE_TEXT }
     if (isOpen) {
       await $.ui.close({ id: Names.PANE_ID })
@@ -139,6 +215,18 @@ export function register(on: On) {
     // 패널을 여는 것도 신호로 친다. 오래 닫아 두었다 열었을 때 강아지가 보자마자 잠자리로 가지 않는다
     scene.pet.lastSignalAt = await $.clock.now()
     return { text: Names.PANEL_SHOWN_TEXT }
+  })
+
+  // 테마를 바꾸면 띠 색 벌도 바꾼다(거절된 변경은 넘긴다)
+  on('config.set', { key: 'theme' }, async ($, e, next) => {
+    const result = await next(e)
+    if (result.deny === undefined) {
+      safely(() => {
+        isLight = isLightTheme(result.value)
+        lookBand()
+      })
+    }
+    return result
   })
 
   on('ui.close', { id: Names.PANE_ID }, async ($, e, next) => {
