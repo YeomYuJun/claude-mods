@@ -179,7 +179,7 @@ export function register(on: On) {
       const picked = sub === 'auto' ? 'auto' : Biome.find(sub)?.id
       if (picked === undefined) return { text: Names.WORLD_UNKNOWN_TEXT(sub, choices) }
       worldChoice = picked
-      Scene.setBiome(scene, biomeOf(picked))
+      Scene.setBiome(scene, biomeOf(picked), await $.clock.now())
       await host?.store(Names.STORE_WORLD, { v: Names.STORE_WORLD_VERSION, set: picked })
       if (pane) pane.lastCells = ''
       $.ui.invalidate('ui.render')

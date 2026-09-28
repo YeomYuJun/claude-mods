@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
+import Biome from '../hooks/biome'
 import Names from '../hooks/names'
 import Path from '../hooks/path'
 import Pet from '../hooks/pet'
@@ -23,14 +24,18 @@ describe('world', () => {
     expect(heights(a).join('') === heights(c).join('')).toBe(false)
   })
 
-  test('sizes stay within 20 to 32 tiles and heights within 0 to 4', async () => {
+  test('graph-paper maps stay within 20 to 32 tiles and 4 steps; the wider sets within 8', async () => {
     for (let seed = 1; seed <= 20; seed++) {
       const w = World.create(seed)
       const { x0, y0, x1, y1 } = World.bounds(w)
       const cols = x1 - x0 + 1
       const rows = y1 - y0 + 1
       expect(cols >= 20 && cols <= 32 && rows >= 20 && rows <= 32).toBe(true)
-      for (const t of Fixtures.tilesAround(w)) expect(World.heightAt(w, t.x, t.y) <= World.MAX_HEIGHT).toBe(true)
+      for (const t of Fixtures.tilesAround(w)) expect(World.heightAt(w, t.x, t.y) <= 4).toBe(true)
+    }
+    for (const b of Biome.BIOMES) {
+      const w = World.create(3, b.gen, { size: b.size })
+      for (let i = 0; i < w.w * w.h; i++) expect(w.height[i]! <= World.MAX_HEIGHT).toBe(true)
     }
   })
 
@@ -49,21 +54,38 @@ describe('world', () => {
     }
   })
 
-  test('every walkable tile is reachable from the spawn, and the spawn is walkable', async () => {
-    for (let seed = 1; seed <= 10; seed++) {
-      const w = World.create(seed)
-      expect(World.isWalkable(w, w.spawn.x, w.spawn.y)).toBe(true)
-      const reach = Path.distancesFrom(w, w.spawn, World.DEFAULT_RULES, WIDE)
-      let walk = 0
-      let area = 0
-      for (const t of Fixtures.tilesAround(w)) {
-        if (World.inside(w, t.x, t.y)) area++
-        if (!World.isWalkable(w, t.x, t.y)) continue
-        walk++
-        expect(Path.stepsAt(reach, t.x, t.y) >= 0).toBe(true)
+  test('with trees in place every tile that is not a tree or a block is walkable and reachable from the spawn', async () => {
+    for (const b of Biome.BIOMES) {
+      for (const seed of [1, 2]) {
+        const w = World.create(seed, b.gen, { size: b.size, props: true })
+        expect(World.isWalkable(w, w.spawn.x, w.spawn.y)).toBe(true)
+        let missed = 0
+        for (let y = 0; y < w.h; y++) {
+          for (let x = 0; x < w.w; x++) {
+            if (World.isBlock(w, x, y) || World.isObstacle(w, x, y)) continue
+            if (!World.isWalkable(w, x, y)) missed++
+          }
+        }
+        expect(`${b.id} ${seed} ${missed}`).toBe(`${b.id} ${seed} 0`)
+        const reach = Path.distancesFrom(w, w.spawn, World.DEFAULT_RULES, WIDE)
+        for (let y = w.spawn.y - 8; y <= w.spawn.y + 8; y++) {
+          for (let x = w.spawn.x - 8; x <= w.spawn.x + 8; x++) if (World.isWalkable(w, x, y)) expect(Path.stepsAt(reach, x, y) >= 0).toBe(true)
+        }
       }
-      expect(walk >= area * 0.55).toBe(true)
     }
+  })
+})
+
+describe('sleeping spot', () => {
+  test('a higher tile behind (x - 1 or y - 1) makes a spot cozy, a higher tile in front (x + 1 or y + 1) does not', async () => {
+    const at = (raise: ReadonlyArray<readonly [number, number, number]>) => World.cozinessOf(Fixtures.flatWorld(7, 7, raise), 3, 3)
+    expect(at([])).toBe(0)
+    expect(at([[4, 3, 1]])).toBe(0)
+    expect(at([[3, 4, 2]])).toBe(0)
+    expect(at([[4, 3, 1], [3, 4, 1]])).toBe(0)
+    expect(at([[2, 3, 1]])).toBe(1)
+    expect(at([[3, 2, 2]])).toBe(1)
+    expect(at([[2, 3, 1], [3, 2, 1], [4, 3, 2], [3, 4, 2]])).toBe(2)
   })
 })
 

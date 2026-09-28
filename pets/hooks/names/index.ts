@@ -14,7 +14,7 @@ export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets band (띠 켜고 
 // 세트 목록 글: "paper 모눈종이, meadow 초원, …, auto(세션마다 모눈종이 밖에서 고름)"
 export const WORLD_CHOICES = (sets: ReadonlyArray<{ id: string; label: string }>) => `${sets.map(s => `${s.id} ${s.label}`).join(', ')}, auto(세션마다 모눈종이 밖에서 고름)`
 export const WORLD_NOW_TEXT = (label: string, isAuto: boolean, choices: string) => `지금 맵 세트: ${label}${isAuto ? '(자동)' : ''}. 고를 수 있는 세트: ${choices}`
-export const WORLD_TEXT = (label: string, isAuto: boolean) => `맵 세트를 ${isAuto ? `자동으로 바꿨다(이 세션은 ${label} 세트)` : `${label} 세트로 바꿨다`}. 지금은 색만 바뀌고 맵 모양은 그대로다`
+export const WORLD_TEXT = (label: string, isAuto: boolean) => `맵 세트를 ${isAuto ? `자동으로 바꿨다(이 세션은 ${label} 세트)` : `${label} 세트로 바꿨다`}. 맵을 새로 만들고 강아지를 새 자리에 두었다`
 export const PET_CHOICES = (breeds: ReadonlyArray<{ id: string; label: string }>) => `${breeds.map(b => `${b.id} ${b.label}`).join(', ')}, auto(세션마다 흰 강아지 밖에서 고름)`
 export const PET_NOW_TEXT = (label: string, isAuto: boolean, choices: string) => `지금 강아지: ${label}${isAuto ? '(자동)' : ''}. 고를 수 있는 품종: ${choices}`
 export const PET_TEXT = (label: string, isAuto: boolean, dropped: number) =>

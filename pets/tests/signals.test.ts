@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import Names from '../hooks/names'
 import Pet, { type ActClass, type ActName, type Activity, type Pet as PetState, type Step } from '../hooks/pet'
+import Scene, { type Scene as SceneState } from '../hooks/scene'
 import World, { type World as WorldState } from '../hooks/world'
 
 const T0 = 1_000_000
@@ -243,6 +244,31 @@ describe('signals', () => {
     Pet.onToolEnd(p, now)
     run(p, world, 50, now)
     expect(p.act.name === 'wait').toBe(false)
+  })
+
+  test('changing the set while a tool runs keeps the dog awake and still brings it to wait four seconds after the tool started', async () => {
+    const stepScene = (scene: SceneState, ms: number, from: number) => {
+      let now = from
+      for (let t = 0; t < ms; t += Names.SIM_STEP_MS) { now += Names.SIM_STEP_MS; Scene.step(scene, Names.SIM_STEP_MS, now) }
+      return now
+    }
+    // 메인 도구: 시작 1.5 초 뒤 세트를 바꿔도 시작에서 4 초가 지나면 기다린다
+    const main = Scene.create(7, T0)
+    Pet.onToolStart(main.pet, T0)
+    let now = stepScene(main, 1500, T0)
+    Scene.setBiome(main, 'paper', now)
+    now = stepScene(main, 3500 - 1500, now)
+    expect(main.pet.act.name === 'wait').toBe(false)
+    stepScene(main, 1000, now)
+    expect(main.pet.act.name).toBe('wait')
+    // 서브에이전트 도구(기다리기 없음): 세트를 바꾼 뒤 잠들 시간이 지나도 깨어 있다
+    const sub = Scene.create(7, T0)
+    Pet.onToolStart(sub.pet, T0, false)
+    now = stepScene(sub, 1500, T0)
+    Scene.setBiome(sub, 'paper', now)
+    stepScene(sub, Names.SLEEP_AFTER_MS + 5000, now)
+    expect(sub.pet.isAsleep).toBe(false)
+    expect(sub.pet.act.name === 'bedtime').toBe(false)
   })
 
   test('a permission wait begs until ninety seconds pass, then lies in front, and ends when the wait ends', async () => {

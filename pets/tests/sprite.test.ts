@@ -16,9 +16,11 @@ const POSES: readonly PoseName[] = [
 const GAITS: readonly Gait[] = ['walk', 'trot', 'run', 'sniff']
 const DIRS: readonly Dir[] = ['SE', 'SW', 'NW', 'NE']
 
+// 맵은 한 번만 만든다(모습을 훑는 동안 강아지를 수천 번 새로 만든다)
+const WORLD = World.create(7)
+
 function petOfSpecies(species: SpeciesDef): PetState {
-  const world = World.create(7)
-  return Pet.create(world, 7, 0, species)
+  return Pet.create(WORLD, 7, 0, species)
 }
 
 const petOf = () => petOfSpecies(Species.DOG)

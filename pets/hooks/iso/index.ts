@@ -88,7 +88,8 @@ export type View = {
 // 지금 맵은 지표 종류 하나(0)와 옆면 재질 하나(0)만 쓴다
 const KIND = Palette.kind(0)
 const SIDE = Palette.material(0)
-// 높이별 윗면: 높을수록 밝다. 앞 모서리 하이라이트는 두 단 위 윗면 색을 빌린다(맨 위 두 단은 HILITE)
+// 윗면 띠 0~4 의 색: 높을수록 밝다. 높이마다 어느 띠인지는 세트의 topBand 표가 정한다.
+// 앞 모서리 하이라이트는 두 띠 위 윗면 색을 빌린다(맨 위 두 띠는 HILITE)
 const T = Palette.Top
 const TOP_OF: readonly number[] = [KIND + T.TOP0, KIND + T.TOP1, KIND + T.TOP2, KIND + T.TOP3, KIND + T.TOP4]
 const HI_OF: readonly number[] = [KIND + T.TOP2, KIND + T.TOP3, KIND + T.TOP4, KIND + T.HILITE, KIND + T.HILITE]
@@ -99,12 +100,16 @@ const CAST_MAX = 1
 // 더 높은 NE 이웃 벽 밑의 접촉 그늘 폭(nw·ne 와 같은 단위). 변의 선 픽셀과 그 안쪽 한 줄 정도가 어두워진다
 const CONTACT_PX = 1.5
 
-// 한 타일. 옆면은 앞 이웃보다 높은 만큼만(맵 가장자리면 밑판까지) 그린다
-function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View, proj: Proj, shadowOf: readonly number[]): void {
+// 한 타일. 옆면은 앞 이웃보다 높은 만큼만(맵 가장자리면 밑판까지) 그린다. 화면 상자가 버퍼 밖이면 그리지 않고 false
+function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View, proj: Proj, theme: Palette.Theme): boolean {
   const hgt = World.heightAt(world, x, y)
   const z = hgt * proj.step
   const tx = (x - y) * proj.hw - view.ox
   const ty = (x + y) * proj.hh - z - view.oy
+  // 화면 상자: 가로 tx ± hw, 세로 윗면 위 꼭짓점 ty 부터 옆면 아래 끝까지. 옆면은 윗면 아래 2hh 안에서 시작하고
+  // 길이가 z + 밑판 이하라 아래 끝은 ty + 2hh + z + base 를 넘지 않는다(땅 높이 + 밑판)
+  if (ty >= b.h || ty + 2 * proj.hh + z + proj.base <= 0 || tx + proj.hw <= 0 || tx - proj.hw >= b.w) return false
+  const shadowOf = theme.shadowOf
   const base = x + y
   const isEdgeLeft = !World.inside(world, x, y + 1)
   const isEdgeRight = !World.inside(world, x + 1, y)
@@ -113,8 +118,9 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   const w = b.w
   if (frontLeft > 0) face(b, proj.left, tx, ty, frontLeft, base, SIDE + Palette.Side.SIDE_L, SIDE + Palette.Side.L_STEP, isEdgeLeft, proj, w)
   if (frontRight > 0) face(b, proj.right, tx, ty, frontRight, base, SIDE + Palette.Side.SIDE_R, SIDE + Palette.Side.R_STEP, isEdgeRight, proj, w)
-  const top = TOP_OF[hgt] ?? TOP_OF[4]!
-  const hi = HI_OF[hgt] ?? HI_OF[4]!
+  const band = theme.topBand[hgt] ?? 4
+  const top = TOP_OF[band]!
+  const hi = HI_OF[band]!
   // 맵 뒤쪽 변(뒤에 칸이 없는 NW·NE 변)은 테 색으로 긋는다. 밝은 터미널에서도 맵 경계가 보이게 세트가 어두운 색을 줄 수 있다
   const every = proj.lineEvery
   const lineNW = !World.inside(world, x - 1, y) ? Palette.RIM : x % every !== 0 ? 0 : x % 3 === 0 ? Palette.LINE_HEAVY : LINE
@@ -141,6 +147,7 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
     b.surf[i] = SURF_TOP
     b.level[i] = level
   }
+  return true
 }
 
 // 옆면. 한 단의 맨 아래 줄마다 진한 줄을 그어 몇 단인지 셀 수 있게 한다(면의 맨 아래 줄은 아래 윗면과 맞닿아 긋지 않는다)
@@ -164,24 +171,22 @@ function face(b: Buffer, cols: readonly FaceColumn[], tx: number, ty: number, he
   }
 }
 
-// 버퍼에 보이는 타일만 뒤에서 앞으로 그린다. 이웃이 드리우는 그늘은 theme 의 그림자 사슬로 칠한다
+// 버퍼에 보이는 타일만 뒤에서 앞으로 그리고 그린 타일 수를 돌려준다. 이웃이 드리우는 그늘은 theme 의 그림자 사슬로 칠한다.
+// 대각선 d 타일의 윗면 위 꼭짓점은 d × hh - z 이고 아래 끝은 높이와 상관없이 d × hh + 2hh + base 이하다(drawTile 의 화면 상자).
+// 그래서 위쪽 여유는 높이와 상관없고, 아래쪽 여유만 맵에서 가장 높은 칸의 높이만큼 둔다
 export function drawWorld(b: Buffer, world: WorldState, view: View, proj: Proj = NEAR, theme: Palette.Theme = Palette.PAPER_THEME): number {
   const hw = proj.hw
   const hh = proj.hh
-  const maxZ = World.MAX_HEIGHT * proj.step
-  const maxFace = maxZ + proj.base
+  const maxZ = World.maxHeightOf(world) * proj.step
   const { x0, y0, x1, y1 } = World.bounds(world)
-  const dMin = Math.max(x0 + y0, Math.floor((view.oy - 2 * hh - maxFace) / hh))
+  const dMin = Math.max(x0 + y0, Math.floor((view.oy - 2 * hh - proj.base) / hh))
   const dMax = Math.min(x1 + y1, Math.ceil((view.oy + b.h + maxZ) / hh))
   let drawn = 0
   for (let d = dMin; d <= dMax; d++) {
     // sx = (2x - d) × hw 가 [ox - hw, ox + w + hw] 안에 드는 x
     const xLo = Math.max(x0, d - y1, Math.ceil(((view.ox - hw) / hw + d) / 2))
     const xHi = Math.min(x1, d - y0, Math.floor(((view.ox + b.w + hw) / hw + d) / 2))
-    for (let x = xLo; x <= xHi; x++) {
-      drawTile(b, world, x, d - x, view, proj, theme.shadowOf)
-      drawn++
-    }
+    for (let x = xLo; x <= xHi; x++) if (drawTile(b, world, x, d - x, view, proj, theme)) drawn++
   }
   return drawn
 }

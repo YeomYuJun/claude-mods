@@ -130,7 +130,7 @@ describe('palette', () => {
     }
   })
 
-  test('changing the set changes the map colors but not the dog', async () => {
+  test('changing the set changes the map colors but not the dog colors, rebuilds the map, and changing back rebuilds the same graph-paper frame', async () => {
     const paper = Biome.themeOf('paper')
     const forest = Biome.themeOf('forest')
     const k = Palette.kind(0)
@@ -138,9 +138,12 @@ describe('palette', () => {
     for (let i = 0; i < Palette.BANK_SIZE; i++) expect(forest.rgb[Palette.bank(0) + i]).toBe(paper.rgb[Palette.bank(0) + i])
     const scene = Scene.create(7, 0)
     const before = Scene.compose(scene, 40, 30, 1)
-    Scene.setBiome(scene, 'forest')
+    const paperWorld = scene.world
+    Scene.setBiome(scene, 'forest', 0)
+    expect(scene.world === paperWorld).toBe(false)
+    expect(scene.world.w).toBe(64)
     expect(Scene.compose(scene, 40, 30, 1) === before).toBe(false)
-    Scene.setBiome(scene, 'paper')
+    Scene.setBiome(scene, 'paper', 0)
     expect(Scene.compose(scene, 40, 30, 1)).toBe(before)
   })
 })

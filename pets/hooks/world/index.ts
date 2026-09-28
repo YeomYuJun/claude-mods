@@ -1,14 +1,16 @@
-// 시드 하나로 높이 맵을 만들고, 칸 값을 묻는 함수를 둔다(순수 모듈).
-// 1. value noise 두 겹 + 가장자리 감쇠로 지형 높이 0~2 단
-// 2. 이웃과 2 단 이상 차이 나는 지형 칸을 깎아 지형끼리는 늘 걸어 다닐 수 있게 한다
-// 3. 작은 블록(1×1, 2×1)을 +1·+2 단으로 흩뿌린다. +1 은 뛰어오르고 +2 는 돌아간다
-// 4. 걸을 수 있는 칸(이웃과 높이 차 ≤ 1, 장애물 소품이 아닌 칸)을 BFS 로 묶어 가장 큰 덩어리만 걷는 칸으로 둔다
+// 시드와 세트 생성 매개변수로 경계 있는 맵을 만들고, 칸 값을 묻는 함수를 둔다(순수 모듈).
+// 1. 좌표 해시 생성기(gen.ts)로 높이·장애물(나무·바위·블록)을 만든다. 맵 가장자리로 갈수록 지형이 낮아져 섬 모양이 된다
+// 2. 나무·바위는 그림이 생기기 전까지 보이지 않는 벽이 되지 않게, 켜지 않으면 빈 땅으로 둔다(블록 자리는 켜든 끄든 같다)
+// 3. 걸을 수 있는 칸(이웃과 높이 차 ≤ 1, 장애물 소품이 아닌 칸)을 BFS 로 묶어 가장 큰 덩어리만 걷는 칸으로 둔다.
+//    생성기가 장애물 덩어리를 서로 떨어뜨려 두므로 지형 칸은 모두 이 덩어리에 들고, 빠지는 것은 오를 수 없는 블록뿐이다
 //
 // 다른 모듈은 World 의 배열을 직접 읽지 않고 아래 질의 함수(heightAt, flagsAt, isWalkable, canStep 등)만 쓴다.
 // 칸 플래그는 물리 사실(물, 깊은 물, 장애물 소품, 블록)만 담고, 종마다 다른 통과 여부는 이동 규칙(Rules)으로 계산한다.
 
 import Names from '../names'
-import Rng from '../rng'
+import * as Gen from './gen.js'
+
+export { Gen }
 
 // 칸 플래그. WALK 는 기본 이동 규칙으로 계산해 둔 값이다
 export const WALK = 1
@@ -28,18 +30,18 @@ export type World = {
   // 칸마다 높이(단)와 플래그
   height: Uint8Array
   flags: Uint8Array
+  // 칸마다 소품 번호(Gen.PROP_*). 0 은 없음
+  prop: Uint8Array
   spawn: { x: number; y: number }
   seed: number
+  // 맵에서 가장 높은 칸의 높이. 그릴 때 화면 밖 타일을 거르는 여유로 쓴다
+  maxHeight: number
 }
 
 // 칸 좌표 범위(양 끝 포함)
 export type Bounds = { x0: number; y0: number; x1: number; y1: number }
 
-export const MAX_TERRAIN = 2
-export const MAX_HEIGHT = 4
-// 가장 큰 덩어리가 이 비율보다 작으면 다음 난수로 다시 만든다
-const MIN_WALK_RATIO = 0.55
-const TRIES = 8
+export const MAX_HEIGHT = Gen.MAX_HEIGHT
 // 단차를 오르내리는 걸음의 추가 비용. 한 칸 돌아가는 것보다 싸다
 export const CLIMB_COST = 0.4
 
@@ -51,12 +53,21 @@ export function bounds(world: World): Bounds {
   return { x0: 0, y0: 0, x1: world.w - 1, y1: world.h - 1 }
 }
 
+// 맵 전체의 가장 높은 칸 높이(단)
+export function maxHeightOf(world: World): number {
+  return world.maxHeight
+}
+
 export function heightAt(world: World, x: number, y: number): number {
   return inside(world, x, y) ? world.height[y * world.w + x]! : 0
 }
 
 export function flagsAt(world: World, x: number, y: number): number {
   return inside(world, x, y) ? world.flags[y * world.w + x]! : 0
+}
+
+export function propAt(world: World, x: number, y: number): number {
+  return inside(world, x, y) ? world.prop[y * world.w + x]! : 0
 }
 
 // 걸을 때 발이 닿는 높이. 물 칸은 수면(바닥 + 1, 깊으면 + 2)
@@ -102,87 +113,6 @@ export function stepCost(world: World, x0: number, y0: number, x1: number, y1: n
 
 export const NEIGHBORS: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, 1], [-1, 0], [0, -1]]
 
-function smooth(t: number): number {
-  return t * t * (3 - 2 * t)
-}
-
-// 격자점마다 난수를 두고 부드럽게 잇는다. spacing 칸마다 한 점
-function valueNoise(rng: Rng.Rng, w: number, h: number, spacing: number): Float32Array {
-  const gw = Math.ceil(w / spacing) + 2
-  const gh = Math.ceil(h / spacing) + 2
-  const grid = new Float32Array(gw * gh)
-  for (let i = 0; i < grid.length; i++) grid[i] = Rng.next(rng)
-  const out = new Float32Array(w * h)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const gx = x / spacing
-      const gy = y / spacing
-      const x0 = Math.floor(gx)
-      const y0 = Math.floor(gy)
-      const tx = smooth(gx - x0)
-      const ty = smooth(gy - y0)
-      const at = (i: number, j: number) => grid[j * gw + i]!
-      const top = at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx
-      const bottom = at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx
-      out[y * w + x] = top * (1 - ty) + bottom * ty
-    }
-  }
-  return out
-}
-
-function terrainOf(rng: Rng.Rng, w: number, h: number): Uint8Array {
-  const coarse = valueNoise(rng, w, h, 7)
-  const fine = valueNoise(rng, w, h, 3)
-  const height = new Uint8Array(w * h)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x
-      const edge = Math.min(x, y, w - 1 - x, h - 1 - y)
-      const fall = smooth(Math.min(1, edge / 3))
-      const n = ((coarse[i]! + fine[i]! * 0.45) / 1.45) * (0.25 + 0.75 * fall)
-      height[i] = n < 0.36 ? 0 : n < 0.5 ? 1 : 2
-    }
-  }
-  // 이웃보다 2 단 이상 높은 칸을 깎는다. 깎은 칸이 또 이웃을 만들 수 있어 바뀌지 않을 때까지
-  for (let changed = true; changed;) {
-    changed = false
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        let low = height[y * w + x]!
-        for (const [dx, dy] of NEIGHBORS) {
-          const nx = x + dx
-          const ny = y + dy
-          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
-          low = Math.min(low, height[ny * w + nx]! + 1)
-        }
-        if (low < height[y * w + x]!) { height[y * w + x] = low; changed = true }
-      }
-    }
-  }
-  return height
-}
-
-function scatterBlocks(rng: Rng.Rng, height: Uint8Array, block: Uint8Array, w: number, h: number): void {
-  const count = Math.floor((w * h) / 45)
-  for (let n = 0, tries = 0; n < count && tries < count * 20; tries++) {
-    const long = Rng.chance(rng, 0.3)
-    const across = Rng.chance(rng, 0.5)
-    const bw = long && across ? 2 : 1
-    const bh = long && !across ? 2 : 1
-    const x = Rng.int(rng, 2, w - 3 - bw)
-    const y = Rng.int(rng, 2, h - 3 - bh)
-    // 블록끼리 붙어 벽이 되지 않게 한 칸씩 띄운다
-    let free = true
-    for (let j = y - 1; j <= y + bh && free; j++) for (let i = x - 1; i <= x + bw && free; i++) if (block[j * w + i]) free = false
-    if (!free) continue
-    let base = 0
-    for (let j = y; j < y + bh; j++) for (let i = x; i < x + bw; i++) base = Math.max(base, height[j * w + i]!)
-    const top = Math.min(MAX_HEIGHT, base + (Rng.chance(rng, 0.6) ? 1 : 2))
-    for (let j = y; j < y + bh; j++) for (let i = x; i < x + bw; i++) { height[j * w + i] = top; block[j * w + i] = 1 }
-    n++
-  }
-}
-
 // 높이 차 ≤ 1 로 이어진 덩어리마다 번호를 매긴다. 장애물 칸(obstacle[i] = 1)은 어느 덩어리에도 넣지 않고 -1 로 둔다.
 // 돌려주는 값은 [번호 배열, 덩어리별 칸 수]
 export function componentsOf(height: Uint8Array, w: number, h: number, obstacle?: Uint8Array): [Int32Array, number[]] {
@@ -217,7 +147,7 @@ export function componentsOf(height: Uint8Array, w: number, h: number, obstacle?
 }
 
 // 높이와 블록·장애물 표시로 월드를 만든다. 걷는 칸은 가장 큰 덩어리, 시작 칸은 가운데에서 가장 가까운 걷는 칸
-export type Spec = { w: number; h: number; height: Uint8Array; block?: Uint8Array; obstacle?: Uint8Array; seed?: number }
+export type Spec = { w: number; h: number; height: Uint8Array; block?: Uint8Array; obstacle?: Uint8Array; prop?: Uint8Array; seed?: number }
 
 export function build(spec: Spec): World {
   const { w, h, height } = spec
@@ -239,39 +169,46 @@ export function build(spec: Spec): World {
       if (d < near) { near = d; spawn = { x, y } }
     }
   }
-  return { w, h, height, flags, spawn, seed: spec.seed ?? 0 }
+  let maxHeight = 0
+  for (let i = 0; i < w * h; i++) maxHeight = Math.max(maxHeight, height[i]!)
+  return { w, h, height, flags, prop: spec.prop ?? new Uint8Array(w * h), spawn, seed: spec.seed ?? 0, maxHeight }
 }
 
-function attempt(rng: Rng.Rng, seed: number): World {
-  const w = Rng.int(rng, Names.MAP_MIN, Names.MAP_MAX)
-  const h = Rng.int(rng, Names.MAP_MIN, Names.MAP_MAX)
-  const height = terrainOf(rng, w, h)
-  const block = new Uint8Array(w * h)
-  scatterBlocks(rng, height, block, w, h)
-  return build({ w, h, height, block, seed })
+// 모눈종이 기본 세트의 생성 매개변수: 지형 0~2 단, 블록 +1·+2(최대 4 단), 나무는 드물게
+export const PAPER_GEN: Gen.GenParams = {
+  spacing: [7, 3], amp: [1, 0.45], warp: 0, warpSpacing: 16, gain: 1, bias: 0.05, hmin: 0, hmax: 2,
+  obsP: 0.16, treeW: 1, rockW: 0, blockW: 2, tree: Gen.PROP_PAPER_TREE,
 }
 
-function walkCount(world: World): number {
-  let n = 0
-  for (const f of world.flags) if (f & WALK) n++
-  return n
-}
+// size: 한 변 칸 수. 없으면 시드로 MAP_MIN~MAP_MAX 에서 가로·세로를 따로 고른다.
+// props: 나무·바위를 둘지(그림이 생기기 전까지는 끈다)
+export type CreateOptions = { size?: number; props?: boolean }
 
-export function create(seed: number): World {
-  const rng = Rng.create(seed)
-  let world = attempt(rng, seed)
-  for (let i = 1; i < TRIES; i++) {
-    if (walkCount(world) >= world.w * world.h * MIN_WALK_RATIO) break
-    world = attempt(rng, seed)
+export function create(seed: number, gen: Gen.GenParams = PAPER_GEN, opts: CreateOptions = {}): World {
+  const span = Names.MAP_MAX - Names.MAP_MIN + 1
+  const w = opts.size ?? Names.MAP_MIN + (Gen.hash(seed, 0, 0, 1) % span)
+  const h = opts.size ?? Names.MAP_MIN + (Gen.hash(seed, 0, 0, 2) % span)
+  // 맵 밖은 가장 낮게, 안쪽은 가장자리에서 한 칸마다 한 단까지만 오른다
+  const raw = (x: number, y: number) => {
+    const edge = Math.min(x, y, w - 1 - x, h - 1 - y)
+    return edge < 0 ? gen.hmin : Math.min(Gen.rawHeight(seed, gen, x, y), gen.hmin + edge)
   }
-  return world
+  const r = Gen.region(seed, gen, 0, 0, w, h, { raw, inside: { x0: 0, y0: 0, x1: w - 1, y1: h - 1 } })
+  const obstacle = new Uint8Array(w * h)
+  const prop = new Uint8Array(w * h)
+  if (opts.props) for (let i = 0; i < w * h; i++) if (r.prop[i]) { obstacle[i] = 1; prop[i] = r.prop[i]! }
+  return build({ w, h, height: r.height, block: r.block, obstacle, prop, seed })
 }
 
-// 걷는 칸 가운데 곁에 블록이나 높은 칸이 있는 곳(아늑한 곳). 잠잘 자리를 고를 때 쓴다
+// 화면에서 뒤쪽인 두 이웃(NW = x - 1, NE = y - 1)
+const BACK: ReadonlyArray<readonly [number, number]> = [[-1, 0], [0, -1]]
+
+// 뒤쪽에 블록이나 높은 칸을 등진 곳(아늑한 곳). 잠잘 자리를 고를 때 쓴다.
+// 앞쪽 이웃은 세지 않는다. 앞이 높은 칸은 화면에서 그 칸이 강아지를 가려서다
 export function cozinessOf(world: World, x: number, y: number): number {
   let n = 0
   const here = heightAt(world, x, y)
-  for (const [dx, dy] of NEIGHBORS) {
+  for (const [dx, dy] of BACK) {
     const nx = x + dx
     const ny = y + dy
     if (!inside(world, nx, ny)) continue

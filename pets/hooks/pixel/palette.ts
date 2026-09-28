@@ -5,7 +5,7 @@
 //
 // 배치표
 //   0          VOID(터미널 기본색)
-//   1~55       지표 종류 5 개 × 11: 높이별 윗면 5, 윗면 그림자 2, 앞 모서리 하이라이트, 모눈선, 모눈선 그림자, 무늬
+//   1~55       지표 종류 5 개 × 11: 윗면 5 색(높이마다 어느 색인지는 세트의 높이 표), 윗면 그림자 2, 앞 모서리 하이라이트, 모눈선, 모눈선 그림자, 무늬
 //   56~59      세트 공통 지형: 굵은 모눈선, 그 그림자, 가장자리(밑판 맨 아래 줄), 테(맵 뒤쪽 변의 선)
 //   60~71      옆면 재질 3 개 × 4: 왼쪽 면, 오른쪽 면, 왼쪽 단 줄, 오른쪽 단 줄
 //   72~79      물
@@ -71,8 +71,10 @@ export function bank(k: number): number {
 // 세트 색: 지표 종류마다 윗면 5·그림자 2·하이라이트·선·선 그림자·무늬, 세트 공통 4, 옆면 재질마다 4, 흙·먼지·물방울
 export type KindColors = { top: readonly [number, number, number, number, number]; topSh: readonly [number, number]; hilite: number; line: number; lineSh: number; accent: number }
 export type MaterialColors = { sideL: number; sideR: number; lStep: number; rStep: number }
+// topBand: 높이(0~8 단)마다 윗면 5 색 중 몇 번째를 칠할지. 단 수는 옆면 단 줄이 센다
 export type SetColors = {
   kinds: readonly KindColors[]
+  topBand: readonly number[]
   lineHeavy: number
   lineHeavySh: number
   edge: number
@@ -89,11 +91,14 @@ export type Theme = {
   rgb: readonly number[]
   // 윗면에 그림자가 떨어지면 칠할 번호. 사슬이 없는 번호는 자기 자신
   shadowOf: readonly number[]
+  // 높이(단)마다 윗면 5 색 중 몇 번째(0~4)인지
+  topBand: readonly number[]
 }
 
 // 모눈종이: 높을수록 밝은 윗면, 푸른 기 도는 회색 옆면
 export const PAPER: SetColors = {
   kinds: [{ top: [0xdcdad5, 0xe5e3df, 0xedece8, 0xf4f3f0, 0xfafaf8], topSh: [0xc9c6c1, 0xd2cfca], hilite: 0xffffff, line: 0xc6c3c4, lineSh: 0xb2afb0, accent: UNSET }],
+  topBand: [0, 1, 2, 3, 4, 4, 4, 4, 4],
   lineHeavy: 0xa29ea0,
   lineHeavySh: 0x928e90,
   edge: 0x8a8688,
@@ -140,7 +145,7 @@ export function themeOf(set: SetColors, banks: readonly BankColors[]): Theme {
     rgb[base + Top.LINE] = c.line
     rgb[base + Top.LINE_SH] = c.lineSh
     rgb[base + Top.ACCENT] = c.accent
-    // 그림자는 같은 종류 안에서 두 단 아래 윗면 색을 빌리고, 선은 세트 공통 굵은 선 그림자로 이어진다
+    // 그림자는 같은 종류 안에서 두 칸 아래 윗면 색을 빌리고, 선은 세트 공통 굵은 선 그림자로 이어진다
     const chain: ReadonlyArray<readonly [number, number]> = [
       [Top.TOP0, Top.TOP0_SH], [Top.TOP1, Top.TOP1_SH], [Top.TOP2, Top.TOP0], [Top.TOP3, Top.TOP1], [Top.TOP4, Top.TOP2],
       [Top.HILITE, Top.TOP3], [Top.TOP1_SH, Top.LINE], [Top.TOP0_SH, Top.LINE_SH], [Top.LINE, Top.LINE_SH],
@@ -174,7 +179,7 @@ export function themeOf(set: SetColors, banks: readonly BankColors[]): Theme {
   banks.slice(0, BANK_COUNT).forEach((c, k) => {
     for (const role of Object.keys(Role) as RoleName[]) rgb[bank(k) + Role[role]] = c[role]
   })
-  return { rgb, shadowOf }
+  return { rgb, shadowOf, topBand: set.topBand }
 }
 
 export const PAPER_THEME: Theme = themeOf(PAPER, [WHITE_DOG])

@@ -11,6 +11,7 @@ import Sprite from '../sprite'
 import World, { type World as WorldState } from '../world'
 
 export type Scene = {
+  seed: number
   world: WorldState
   cam: Camera
   pet: PetState
@@ -38,17 +39,41 @@ function focusOf(pet: PetState): { sx: number; sy: number } {
   return { sx: s.sx, sy: s.sy - pet.species.sprite.lookUpPx }
 }
 
-export function create(seed: number, now: number, biome: BiomeId = Biome.DEFAULT, breed: BreedId = Species.DEFAULT_BREED): Scene {
-  const world = World.create(seed)
-  const pet = Pet.create(world, seed, now, Species.lookOf(breed))
-  const f = focusOf(pet)
-  return { world, cam: Iso.cameraOf(f.sx, f.sy), pet, biome, breed, theme: Biome.themeOf(biome, Species.breedOf(breed).bank), acc: 0, lead: { x: 0, y: 0 }, prev: f }
+// 세트의 맵. 나무·바위는 그림이 생기기 전까지 두지 않는다
+function worldOf(seed: number, biome: BiomeId): WorldState {
+  const b = Biome.byId(biome)
+  return World.create(seed, b.gen, { size: b.size })
 }
 
-// 세트를 바꾼다. 지금은 색만 바뀌고 맵과 강아지는 그대로다
-export function setBiome(scene: Scene, biome: BiomeId): void {
+export function create(seed: number, now: number, biome: BiomeId = Biome.DEFAULT, breed: BreedId = Species.DEFAULT_BREED): Scene {
+  const world = worldOf(seed, biome)
+  const pet = Pet.create(world, seed, now, Species.lookOf(breed))
+  const f = focusOf(pet)
+  return { seed, world, cam: Iso.cameraOf(f.sx, f.sy), pet, biome, breed, theme: Biome.themeOf(biome, Species.breedOf(breed).bank), acc: 0, lead: { x: 0, y: 0 }, prev: f }
+}
+
+// 세트를 바꾼다: 그 세트의 맵을 새로 만들고 강아지를 새 시작 칸에 둔다. 대기열·길·방문 기록은 옛 맵 것이라 버리고,
+// 기운·들뜸·욕구, 신호 시각, 돌고 있는 도구·턴은 이어 간다(도구가 도는 중이면 계속 잠들지 않고 기다리러 온다). 카메라는 강아지로 옮긴다
+export function setBiome(scene: Scene, biome: BiomeId, now: number): void {
+  const old = scene.pet
   scene.biome = biome
   scene.theme = Biome.themeOf(biome, Species.breedOf(scene.breed).bank)
+  scene.world = worldOf(scene.seed, biome)
+  const pet = Pet.create(scene.world, scene.seed, now, old.species)
+  pet.energy = old.energy
+  pet.excite = old.excite
+  pet.needs = { ...old.needs }
+  pet.lastSignalAt = old.lastSignalAt
+  pet.lastHumanAt = old.lastHumanAt
+  pet.toolsRunning = old.toolsRunning
+  pet.mainTools = old.mainTools
+  pet.toolSince = old.toolSince
+  pet.turnStartedAt = old.turnStartedAt
+  scene.pet = pet
+  const f = focusOf(pet)
+  scene.cam = Iso.cameraOf(f.sx, f.sy)
+  scene.lead = { x: 0, y: 0 }
+  scene.prev = f
 }
 
 // 품종을 바꾼다. 색과 무늬만 바뀌고 강아지의 자리·행동은 그대로다

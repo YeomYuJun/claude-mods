@@ -152,7 +152,7 @@ function ms(p: Pet, lo: number, hi: number): number {
   return Math.round(Rng.range(p.rng, lo, hi))
 }
 
-// 자기 전 아늑한 자리: 6 걸음 안에서 곁에 높은 칸이 많은 곳
+// 자기 전 아늑한 자리: 6 걸음 안에서 뒤쪽(화면 위쪽)에 높은 칸을 등진 곳
 function bedOf(p: Pet, world: WorldState, s: Survey): Tile | undefined {
   const tiles = tilesAt(p, world, s, 0, 6)
   let best: Tile | undefined
@@ -374,7 +374,7 @@ export const ACTS: Record<ActName, ActDef> = {
   // 누워 뒹굴다 일어나 턴다. 배를 보이는 그림이 생기기 전까지는 엎드린 모습으로 대신한다
   rollOver: {
     name: 'rollOver', cls: 'N', base: 4, drive: { play: 1 }, cooldownMs: 90_000,
-    feasible: p => p.excite > 0.2 || p.needs.play > 0.3,
+    feasible: p => p.excite > 0.2 || p.needs.play > 0.2,
     adjust: FLAT,
     build: p => act('rollOver', [pose('lie', ms(p, 600, 900)), pose('lie', ms(p, 1200, 2000)), pose('stand', 200), pose('shake', 500)]),
   },

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
+import Biome from '../hooks/biome'
 import Iso, { type Proj } from '../hooks/iso'
 import Pixel, { Palette } from '../hooks/pixel'
 import Species from '../hooks/species'
@@ -114,6 +115,13 @@ const PROJS: ReadonlyArray<readonly [string, Proj]> = [['near', Iso.NEAR], ['far
 // 시작 칸 둘레 ±24 칸이 모두 들어가는 버퍼와 그 원점
 const fullOf = (world: WorldState, proj: Proj) => Fixtures.drawAround(world, proj)
 
+// 세트마다 시드 7 맵 하나. 맵 만들기가 무거워(64 × 64 는 엔진에서 15~20 ms) 이 파일에서 한 번만 만든다
+let sets: Array<readonly [string, WorldState]> | undefined
+function setWorlds(): ReadonlyArray<readonly [string, WorldState]> {
+  sets ??= Biome.BIOMES.map(b => [b.id, World.create(7, b.gen, { size: b.size })] as const)
+  return sets
+}
+
 describe('iso projections', () => {
   test('diamond tops of both projections tile the plane: every pixel is covered exactly once', async () => {
     for (const [, proj] of PROJS) {
@@ -141,10 +149,10 @@ describe('iso projections', () => {
     for (let i = 0; i < b.px.length; i++) expect(b.px[i] === Palette.VOID).toBe(false)
   })
 
-  test('culling drops no visible tile: a small view equals the same crop of the whole map', async () => {
+  test('culling drops no visible tile: a small view equals the same crop of the whole map, on graph paper and on the taller sets', async () => {
+    const worlds = [World.create(3), World.create(11), ...setWorlds().filter(([id]) => id !== Biome.DEFAULT).map(([, w]) => w)]
     for (const [, proj] of PROJS) {
-      for (const seed of [3, 11]) {
-        const world = World.create(seed)
+      for (const world of worlds) {
         const full = fullOf(world, proj)
         const sw = 40
         const sh = 60
@@ -168,6 +176,54 @@ describe('iso projections', () => {
           expect(same).toBe(true)
         }
       }
+    }
+  })
+
+  test('only tiles whose screen box meets the buffer are drawn, and a 120 × 60 panel draws at most 720 tiles at 1 ×', async () => {
+    for (const [id, world] of setWorlds()) {
+      for (const [name, proj] of PROJS) {
+        // 120 열 × 60 행 패널 = 120 × 120 픽셀, 시작 칸이 가운데
+        const b = Pixel.bufferOf(120, 60, 1)
+        Pixel.clear(b)
+        const s = Iso.screenOf(world.spawn.x, world.spawn.y, 0, proj)
+        const view = { ox: Math.round(s.sx) - 60, oy: Math.round(s.sy) - 60 }
+        const drawn = Iso.drawWorld(b, world, view, proj)
+        let meets = 0
+        const { x0, y0, x1, y1 } = World.bounds(world)
+        for (let y = y0; y <= y1; y++) {
+          for (let x = x0; x <= x1; x++) {
+            const z = World.heightAt(world, x, y) * proj.step
+            const tx = (x - y) * proj.hw - view.ox
+            const ty = (x + y) * proj.hh - z - view.oy
+            if (tx - proj.hw < b.w && tx + proj.hw > 0 && ty < b.h && ty + 2 * proj.hh + z + proj.base > 0) meets++
+          }
+        }
+        expect(`${id} ${name} ${drawn}`).toBe(`${id} ${name} ${meets}`)
+        if (proj === Iso.NEAR) expect(`${id} ${drawn <= 720}`).toBe(`${id} true`)
+      }
+    }
+  })
+
+  test('each set paints the top of a tile of height 0 to 8 with the top color its height table picks, never darker for a higher tile', async () => {
+    const k = Palette.kind(0)
+    for (const biome of Biome.BIOMES) {
+      const theme = Biome.themeOf(biome.id)
+      expect(theme.topBand.length).toBe(World.MAX_HEIGHT + 1)
+      if (biome.id === Biome.DEFAULT) expect(theme.topBand).toEqual([0, 1, 2, 3, 4, 4, 4, 4, 4])
+      let luma = -1
+      for (let h = 0; h <= World.MAX_HEIGHT; h++) {
+        const b = Pixel.bufferOf(40, 40, 1)
+        Pixel.clear(b)
+        Iso.drawWorld(b, flatWorld(3, 3, [[1, 1, h]]), { ox: -20, oy: -40 }, Iso.NEAR, theme)
+        // 칸 (1, 1) 윗면 가운데: 위 꼭짓점 (0, 2hh - z) 에서 hh 아래
+        const c = b.px[(2 * Iso.NEAR.hh - h * Iso.NEAR.step + Iso.NEAR.hh + 40) * b.w + 20]!
+        const band = theme.topBand[h]!
+        expect(`${biome.id} ${h} ${c}`).toBe(`${biome.id} ${h} ${k + band}`)
+        const l = Palette.lumaOf(theme.rgb[c]!)
+        expect(`${biome.id} ${h} ${l >= luma}`).toBe(`${biome.id} ${h} true`)
+        luma = l
+      }
+      expect(theme.topBand[World.MAX_HEIGHT]).toBe(4)
     }
   })
 
