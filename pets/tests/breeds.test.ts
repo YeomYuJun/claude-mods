@@ -52,15 +52,17 @@ describe('breeds', () => {
     }
   })
 
-  test('every breed\'s outline stands out at least 3 : 1 on every top face of every set', async () => {
-    const k = Palette.kind(0)
+  test('every breed\'s outline stands out at least 3 : 1 on every top face of every surface kind of every set', async () => {
     for (const breed of Species.BREEDS) {
       for (const b of Biome.BIOMES) {
         const { rgb } = Biome.themeOf(b.id, breed.bank)
-        for (let h = 0; h < 5; h++) {
-          const c = contrastOf(breed.bank.outline, rgb[k + h]!)
-          expect(`${breed.id} ${b.id} ${h} ${c >= 3}`).toBe(`${breed.id} ${b.id} ${h} true`)
-        }
+        b.colors.kinds.forEach((kc, slot) => {
+          const k = Palette.kind(slot)
+          for (let h = 0; h < 5; h++) {
+            const c = contrastOf(breed.bank.outline, rgb[k + h]!)
+            expect(`${breed.id} ${b.id} kind ${kc.id} ${h} ${c >= 3}`).toBe(`${breed.id} ${b.id} kind ${kc.id} ${h} true`)
+          }
+        })
       }
     }
   })

@@ -152,9 +152,15 @@ function ms(p: Pet, lo: number, hi: number): number {
   return Math.round(Rng.range(p.rng, lo, hi))
 }
 
-// 자기 전 아늑한 자리: 6 걸음 안에서 뒤쪽(화면 위쪽)에 높은 칸을 등진 곳
+// 잠자리에서 뺄 앞쪽 나무의 거리(대각선 수). 더 먼 나무는 누운 동물의 아래쪽만 조금 덮고, 나무 뒤 동물은 한 칸 걸러 비쳐 보인다.
+// 4 로 넓혀도 잠든 동물이 절반 넘게 가린 시간이 줄지 않았다(세트 5 × 시드 3 × 한 시간)
+const BED_CLEAR = 2
+
+// 자기 전 아늑한 자리: 6 걸음 안에서 뒤쪽(화면 위쪽)에 높은 칸을 등진 곳. 앞쪽에 나무가 있는 칸은 빼고, 다 빠지면 전부에서 고른다
 function bedOf(p: Pet, world: WorldState, s: Survey): Tile | undefined {
-  const tiles = tilesAt(p, world, s, 0, 6)
+  const near = tilesAt(p, world, s, 0, 6)
+  const open = near.filter(t => !World.hasTreeInFront(world, t.x, t.y, BED_CLEAR))
+  const tiles = open.length > 0 ? open : near
   let best: Tile | undefined
   let score = -1
   for (const t of tiles) {

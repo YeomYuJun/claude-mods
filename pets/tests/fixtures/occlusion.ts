@@ -5,11 +5,13 @@ import Pet from '../../hooks/pet'
 import Pixel, { Palette } from '../../hooks/pixel'
 import Scene, { type Scene as SceneState } from '../../hooks/scene'
 import Sprite from '../../hooks/sprite'
+import World from '../../hooks/world'
 import { sessionScript } from './sim.js'
 
-// 지형이 동물을 얼마나 가리는지 픽셀 버퍼에서 직접 센다.
+// 지형(과 소품)이 동물을 얼마나 가리는지 픽셀 버퍼에서 직접 센다.
 // 초마다 한 번 같은 자리에 동물을 빈 버퍼와 지형 위에 그리고, 빈 버퍼에서 칠해진 동물 픽셀 중
 // 지형 픽셀이 더 앞(깊이가 같거나 큼)이라 그려지지 않은 것을 가려진 픽셀로 본다.
+// props 를 켜면 패널과 같은 경로(타일, 비우기를 한 소품)로 그리고, 끄면 타일만 그린다(맵에는 나무가 그대로 있다)
 // frames: 잰 프레임 수, center7: 동물 가운데 열에서 7 픽셀 이상 가려진 프레임 수, max7: 어느 한 열이라도 7 픽셀 이상 가려진 프레임 수,
 // any: 한 픽셀이라도 가려진 프레임 수, half: 동물 픽셀의 절반 이상이 가려진 프레임 수. 깨어 있을 때와 잠들었을 때를 따로 센다
 // (웅크려 자는 몸은 키가 7 픽셀 안팎이라 잠든 프레임은 any·half 로 본다)
@@ -20,7 +22,7 @@ const T0 = 1_000_000
 const COLS = 40
 const ROWS = 30
 
-function hiddenOf(scene: SceneState): { center: number; max: number; hidden: number; total: number } {
+function hiddenOf(scene: SceneState, props: boolean): { center: number; max: number; hidden: number; total: number } {
   const p = scene.pet
   const proj = Iso.NEAR
   const ground = Pixel.bufferOf(COLS, ROWS, 1)
@@ -28,7 +30,8 @@ function hiddenOf(scene: SceneState): { center: number; max: number; hidden: num
   Pixel.clear(ground)
   Pixel.clear(alone)
   const view = Iso.viewOf(scene.cam, ground, proj)
-  Iso.drawWorld(ground, scene.world, view, proj, scene.theme)
+  if (props) Scene.drawGround(ground, scene, view, proj)
+  else Iso.drawWorld(ground, scene.world, view, proj, scene.theme)
   const s = Iso.screenOf(p.x, p.y, p.z, proj)
   const x = Math.round(s.sx) - view.ox
   const y = Math.round(s.sy) - view.oy
@@ -49,7 +52,7 @@ function hiddenOf(scene: SceneState): { center: number; max: number; hidden: num
 }
 
 // script: 'session' 은 세션 대본(90~180 초마다 턴, 사이에 잠든다), 'awake' 는 신호 없이 늘 깨어 있게(매 스텝 신호 시각을 지금으로)
-export function occlusionOf(biome: BiomeId, seed: number, minutes: number, script: 'session' | 'awake'): Occlusion {
+export function occlusionOf(biome: BiomeId, seed: number, minutes: number, script: 'session' | 'awake', props = false): Occlusion {
   const scene = Scene.create(seed, T0, biome)
   const cues = script === 'session' ? sessionScript(seed, minutes) : []
   const out: Occlusion = { awake: { frames: 0, center7: 0, max7: 0, any: 0, half: 0 }, asleep: { frames: 0, center7: 0, max7: 0, any: 0, half: 0 } }
@@ -69,13 +72,31 @@ export function occlusionOf(biome: BiomeId, seed: number, minutes: number, scrip
     }
     Scene.step(scene, Names.SIM_STEP_MS, now)
     if (i % every !== 0) continue
-    const h = hiddenOf(scene)
+    const h = hiddenOf(scene, props)
     const tally = scene.pet.isAsleep ? out.asleep : out.awake
     tally.frames++
     if (h.center >= 7) tally.center7++
     if (h.max >= 7) tally.max7++
     if (h.hidden > 0) tally.any++
     if (2 * h.hidden >= h.total) tally.half++
+  }
+  return out
+}
+
+// 늘 깨어 있게 minutes 분을 돌리며 스텝마다 동물이 선 칸(반올림)과 공이 있는 칸이 장애물 소품 칸인 스텝 수를 센다
+export function obstacleStepsOf(biome: BiomeId, seed: number, minutes: number): { pet: number; ball: number; steps: number } {
+  const scene = Scene.create(seed, T0, biome)
+  const out = { pet: 0, ball: 0, steps: 0 }
+  const steps = Math.round((minutes * 60_000) / Names.SIM_STEP_MS)
+  for (let i = 1; i <= steps; i++) {
+    const now = T0 + i * Names.SIM_STEP_MS
+    scene.pet.lastSignalAt = now
+    Scene.step(scene, Names.SIM_STEP_MS, now)
+    const p = scene.pet
+    const b = Pet.Ball.tileOf(p.ball)
+    out.steps++
+    if (World.isObstacle(scene.world, Math.round(p.x), Math.round(p.y))) out.pet++
+    if (World.isObstacle(scene.world, b.x, b.y)) out.ball++
   }
   return out
 }

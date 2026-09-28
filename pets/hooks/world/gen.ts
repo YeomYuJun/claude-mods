@@ -8,6 +8,9 @@
 //    우선순위가 더 높은 이웃 "후보"와 겹치거나 8-인접하면 버린다. 채택된 점이 아니라 후보와 비교하므로
 //    결과가 반경 2 셀 안의 해시만으로 정해진다. 장애물 덩어리가 서로 8-인접하지 않고 구멍이 없어 걷는 칸이 끊기지 않는다
 // 4. 블록 높이 = 발자국 높이 + 1 또는 + 2(발자국 높이가 모두 같을 때만 놓는다)
+// 5. 지표 종류: 순서대로 첫 참. 블록, 눈(온도 노이즈 - 0.06 × 높이 < 눈 문턱, 높이 하한 이상), 돌(높이 문턱 이상),
+//    얼룩(습도 노이즈 < 문턱 이고 잔무늬 노이즈 > 문턱), 나머지는 바탕 종류
+// 6. 걷는 꾸밈(꽃·풀포기·버섯): 장애물·블록이 아닌 칸에 칸 해시로 둔다. 장애물이 아니라 걸음을 막지 않는다
 //
 // 결정성: 순차 난수를 쓰지 않고, 사칙연산·floor·imul 만 쓴다(삼각·지수 함수는 엔진마다 마지막 비트가 다를 수 있다).
 
@@ -31,6 +34,16 @@ export type GenParams = {
   blockW: number
   // 이 세트의 나무 소품 번호
   tree: number
+  // 지표 종류: 바탕, 블록 칸, 이 높이 이상이면 돌, 눈(문턱·높이 하한), 얼룩(종류·습도 문턱·잔무늬 문턱). 없으면 쓰지 않는다
+  ground?: number
+  blockKind?: number
+  rockLine?: number
+  snow?: { line: number; min: number }
+  patch?: { kind: number; wet: number; p: number }
+  // 걷는 꾸밈 확률(칸당). 꽃·풀포기는 풀 칸에만, 버섯은 풀·낙엽 칸에
+  flowerP?: number
+  tuftP?: number
+  mushroomP?: number
 }
 
 // 소품 번호(prop 배열 값). 0 은 없음
@@ -41,6 +54,25 @@ export const PROP_PINE = 3
 export const PROP_OAK = 4
 export const PROP_WILLOW = 5
 export const PROP_PAPER_TREE = 6
+
+// 나무인지(키가 커서 동물을 가릴 수 있는 소품)
+export function isTree(prop: number): boolean {
+  return prop >= PROP_BROADLEAF && prop <= PROP_PAPER_TREE
+}
+
+// 지표 종류(kind 배열 값). 종이는 모눈종이 세트 하나뿐이다
+export const KIND_PAPER = 0
+export const KIND_GRASS = 1
+export const KIND_DIRT = 2
+export const KIND_STONE = 3
+export const KIND_SNOW = 4
+export const KIND_LITTER = 5
+
+// 걷는 꾸밈(deco 배열 값). 0 은 없음
+export const DECO_NONE = 0
+export const DECO_FLOWER = 1
+export const DECO_TUFT = 2
+export const DECO_MUSHROOM = 3
 
 export const MAX_HEIGHT = 8
 export const CHUNK = 32
@@ -59,7 +91,7 @@ export type GenOptions = {
   inside?: { x0: number; y0: number; x1: number; y1: number }
 }
 
-export type Region = { x0: number; y0: number; w: number; h: number; height: Uint8Array; prop: Uint8Array; block: Uint8Array }
+export type Region = { x0: number; y0: number; w: number; h: number; height: Uint8Array; prop: Uint8Array; block: Uint8Array; kind: Uint8Array; deco: Uint8Array }
 
 // 32 비트 정수 섞기
 export function hash(seed: number, x: number, y: number, salt: number): number {
@@ -185,7 +217,29 @@ function touches(a: Candidate, b: Candidate, ring: boolean): boolean {
   return a.x - e <= b.x + b.w - 1 && b.x <= a.x + a.w - 1 + e && a.y - e <= b.y + b.h - 1 && b.y <= a.y + a.h - 1 + e
 }
 
-// 영역 [x0, x0 + w) × [y0, y0 + h) 를 만든다: 높이, 소품 번호(나무·바위), 블록 표시
+// 칸 하나의 지표 종류. 높이·블록은 그 칸의 최종 값이다
+export function kindOf(seed: number, p: GenParams, x: number, y: number, height: number, isBlock: boolean): number {
+  const ground = p.ground ?? KIND_PAPER
+  if (isBlock) return p.blockKind ?? ground
+  if (p.snow && height >= p.snow.min && vnoise(seed, 31, x, y, 36) - 0.06 * height < p.snow.line) return KIND_SNOW
+  if (p.rockLine !== undefined && height >= p.rockLine) return KIND_STONE
+  if (p.patch && vnoise(seed, 32, x, y, 44) < p.patch.wet && vnoise(seed, 33, x, y, 7) > p.patch.p) return p.patch.kind
+  return ground
+}
+
+// 장애물·블록이 아닌 칸 하나의 걷는 꾸밈
+export function decoOf(seed: number, p: GenParams, x: number, y: number, kind: number): number {
+  const u = unit(hash(seed, x, y, 301))
+  if (kind === KIND_GRASS) {
+    const flower = p.flowerP ?? 0
+    if (u < flower) return DECO_FLOWER
+    if (u < flower + (p.tuftP ?? 0)) return DECO_TUFT
+  }
+  if ((kind === KIND_GRASS || kind === KIND_LITTER) && unit(hash(seed, x, y, 302)) < (p.mushroomP ?? 0)) return DECO_MUSHROOM
+  return DECO_NONE
+}
+
+// 영역 [x0, x0 + w) × [y0, y0 + h) 를 만든다: 높이, 소품 번호(나무·바위), 블록 표시, 지표 종류, 걷는 꾸밈
 export function region(seed: number, p: GenParams, x0: number, y0: number, w: number, h: number, opts: GenOptions = {}): Region {
   const cell = opts.cell ?? OBS_CELL
   const ring = opts.ring ?? true
@@ -239,5 +293,14 @@ export function region(seed: number, p: GenParams, x0: number, y0: number, w: nu
       }
     }
   }
-  return { x0, y0, w, h, height, prop, block }
+  const kind = new Uint8Array(w * h)
+  const deco = new Uint8Array(w * h)
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      const o = j * w + i
+      kind[o] = kindOf(seed, p, x0 + i, y0 + j, height[o]!, block[o] === 1)
+      if (!block[o] && !prop[o]) deco[o] = decoOf(seed, p, x0 + i, y0 + j, kind[o]!)
+    }
+  }
+  return { x0, y0, w, h, height, prop, block, kind, deco }
 }

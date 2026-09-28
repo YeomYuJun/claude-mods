@@ -87,6 +87,25 @@ describe('sleeping spot', () => {
     expect(at([[3, 2, 2]])).toBe(1)
     expect(at([[2, 3, 1], [3, 2, 1], [4, 3, 2], [3, 4, 2]])).toBe(2)
   })
+
+  test('a tree up to four diagonals in front and one tile to either side counts as in front, a tree behind or further off does not', async () => {
+    const at = (tx: number, ty: number) => World.hasTreeInFront(Fixtures.flatWorld(12, 12, [], [[tx, ty]]), 4, 4, 4)
+    for (const [x, y] of [[5, 4], [4, 5], [5, 5], [6, 5], [5, 6], [6, 6]]) expect(`${x},${y} ${at(x, y)}`).toBe(`${x},${y} true`)
+    for (const [x, y] of [[3, 4], [4, 3], [3, 3], [6, 4], [4, 6], [7, 7], [8, 6]]) expect(`${x},${y} ${at(x, y)}`).toBe(`${x},${y} false`)
+    expect(World.hasTreeInFront(Fixtures.flatWorld(12, 12, [], [[5, 4, World.Gen.PROP_ROCK]]), 4, 4, 4)).toBe(false)
+  })
+
+  test('going to bed skips the coziest spot when a tree stands in front of it', async () => {
+    // (5, 6) 는 뒤쪽 (4, 6) 이 높아 가장 아늑하다. 나무 (6, 7) 은 그 칸의 두 대각선 앞
+    const bedIn = (world: ReturnType<typeof Fixtures.flatWorld>) => {
+      const p = Pet.create(world, 7, 0)
+      const act = Pet.build('bedtime', p, world)
+      const go = act.steps.find(s => s.k === 'go') as { to: { x: number; y: number } }
+      return `${go.to.x},${go.to.y}`
+    }
+    expect(bedIn(Fixtures.flatWorld(12, 12, [[4, 6, 1]]))).toBe('5,6')
+    expect(bedIn(Fixtures.flatWorld(12, 12, [[4, 6, 1]], [[6, 7]])) === '5,6').toBe(false)
+  })
 })
 
 describe('path', () => {

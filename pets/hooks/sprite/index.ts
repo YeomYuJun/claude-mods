@@ -258,6 +258,21 @@ export function drawPet(b: Buffer, species: SpeciesDef, pose: PetPose, x: number
   }, bank)
 }
 
+// 동물 그림이 차지하는 상자(바닥 점 기준, 양 끝 포함). 키 큰 소품이 동물을 가릴 때 비울 범위를 정한다
+export function boundsOf(species: SpeciesDef, pose: PetPose): { x0: number; y0: number; x1: number; y1: number } {
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  paintPet(species, pose, (px, py) => {
+    if (px < x0) x0 = px
+    if (px > x1) x1 = px
+    if (py < y0) y0 = py
+    if (py > y1) y1 = py
+  })
+  return { x0, y0, x1, y1 }
+}
+
 // 작은 그림: 감정 표시, z, 공. 감정 표시는 동물 색을 빌리지 않고 효과 묶음의 고정 색으로 칠한다
 const EMOTE_CODE: Record<string, number> = { o: Palette.EMOTE_INK, p: Palette.HEART, z: Palette.ZZZ }
 const EMOTES: Record<string, Bitmap> = {

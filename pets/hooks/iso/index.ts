@@ -85,15 +85,39 @@ export type View = {
   oy: number
 }
 
-// 지금 맵은 지표 종류 하나(0)와 옆면 재질 하나(0)만 쓴다
-const KIND = Palette.kind(0)
-const SIDE = Palette.material(0)
+// 칸의 지표 종류는 세트의 색 표(kindSlot)가 번호 묶음으로, 옆면은 materialOf 가 재질 묶음으로 바꾼다.
 // 윗면 띠 0~4 의 색: 높을수록 밝다. 높이마다 어느 띠인지는 세트의 topBand 표가 정한다.
 // 앞 모서리 하이라이트는 두 띠 위 윗면 색을 빌린다(맨 위 두 띠는 HILITE)
 const T = Palette.Top
-const TOP_OF: readonly number[] = [KIND + T.TOP0, KIND + T.TOP1, KIND + T.TOP2, KIND + T.TOP3, KIND + T.TOP4]
-const HI_OF: readonly number[] = [KIND + T.TOP2, KIND + T.TOP3, KIND + T.TOP4, KIND + T.HILITE, KIND + T.HILITE]
-const LINE = KIND + T.LINE
+const TOP_OF: readonly number[] = [T.TOP0, T.TOP1, T.TOP2, T.TOP3, T.TOP4]
+const HI_OF: readonly number[] = [T.TOP2, T.TOP3, T.TOP4, T.HILITE, T.HILITE]
+
+// 윗면 무늬(1 배에서만): 지표 종류마다 칸 해시로 고르는 변형 4 개. 좌표는 윗면 픽셀 (dx, dy), 모두 선·하이라이트가 아닌 안쪽 픽셀이다
+type Dots = ReadonlyArray<readonly [number, number]>
+const G = World.Gen
+const PATTERNS: ReadonlyArray<readonly [number, readonly Dots[]]> = [
+  [G.KIND_GRASS, [[[-2, 2], [-2, 3], [1, 3]], [[1, 2], [1, 3], [-3, 3]], [[-1, 2], [-1, 3], [2, 3]], []]],
+  [G.KIND_DIRT, [[[-2, 2], [1, 3]], [[0, 2], [-3, 3]], [[2, 2], [-1, 3]], []]],
+  [G.KIND_LITTER, [[[-2, 2], [1, 3]], [[0, 2], [-3, 3], [2, 3]], [[2, 2], [-1, 3]], [[-1, 2]]]],
+  [G.KIND_STONE, [[[-2, 2], [-1, 3], [0, 3]], [[0, 2], [1, 2], [2, 3]], [], [[-3, 3], [-2, 3]]]],
+  [G.KIND_SNOW, [[[-1, 2]], [[1, 3]], [[2, 2]], []]],
+]
+// 지표 종류 번호마다 변형 4 개의 윗면 픽셀 표시(NEAR.tops 순서). 처음 쓸 때 만든다
+let masks: Map<number, Uint8Array[]> | undefined
+
+function masksOf(id: number): Uint8Array[] | undefined {
+  if (!masks) {
+    masks = new Map()
+    for (const [kid, variants] of PATTERNS) {
+      masks.set(kid, variants.map(dots => {
+        const m = new Uint8Array(NEAR.tops.length)
+        NEAR.tops.forEach((p, j) => { if (dots.some(([dx, dy]) => dx === p.dx && dy === p.dy)) m[j] = 1 })
+        return m
+      }))
+    }
+  }
+  return masks.get(id)
+}
 // 더 높은 NW 이웃이 드리우는 그늘의 폭(칸 폭 비율): 높이 차 한 단에 절반, 두 단 이상이면 칸 전체
 const CAST_PER_STEP = 0.5
 const CAST_MAX = 1
@@ -110,17 +134,25 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   // 길이가 z + 밑판 이하라 아래 끝은 ty + 2hh + z + base 를 넘지 않는다(땅 높이 + 밑판)
   if (ty >= b.h || ty + 2 * proj.hh + z + proj.base <= 0 || tx + proj.hw <= 0 || tx - proj.hw >= b.w) return false
   const shadowOf = theme.shadowOf
+  const id = World.kindAt(world, x, y)
+  const kind = Palette.kind(theme.kindSlot[id] ?? 0)
+  const mat = theme.materialOf[id] ?? 0
+  const side = Palette.material(mat)
+  const brick = theme.brick[mat] === true
   const base = x + y
   const isEdgeLeft = !World.inside(world, x, y + 1)
   const isEdgeRight = !World.inside(world, x + 1, y)
   const frontLeft = isEdgeLeft ? z + proj.base : (hgt - World.heightAt(world, x, y + 1)) * proj.step
   const frontRight = isEdgeRight ? z + proj.base : (hgt - World.heightAt(world, x + 1, y)) * proj.step
   const w = b.w
-  if (frontLeft > 0) face(b, proj.left, tx, ty, frontLeft, base, SIDE + Palette.Side.SIDE_L, SIDE + Palette.Side.L_STEP, isEdgeLeft, proj, w)
-  if (frontRight > 0) face(b, proj.right, tx, ty, frontRight, base, SIDE + Palette.Side.SIDE_R, SIDE + Palette.Side.R_STEP, isEdgeRight, proj, w)
+  if (frontLeft > 0) face(b, proj.left, tx, ty, frontLeft, base, side + Palette.Side.SIDE_L, side + Palette.Side.L_STEP, isEdgeLeft, brick, proj, w)
+  if (frontRight > 0) face(b, proj.right, tx, ty, frontRight, base, side + Palette.Side.SIDE_R, side + Palette.Side.R_STEP, isEdgeRight, brick, proj, w)
   const band = theme.topBand[hgt] ?? 4
-  const top = TOP_OF[band]!
-  const hi = HI_OF[band]!
+  const top = kind + TOP_OF[band]!
+  const hi = kind + HI_OF[band]!
+  const LINE = kind + T.LINE
+  const mask = proj === NEAR ? masksOf(id)?.[World.Gen.hash(world.seed, x, y, 401) & 3] : undefined
+  const accent = kind + T.ACCENT
   // 맵 뒤쪽 변(뒤에 칸이 없는 NW·NE 변)은 테 색으로 긋는다. 밝은 터미널에서도 맵 경계가 보이게 세트가 어두운 색을 줄 수 있다
   const every = proj.lineEvery
   const lineNW = !World.inside(world, x - 1, y) ? Palette.RIM : x % every !== 0 ? 0 : x % 3 === 0 ? Palette.LINE_HEAVY : LINE
@@ -132,15 +164,20 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   const castNW = upNW > 0 ? Math.min(CAST_MAX, upNW * CAST_PER_STEP) * 2 * proj.hh : 0
   const castNE = upNE > 0 ? CONTACT_PX : 0
   const level = hgt + 1
-  for (const p of proj.tops) {
+  const tops = proj.tops
+  for (let j = 0; j < tops.length; j++) {
+    const p = tops[j]!
     const px = tx + p.dx
     const py = ty + p.dy
     if (px < 0 || py < 0 || px >= w || py >= b.h) continue
     let c = top
+    const isShaded = p.nw < castNW || p.ne < castNE
     if (p.edge === 1) c = lineNW || top
     else if (p.edge === 2) c = lineNE || top
     else if ((p.front === 1 && frontLeft > 0) || (p.front === 2 && frontRight > 0)) c = hi
-    if (p.nw < castNW || p.ne < castNE) c = shadowOf[c]!
+    // 무늬는 그늘 밖에서만 칠한다(그늘 속에서는 윗면 그늘 색)
+    else if (mask?.[j] && !isShaded) c = accent
+    if (isShaded) c = shadowOf[c]!
     const i = py * w + px
     b.px[i] = c
     b.depth[i] = base + p.depth
@@ -150,8 +187,9 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   return true
 }
 
-// 옆면. 한 단의 맨 아래 줄마다 진한 줄을 그어 몇 단인지 셀 수 있게 한다(면의 맨 아래 줄은 아래 윗면과 맞닿아 긋지 않는다)
-function face(b: Buffer, cols: readonly FaceColumn[], tx: number, ty: number, height: number, base: number, color: number, stripe: number, isEdge: boolean, proj: Proj, w: number): void {
+// 옆면. 한 단의 맨 아래 줄마다 진한 줄을 그어 몇 단인지 셀 수 있게 한다(면의 맨 아래 줄은 아래 윗면과 맞닿아 긋지 않는다).
+// brick 이면 네 열마다 세로 줄도 긋고, 단마다 두 열씩 어긋나게 해 돌 쌓은 면처럼 보이게 한다
+function face(b: Buffer, cols: readonly FaceColumn[], tx: number, ty: number, height: number, base: number, color: number, stripe: number, isEdge: boolean, brick: boolean, proj: Proj, w: number): void {
   const step = proj.step
   const isStriped = proj.isStriped
   for (const c of cols) {
@@ -163,7 +201,9 @@ function face(b: Buffer, cols: readonly FaceColumn[], tx: number, ty: number, he
       if (py >= b.h) break
       const i = py * w + px
       // 맵 가장자리 밑판의 맨 아래 줄은 한 단계 어둡게 해 바닥과 떨어져 보이게 한다
-      b.px[i] = isEdge && k === height - 1 ? Palette.EDGE : isStriped && k < height - 1 && (k + 1) % step === 0 ? stripe : color
+      const isRow = isStriped && k < height - 1 && (k + 1) % step === 0
+      const isJoint = brick && isStriped && ((c.dx + 16 + (Math.floor(k / step) & 1) * 2) & 3) === 0
+      b.px[i] = isEdge && k === height - 1 ? Palette.EDGE : isRow || isJoint ? stripe : color
       b.depth[i] = base + c.depth
       b.surf[i] = SURF_SIDE
       b.level[i] = 0

@@ -37,7 +37,9 @@ describe('palette', () => {
     expect(theme.shadowOf.length).toBe(256)
     const last = Palette.bank(Palette.BANK_COUNT - 1) + Palette.BANK_SIZE - 1
     expect(last < Palette.SHADE_END).toBe(true)
-    expect(Palette.SHADE_END < Palette.TRANSPARENT).toBe(true)
+    expect(Palette.accentShadow(0)).toBe(Palette.SHADE_END + 1)
+    expect(Palette.accentShadow(Palette.KIND_COUNT - 1) < Palette.TRANSPARENT).toBe(true)
+    expect(Object.keys(Palette.PropSlot).length <= Palette.PROP_COUNT).toBe(true)
     const groups: Array<[number, number]> = [
       [Palette.kind(0), Palette.KIND_SIZE * Palette.KIND_COUNT], [Palette.LINE_HEAVY, 4], [Palette.material(0), 4 * Palette.MATERIAL_COUNT],
       [Palette.WATER, 8], [Palette.PROP, Palette.PROP_COUNT], [Palette.DUST, 12], [Palette.bank(0), Palette.BANK_SIZE * Palette.BANK_COUNT],
@@ -68,63 +70,70 @@ describe('palette', () => {
   })
 
   for (const b of Biome.BIOMES) {
-    test(`a ${b.id} frame uses at most 512 distinct color pairs for any seed, zoom and panel size`, async () => {
+    test(`a ${b.id} frame with its trees, rocks and decorations uses at most 512 distinct color pairs for any seed, zoom and panel size up to 200 × 80`, async () => {
       for (const seed of [7, 42, 1234]) {
-        for (const zoom of ['far', 1, 2] as Zoom[]) {
-          for (const [cols, rows] of [[40, 30], [120, 60]] as const) {
-            const scene = Scene.create(seed, 0, b.id)
-            let now = 0
-            let most = 0
-            // 신호를 섞어 감정 표시·흙·먼지가 화면에 있는 프레임도 센다
-            for (let i = 1; i <= 90; i++) {
-              now += 33
-              if (i === 5) Scene.onTurnStart(scene, now)
-              if (i === 50) Scene.onTool(scene, now)
-              Scene.step(scene, 33, now)
-              if (i % 15 === 0) most = Math.max(most, pairsOf(Scene.compose(scene, cols, rows, zoom)))
-            }
-            expect(most <= 512).toBe(true)
-            expect(most > 1).toBe(true)
+        const scene = Scene.create(seed, 0, b.id)
+        let now = 0
+        let most = 0
+        // 신호를 섞어 감정 표시·흙·먼지가 화면에 있는 프레임도 센다. 같은 시각에 줌 3 × 패널 3 을 모두 그린다
+        for (let i = 1; i <= 90; i++) {
+          now += 33
+          if (i === 5) Scene.onTurnStart(scene, now)
+          if (i === 50) Scene.onTool(scene, now)
+          Scene.step(scene, 33, now)
+          if (i % 30 !== 0) continue
+          for (const zoom of ['far', 1, 2] as Zoom[]) {
+            for (const [cols, rows] of [[40, 30], [120, 60], [200, 80]] as const) most = Math.max(most, pairsOf(Scene.compose(scene, cols, rows, zoom)))
           }
         }
+        expect(`${b.id} ${seed} ${most <= 512}`).toBe(`${b.id} ${seed} true`)
+        expect(most > 1).toBe(true)
       }
     })
   }
 
-  test('in every set, every color the map paints on a top face has a darker shadow color', async () => {
-    const tops = new Set<number>()
-    for (const proj of [Iso.NEAR, Iso.FAR]) {
-      for (const seed of [3, 7, 11, 42]) {
-        const { b } = Fixtures.drawAround(World.create(seed), proj)
-        for (let i = 0; i < b.px.length; i++) if (b.surf[i] === SURF_TOP) tops.add(b.px[i]!)
-      }
-    }
-    expect(tops.size > 5).toBe(true)
-    expect(tops.has(Palette.RIM)).toBe(true)
-    // 그늘 위에 강아지 그림자가 지면 그림자 색의 그림자를 칠한다
-    const k = Palette.kind(0)
-    for (const c of [k + Palette.Top.TOP0_SH, k + Palette.Top.TOP1_SH, k + Palette.Top.LINE_SH, Palette.LINE_HEAVY_SH]) tops.add(c)
+  test('in every set, every color its own map paints on a top face (patterns included) has a darker shadow color', async () => {
+    let rims = 0
     for (const b of Biome.BIOMES) {
       const { rgb, shadowOf } = Biome.themeOf(b.id)
+      const tops = new Set<number>()
+      for (const seed of [3, 11]) {
+        const world = World.create(seed, b.gen, { size: b.size, props: true })
+        for (const proj of [Iso.NEAR, Iso.FAR]) {
+          const { b: buf } = Fixtures.drawAround(world, proj)
+          for (let i = 0; i < buf.px.length; i++) if (buf.surf[i] === SURF_TOP) tops.add(buf.px[i]!)
+        }
+      }
+      if (tops.has(Palette.RIM)) rims++
+      // 그늘 위에 강아지 그림자가 지면 그림자 색의 그림자를 칠한다
+      b.colors.kinds.forEach((_, slot) => {
+        const k = Palette.kind(slot)
+        for (const c of [k + Palette.Top.TOP0_SH, k + Palette.Top.TOP1_SH, k + Palette.Top.LINE_SH]) tops.add(c)
+      })
+      tops.add(Palette.LINE_HEAVY_SH)
+      tops.add(shadowOf[Palette.RIM]!)
+      expect(`${b.id} ${tops.size > 5}`).toBe(`${b.id} true`)
       for (const c of tops) expect(`${b.id} ${c} ${Palette.lumaOf(rgb[shadowOf[c]!]!) < Palette.lumaOf(rgb[c]!)}`).toBe(`${b.id} ${c} true`)
     }
+    expect(rims > 0).toBe(true)
   })
 
-  test('in every set the top faces get brighter with height, and the front-edge highlight is brighter still', async () => {
-    const k = Palette.kind(0)
+  test('in every surface kind of every set the top colors get brighter from 0 to 4, and the front-edge highlight is brighter still', async () => {
     const T = Palette.Top
     for (const b of Biome.BIOMES) {
       const { rgb } = Biome.themeOf(b.id)
-      const ramp = [T.TOP0, T.TOP1, T.TOP2, T.TOP3, T.TOP4, T.HILITE].map(i => Palette.lumaOf(rgb[k + i]!))
-      for (let i = 1; i < ramp.length; i++) expect(`${b.id} ${i} ${ramp[i]! > ramp[i - 1]!}`).toBe(`${b.id} ${i} true`)
+      b.colors.kinds.forEach((_, slot) => {
+        const k = Palette.kind(slot)
+        const ramp = [T.TOP0, T.TOP1, T.TOP2, T.TOP3, T.TOP4, T.HILITE].map(i => Palette.lumaOf(rgb[k + i]!))
+        for (let i = 1; i < ramp.length; i++) expect(`${b.id} ${slot} ${i} ${ramp[i]! > ramp[i - 1]!}`).toBe(`${b.id} ${slot} ${i} true`)
+      })
     }
   })
 
-  test('the map edge stands out at least 3 : 1 on black, dark grey and white terminals in every set, and so does the back rim outside the graph-paper set', async () => {
+  test('the map edge and the back rim stand out at least 3 : 1 on black, dark grey and white terminals in every set', async () => {
     for (const b of Biome.BIOMES) {
       const { rgb } = Biome.themeOf(b.id)
-      const slots = b.id === Biome.DEFAULT ? [Palette.EDGE] : [Palette.EDGE, Palette.RIM]
-      for (const slot of slots) {
+      for (const slot of [Palette.EDGE, Palette.RIM]) {
         for (const bg of BACKGROUNDS) expect(`${b.id} ${slot} ${bg.toString(16)} ${contrastOf(rgb[slot]!, bg) >= 3}`).toBe(`${b.id} ${slot} ${bg.toString(16)} true`)
       }
     }

@@ -6,7 +6,7 @@ import World, { Gen } from '../hooks/world'
 const C = Gen.CHUNK
 
 function same(a: Gen.Region, b: Gen.Region): boolean {
-  for (const k of ['height', 'prop', 'block'] as const) {
+  for (const k of ['height', 'prop', 'block', 'kind', 'deco'] as const) {
     const x = a[k]
     const y = b[k]
     if (x.length !== y.length) return false
@@ -18,7 +18,7 @@ function same(a: Gen.Region, b: Gen.Region): boolean {
 // 2 × 2 청크를 따로 만들어 붙인 것
 function stitched(seed: number, p: Gen.GenParams, x0: number, y0: number): Gen.Region {
   const w = 2 * C
-  const out: Gen.Region = { x0, y0, w, h: w, height: new Uint8Array(w * w), prop: new Uint8Array(w * w), block: new Uint8Array(w * w) }
+  const out: Gen.Region = { x0, y0, w, h: w, height: new Uint8Array(w * w), prop: new Uint8Array(w * w), block: new Uint8Array(w * w), kind: new Uint8Array(w * w), deco: new Uint8Array(w * w) }
   for (let cy = 0; cy < 2; cy++) {
     for (let cx = 0; cx < 2; cx++) {
       const r = Gen.region(seed, p, x0 + cx * C, y0 + cy * C, C, C)
@@ -28,6 +28,8 @@ function stitched(seed: number, p: Gen.GenParams, x0: number, y0: number): Gen.R
           out.height[o] = r.height[j * C + i]!
           out.prop[o] = r.prop[j * C + i]!
           out.block[o] = r.block[j * C + i]!
+          out.kind[o] = r.kind[j * C + i]!
+          out.deco[o] = r.deco[j * C + i]!
         }
       }
     }
@@ -147,6 +149,32 @@ describe('generator', () => {
       expect(World.isWalkable(on, on.spawn.x, on.spawn.y)).toBe(true)
     }
     expect(trees > 0).toBe(true)
+  })
+
+  test('surface kinds follow the rules: blocks are the block kind, snow only at 5 steps or more, stone from the rock line, the rest ground or patch; decorations only on open ground of the right kind', async () => {
+    for (const b of Biome.BIOMES) {
+      const p = b.gen
+      const r = Gen.region(3, p, -20, -20, 96, 96)
+      const seen = new Set<number>()
+      for (let i = 0; i < r.w * r.h; i++) {
+        const k = r.kind[i]!
+        const h = r.height[i]!
+        seen.add(k)
+        const at = `${b.id} ${i}`
+        if (r.block[i]) expect(`${at} ${k}`).toBe(`${at} ${p.blockKind ?? p.ground ?? Gen.KIND_PAPER}`)
+        else if (k === Gen.KIND_SNOW) expect(`${at} snow ${p.snow !== undefined && h >= p.snow.min}`).toBe(`${at} snow true`)
+        else if (k === Gen.KIND_STONE) expect(`${at} stone ${p.rockLine !== undefined && h >= p.rockLine}`).toBe(`${at} stone true`)
+        else expect(`${at} ${k === (p.ground ?? Gen.KIND_PAPER) || k === p.patch?.kind}`).toBe(`${at} true`)
+        const d = r.deco[i]!
+        if (d === Gen.DECO_NONE) continue
+        expect(`${at} deco on open ground ${!r.block[i] && !r.prop[i]}`).toBe(`${at} deco on open ground true`)
+        if (d === Gen.DECO_MUSHROOM) expect(`${at} ${k === Gen.KIND_GRASS || k === Gen.KIND_LITTER}`).toBe(`${at} true`)
+        else expect(`${at} ${k}`).toBe(`${at} ${Gen.KIND_GRASS}`)
+      }
+      // 모눈종이는 종이 하나, 다른 세트는 바탕(풀)과 돌(블록)이 적어도 나온다
+      if (b.id === Biome.DEFAULT) expect([...seen]).toEqual([Gen.KIND_PAPER])
+      else expect(`${b.id} ${seen.has(Gen.KIND_GRASS) && seen.has(Gen.KIND_STONE)}`).toBe(`${b.id} true`)
+    }
   })
 
   test('the wider sets make a 64 × 64 map whose top reaches above the graph-paper range', async () => {

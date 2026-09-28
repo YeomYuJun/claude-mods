@@ -1,6 +1,6 @@
 // 시드와 세트 생성 매개변수로 경계 있는 맵을 만들고, 칸 값을 묻는 함수를 둔다(순수 모듈).
-// 1. 좌표 해시 생성기(gen.ts)로 높이·장애물(나무·바위·블록)을 만든다. 맵 가장자리로 갈수록 지형이 낮아져 섬 모양이 된다
-// 2. 나무·바위는 그림이 생기기 전까지 보이지 않는 벽이 되지 않게, 켜지 않으면 빈 땅으로 둔다(블록 자리는 켜든 끄든 같다)
+// 1. 좌표 해시 생성기(gen.ts)로 높이·장애물(나무·바위·블록)·지표 종류·걷는 꾸밈을 만든다. 맵 가장자리로 갈수록 지형이 낮아져 섬 모양이 된다
+// 2. 나무·바위는 켤 때만 두고(패널의 맵은 켠다), 켜지 않으면 빈 땅으로 둔다(블록 자리는 켜든 끄든 같다)
 // 3. 걸을 수 있는 칸(이웃과 높이 차 ≤ 1, 장애물 소품이 아닌 칸)을 BFS 로 묶어 가장 큰 덩어리만 걷는 칸으로 둔다.
 //    생성기가 장애물 덩어리를 서로 떨어뜨려 두므로 지형 칸은 모두 이 덩어리에 들고, 빠지는 것은 오를 수 없는 블록뿐이다
 //
@@ -30,8 +30,11 @@ export type World = {
   // 칸마다 높이(단)와 플래그
   height: Uint8Array
   flags: Uint8Array
-  // 칸마다 소품 번호(Gen.PROP_*). 0 은 없음
+  // 칸마다 장애물 소품 번호(Gen.PROP_*, 나무·바위). 0 은 없음
   prop: Uint8Array
+  // 칸마다 지표 종류(Gen.KIND_*)와 걷는 꾸밈(Gen.DECO_*, 걸음을 막지 않는다)
+  kind: Uint8Array
+  deco: Uint8Array
   spawn: { x: number; y: number }
   seed: number
   // 맵에서 가장 높은 칸의 높이. 그릴 때 화면 밖 타일을 거르는 여유로 쓴다
@@ -68,6 +71,14 @@ export function flagsAt(world: World, x: number, y: number): number {
 
 export function propAt(world: World, x: number, y: number): number {
   return inside(world, x, y) ? world.prop[y * world.w + x]! : 0
+}
+
+export function kindAt(world: World, x: number, y: number): number {
+  return inside(world, x, y) ? world.kind[y * world.w + x]! : 0
+}
+
+export function decoAt(world: World, x: number, y: number): number {
+  return inside(world, x, y) ? world.deco[y * world.w + x]! : 0
 }
 
 // 걸을 때 발이 닿는 높이. 물 칸은 수면(바닥 + 1, 깊으면 + 2)
@@ -147,7 +158,7 @@ export function componentsOf(height: Uint8Array, w: number, h: number, obstacle?
 }
 
 // 높이와 블록·장애물 표시로 월드를 만든다. 걷는 칸은 가장 큰 덩어리, 시작 칸은 가운데에서 가장 가까운 걷는 칸
-export type Spec = { w: number; h: number; height: Uint8Array; block?: Uint8Array; obstacle?: Uint8Array; prop?: Uint8Array; seed?: number }
+export type Spec = { w: number; h: number; height: Uint8Array; block?: Uint8Array; obstacle?: Uint8Array; prop?: Uint8Array; kind?: Uint8Array; deco?: Uint8Array; seed?: number }
 
 export function build(spec: Spec): World {
   const { w, h, height } = spec
@@ -171,7 +182,7 @@ export function build(spec: Spec): World {
   }
   let maxHeight = 0
   for (let i = 0; i < w * h; i++) maxHeight = Math.max(maxHeight, height[i]!)
-  return { w, h, height, flags, prop: spec.prop ?? new Uint8Array(w * h), spawn, seed: spec.seed ?? 0, maxHeight }
+  return { w, h, height, flags, prop: spec.prop ?? new Uint8Array(w * h), kind: spec.kind ?? new Uint8Array(w * h), deco: spec.deco ?? new Uint8Array(w * h), spawn, seed: spec.seed ?? 0, maxHeight }
 }
 
 // 모눈종이 기본 세트의 생성 매개변수: 지형 0~2 단, 블록 +1·+2(최대 4 단), 나무는 드물게
@@ -181,7 +192,7 @@ export const PAPER_GEN: Gen.GenParams = {
 }
 
 // size: 한 변 칸 수. 없으면 시드로 MAP_MIN~MAP_MAX 에서 가로·세로를 따로 고른다.
-// props: 나무·바위를 둘지(그림이 생기기 전까지는 끈다)
+// props: 나무·바위를 둘지(패널의 맵은 켠다. 합성·행동 테스트 맵은 기본값 끔)
 export type CreateOptions = { size?: number; props?: boolean }
 
 export function create(seed: number, gen: Gen.GenParams = PAPER_GEN, opts: CreateOptions = {}): World {
@@ -197,7 +208,19 @@ export function create(seed: number, gen: Gen.GenParams = PAPER_GEN, opts: Creat
   const obstacle = new Uint8Array(w * h)
   const prop = new Uint8Array(w * h)
   if (opts.props) for (let i = 0; i < w * h; i++) if (r.prop[i]) { obstacle[i] = 1; prop[i] = r.prop[i]! }
-  return build({ w, h, height: r.height, block: r.block, obstacle, prop, seed })
+  return build({ w, h, height: r.height, block: r.block, obstacle, prop, kind: r.kind, deco: r.deco, seed })
+}
+
+// 칸 (x, y) 앞쪽(화면 아래) reach 대각선 안, 좌우로 한 칸 폭 안에 나무가 있는지.
+// 대각선 d 앞의 칸은 d × (반높이) 픽셀 아래에 서므로, 나무 키가 그만큼보다 크면 그 칸에 누운 동물을 가린다
+export function hasTreeInFront(world: World, x: number, y: number, reach: number): boolean {
+  for (let d = 1; d <= reach; d++) {
+    for (let e = -1; e <= 1; e++) {
+      if (((d + e) & 1) !== 0) continue
+      if (Gen.isTree(propAt(world, x + (d + e) / 2, y + (d - e) / 2))) return true
+    }
+  }
+  return false
 }
 
 // 화면에서 뒤쪽인 두 이웃(NW = x - 1, NE = y - 1)

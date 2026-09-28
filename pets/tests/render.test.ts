@@ -2,7 +2,8 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import Biome from '../hooks/biome'
 import Iso, { type Proj } from '../hooks/iso'
-import Pixel, { Palette } from '../hooks/pixel'
+import Pixel, { Palette, type Buffer } from '../hooks/pixel'
+import Prop, { type PropArtId } from '../hooks/prop'
 import Species from '../hooks/species'
 import Sprite, { type PetPose } from '../hooks/sprite'
 import World, { type World as WorldState } from '../hooks/world'
@@ -118,7 +119,7 @@ const fullOf = (world: WorldState, proj: Proj) => Fixtures.drawAround(world, pro
 // 세트마다 시드 7 맵 하나. 맵 만들기가 무거워(64 × 64 는 엔진에서 15~20 ms) 이 파일에서 한 번만 만든다
 let sets: Array<readonly [string, WorldState]> | undefined
 function setWorlds(): ReadonlyArray<readonly [string, WorldState]> {
-  sets ??= Biome.BIOMES.map(b => [b.id, World.create(7, b.gen, { size: b.size })] as const)
+  sets ??= Biome.BIOMES.map(b => [b.id, World.create(7, b.gen, { size: b.size, props: true })] as const)
   return sets
 }
 
@@ -149,8 +150,9 @@ describe('iso projections', () => {
     for (let i = 0; i < b.px.length; i++) expect(b.px[i] === Palette.VOID).toBe(false)
   })
 
-  test('culling drops no visible tile: a small view equals the same crop of the whole map, on graph paper and on the taller sets', async () => {
-    const worlds = [World.create(3), World.create(11), ...setWorlds().filter(([id]) => id !== Biome.DEFAULT).map(([, w]) => w)]
+  test('culling drops no visible tile or prop: a small view equals the same crop of the whole map, on graph paper and on the taller sets', async () => {
+    const paper = (seed: number) => World.create(seed, World.PAPER_GEN, { props: true })
+    const worlds = [paper(3), paper(11), ...setWorlds().filter(([id]) => id !== Biome.DEFAULT).map(([, w]) => w)]
     for (const [, proj] of PROJS) {
       for (const world of worlds) {
         const full = fullOf(world, proj)
@@ -164,6 +166,7 @@ describe('iso projections', () => {
           Pixel.clear(b)
           const view = { ox: full.view.ox + dx!, oy: full.view.oy + dy! }
           const drawn = Iso.drawWorld(b, world, view, proj)
+          Prop.drawProps(b, world, view, proj)
           expect(drawn < Fixtures.tilesAround(world).filter(t => World.inside(world, t.x, t.y)).length).toBe(true)
           let same = true
           for (let y = 0; y < sh && same; y++) {
@@ -224,6 +227,52 @@ describe('iso projections', () => {
         luma = l
       }
       expect(theme.topBand[World.MAX_HEIGHT]).toBe(4)
+    }
+  })
+
+  test('tree sprites stay within 9 × 14 (pine 7 × 15) at 1 × and 6 × 9 (pine 5 × 10) far, rocks within 7 × 5 and 5 × 3, and every tree is taller than 8 px', async () => {
+    const limits: ReadonlyArray<readonly [PropArtId, number, number, number, number]> = [
+      ['broadleaf', 9, 14, 6, 9], ['oak', 9, 14, 6, 9], ['willow', 9, 14, 6, 9], ['paperTree', 9, 14, 6, 9], ['pine', 7, 15, 5, 10], ['rock', 7, 5, 5, 3],
+    ]
+    for (const [art, nw, nh, fw, fh] of limits) {
+      const near = Prop.sizeOf(art, false)!
+      const far = Prop.sizeOf(art, true)!
+      expect(`${art} ${near.w <= nw && near.h <= nh} ${far.w <= fw && far.h <= fh}`).toBe(`${art} true true`)
+      if (art !== 'rock') expect(`${art} ${near.h > Prop.TALL_PX}`).toBe(`${art} true`)
+    }
+  })
+
+  test('a dog behind a tree shows through every other pixel (its colors on odd cells, its outline on even ones), a dog in front hides the tree, and short props are never hollowed', async () => {
+    for (const [name, proj] of PROJS) {
+      // 강아지 (5, 5). 나무는 두 대각선 앞 (6, 6) 이나 뒤 (4, 4), 바위는 바로 앞 (5, 6)
+      const draw = (world: WorldState, hollow: boolean) => {
+        const b = Pixel.bufferOf(40, 20, 1)
+        Pixel.clear(b)
+        const s = Iso.screenOf(5, 5, 0, proj)
+        const view = { ox: Math.round(s.sx) - 20, oy: Math.round(s.sy) - 30 }
+        Iso.drawWorld(b, world, view, proj)
+        const box = Sprite.boundsOf(Species.DOG, STAND)
+        Prop.drawProps(b, world, view, proj, hollow ? { x0: 20 + box.x0, y0: 30 + box.y0, x1: 20 + box.x1, y1: 30 + box.y1, depth: 10.4 } : undefined)
+        Sprite.drawPet(b, Species.DOG, STAND, 20, 30, 10.4)
+        return b
+      }
+      const alone = Pixel.bufferOf(40, 20, 1)
+      Pixel.clear(alone)
+      Sprite.drawPet(alone, Species.DOG, STAND, 20, 30, 10.4)
+      const dogPixels = (b: Buffer) => { let n = 0; for (let i = 0; i < b.px.length; i++) if (alone.px[i] !== Palette.VOID && b.px[i] === alone.px[i]) n++; return n }
+      const behind = Fixtures.flatWorld(12, 12, [], [[6, 6]])
+      const cut = draw(behind, true)
+      expect(`${name} ${dogPixels(cut) > dogPixels(draw(behind, false))}`).toBe(`${name} true`)
+      for (let i = 0; i < cut.px.length; i++) {
+        if (alone.px[i] === Palette.VOID || cut.px[i] === alone.px[i]) continue
+        const X = i % cut.w
+        const Y = Math.floor(i / cut.w)
+        expect(`${name} hidden at odd cell ${((X + Y) & 1) === 1}`).toBe(`${name} hidden at odd cell false`)
+      }
+      const front = Fixtures.flatWorld(12, 12, [], [[4, 4]])
+      expect(`${name} ${dogPixels(draw(front, true))}`).toBe(`${name} ${dogPixels(alone)}`)
+      const rock = Fixtures.flatWorld(12, 12, [], [[5, 6, World.Gen.PROP_ROCK]])
+      expect(`${name} ${draw(rock, true).px.join(',') === draw(rock, false).px.join(',')}`).toBe(`${name} true`)
     }
   })
 

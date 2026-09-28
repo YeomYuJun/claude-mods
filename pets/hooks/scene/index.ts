@@ -1,4 +1,4 @@
-// 패널 한 장(순수 모듈): 맵, 그림자, 공, 강아지, 효과를 픽셀 버퍼에 그리고 셀로 접어 인코딩한다.
+// 패널 한 장(순수 모듈): 맵, 소품, 그림자, 공, 강아지, 효과를 픽셀 버퍼에 그리고 셀로 접어 인코딩한다.
 // 시뮬레이션은 고정 스텝으로 돌리고, 그리기는 지금 모습에 맞는 간격(renderEveryMs)으로만 한다.
 
 import Biome, { type BiomeId } from '../biome'
@@ -6,6 +6,7 @@ import Iso, { type Camera, type Proj } from '../iso'
 import Names from '../names'
 import Pet, { type Pet as PetState, type TurnEnd } from '../pet'
 import Pixel, { Palette, type Buffer, type Grid } from '../pixel'
+import Prop from '../prop'
 import Species, { type BreedId } from '../species'
 import Sprite from '../sprite'
 import World, { type World as WorldState } from '../world'
@@ -39,10 +40,10 @@ function focusOf(pet: PetState): { sx: number; sy: number } {
   return { sx: s.sx, sy: s.sy - pet.species.sprite.lookUpPx }
 }
 
-// 세트의 맵. 나무·바위는 그림이 생기기 전까지 두지 않는다
+// 세트의 맵. 나무·바위를 둔다
 function worldOf(seed: number, biome: BiomeId): WorldState {
   const b = Biome.byId(biome)
-  return World.create(seed, b.gen, { size: b.size })
+  return World.create(seed, b.gen, { size: b.size, props: true })
 }
 
 export function create(seed: number, now: number, biome: BiomeId = Biome.DEFAULT, breed: BreedId = Species.DEFAULT_BREED): Scene {
@@ -189,12 +190,23 @@ function drawPet(b: Buffer, scene: Scene, ox: number, oy: number, proj: Proj): v
   }
 }
 
+// 지형과 소품. 키 큰 소품은 동물 화면 상자 안에서 동물보다 앞이면 한 칸 걸러 비운다
+export function drawGround(b: Buffer, scene: Scene, view: { ox: number; oy: number }, proj: Proj): void {
+  Iso.drawWorld(b, scene.world, view, proj, scene.theme)
+  const p = scene.pet
+  const s = Iso.screenOf(p.x, p.y, p.z, proj)
+  const x = Math.round(s.sx) - view.ox
+  const y = Math.round(s.sy) - view.oy
+  const box = Sprite.boundsOf(p.species, Pet.poseOf(p))
+  Prop.drawProps(b, scene.world, view, proj, { x0: x + box.x0, y0: y + box.y0, x1: x + box.x1, y1: y + box.y1, depth: p.x + p.y + 0.4 })
+}
+
 export function compose(scene: Scene, cols: number, rows: number, zoom: Zoom): string {
   const proj = zoom === 'far' ? Iso.FAR : Iso.NEAR
   const [b, g] = buffersFor(scene, cols, rows, zoom === 2 ? 2 : 1)
   Pixel.clear(b)
   const view = Iso.viewOf(scene.cam, b, proj)
-  Iso.drawWorld(b, scene.world, view, proj, scene.theme)
+  drawGround(b, scene, view, proj)
   drawPet(b, scene, view.ox, view.oy, proj)
   Pixel.fold(b, g, scene.theme.rgb)
   return Pixel.encode(g)
