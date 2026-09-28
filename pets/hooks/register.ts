@@ -49,6 +49,7 @@ function worldChoiceOf(value: unknown): BiomeId | 'auto' {
 export function register(on: On) {
   let host: Host | undefined
   let isOpen = false
+  // 프롬프트 위 띠는 쓰지 않는 기능으로 둔다: 켜는 명령이 없고 예전 저장값(band 키)도 읽지 않아 늘 꺼져 있다
   let isBandOn = false
   let zoom: Zoom = 1
   let scene = Scene.create(0x5eed, 0)
@@ -139,7 +140,6 @@ export function register(on: On) {
     try { seed = Rng.hashOf(await $.session.id()) } catch { /* 시각으로 만든 시드 그대로 */ }
     sessionSeed = seed
     try {
-      isBandOn = (await $.store.get(Names.STORE_BAND)) === true
       zoom = Scene.zoomOf(await $.store.get(Names.STORE_SCALE))
       worldChoice = worldChoiceOf(await $.store.get(Names.STORE_WORLD))
       petChoice = petChoiceOf(await $.store.get(Names.STORE_PETS))
@@ -154,14 +154,6 @@ export function register(on: On) {
 
   on('command.run', { command: Names.COMMAND_NAME }, async ($, e) => {
     const [arg = '', sub = '', ...rest] = e.args.trim().toLowerCase().split(/\s+/)
-    if (arg === 'band' && sub === '') {
-      isBandOn = !isBandOn
-      if (!isBandOn) strip = undefined
-      await host?.store(Names.STORE_BAND, isBandOn)
-      $.ui.invalidate('ui.render')
-      syncTimer()
-      return { text: isBandOn ? Names.BAND_SHOWN_TEXT : Names.BAND_HIDDEN_TEXT }
-    }
     // zoom 은 원거리 → 1 배 → 2 배 를 돌고, zoom in · out 은 한 단계씩 가다 끝에서 멈춘다
     if (arg === 'zoom' && (sub === '' || sub === 'in' || sub === 'out') && rest.length === 0) {
       const next = sub === '' ? Scene.zoomNext(zoom) : Scene.zoomBy(zoom, sub === 'in' ? 1 : -1)

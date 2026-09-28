@@ -1,8 +1,9 @@
 // 시드와 세트 생성 매개변수로 경계 있는 맵을 만들고, 칸 값을 묻는 함수를 둔다(순수 모듈).
-// 1. 좌표 해시 생성기(gen.ts)로 높이·장애물(나무·바위·블록)·지표 종류·걷는 꾸밈을 만든다. 맵 가장자리로 갈수록 지형이 낮아져 섬 모양이 된다
+// 1. 좌표 해시 생성기(gen.ts)로 높이·장애물(나무·바위·블록)·지표 종류·걷는 꾸밈·호수를 만든다. 맵 가장자리로 갈수록 지형이 낮아져 섬 모양이 된다
 // 2. 나무·바위는 켤 때만 두고(패널의 맵은 켠다), 켜지 않으면 빈 땅으로 둔다(블록 자리는 켜든 끄든 같다)
-// 3. 걸을 수 있는 칸(이웃과 높이 차 ≤ 1, 장애물 소품이 아닌 칸)을 BFS 로 묶어 가장 큰 덩어리만 걷는 칸으로 둔다.
-//    생성기가 장애물 덩어리를 서로 떨어뜨려 두므로 지형 칸은 모두 이 덩어리에 들고, 빠지는 것은 오를 수 없는 블록뿐이다
+// 3. 걸을 수 있는 칸(이웃과 걷는 높이 차 ≤ 1, 장애물 소품·깊은 물이 아닌 칸)을 BFS 로 묶어 가장 큰 덩어리만 걷는 칸으로 둔다.
+//    걷는 높이는 땅이면 높이, 물이면 수면이다. 생성기가 장애물 덩어리를 서로 떨어뜨려 두므로 지형 칸과 얕은 물은 모두 이 덩어리에 들고,
+//    빠지는 것은 오를 수 없는 블록과 깊은 물뿐이다
 //
 // 다른 모듈은 World 의 배열을 직접 읽지 않고 아래 질의 함수(heightAt, flagsAt, isWalkable, canStep 등)만 쓴다.
 // 칸 플래그는 물리 사실(물, 깊은 물, 장애물 소품, 블록)만 담고, 종마다 다른 통과 여부는 이동 규칙(Rules)으로 계산한다.
@@ -88,6 +89,53 @@ export function walkHeightAt(world: World, x: number, y: number): number {
   return f & WATER ? h + 1 + (f & DEEP ? 1 : 0) : h
 }
 
+export function isWater(world: World, x: number, y: number): boolean {
+  return (flagsAt(world, x, y) & WATER) !== 0
+}
+
+export function isDeep(world: World, x: number, y: number): boolean {
+  return (flagsAt(world, x, y) & DEEP) !== 0
+}
+
+// 칸의 겉: 땅, 얕은 물(걷는다), 깊은 물(헤엄치는 종만), 블록, 막힘(맵 밖·나무·바위)
+export type Surface = 'ground' | 'shallow' | 'deep' | 'block' | 'blocked'
+
+export function surfaceAt(world: World, x: number, y: number): Surface {
+  if (!inside(world, x, y)) return 'blocked'
+  const f = flagsAt(world, x, y)
+  if (f & OBSTACLE) return 'blocked'
+  if (f & WATER) return f & DEEP ? 'deep' : 'shallow'
+  return f & BLOCK ? 'block' : 'ground'
+}
+
+// 얕은 물에 선 동물은 다리 아래가, 깊은 물에서 헤엄치는 동물은 몸 아래가 수면에 잠긴다(1 배 픽셀)
+export const WADE_PX = 3
+export const SWIM_PX = 6
+
+// 칸 가운데에 선 발의 높이(1 배 픽셀): 땅은 높이 × 한 단, 물은 수면에서 잠기는 만큼 아래
+export function standZ(world: World, x: number, y: number): number {
+  const f = flagsAt(world, x, y)
+  const z = walkHeightAt(world, x, y) * Names.STEP_PX
+  return f & WATER ? z - (f & DEEP ? SWIM_PX : WADE_PX) : z
+}
+
+// 물가: 물이 아닌 걷는 칸 중 4 방향 이웃에 물이 있는 칸과 그 물 쪽 방향(이웃 순서 NEIGHBORS 의 첫 물).
+// from 둘레 ±r 칸 상자를 행 우선으로 훑는다
+export type WaterEdge = { x: number; y: number; dx: number; dy: number }
+
+export function waterEdgesWithin(world: World, from: { x: number; y: number }, r: number, rules: Rules = DEFAULT_RULES): WaterEdge[] {
+  const out: WaterEdge[] = []
+  for (let y = from.y - r; y <= from.y + r; y++) {
+    for (let x = from.x - r; x <= from.x + r; x++) {
+      if (isWater(world, x, y) || !isWalkable(world, x, y, rules)) continue
+      for (const [dx, dy] of NEIGHBORS) {
+        if (isWater(world, x + dx, y + dy)) { out.push({ x, y, dx, dy }); break }
+      }
+    }
+  }
+  return out
+}
+
 export function isBlock(world: World, x: number, y: number): boolean {
   return (flagsAt(world, x, y) & BLOCK) !== 0
 }
@@ -117,9 +165,14 @@ export function canStep(world: World, x0: number, y0: number, x1: number, y1: nu
   return isWalkable(world, x1, y1, rules) && Math.abs(walkHeightAt(world, x1, y1) - walkHeightAt(world, x0, y0)) <= rules.climb
 }
 
-// 한 걸음의 경로 비용: 1, 단차가 있으면 CLIMB_COST 를 더한다
+// 한 걸음의 경로 비용: 1, 단차가 있으면 CLIMB_COST, 얕은 물로 들어가면 WADE_COST, 깊은 물(헤엄)이면 SWIM_COST 를 더한다
+export const WADE_COST = 0.5
+export const SWIM_COST = 2
+
 export function stepCost(world: World, x0: number, y0: number, x1: number, y1: number): number {
-  return 1 + (walkHeightAt(world, x1, y1) !== walkHeightAt(world, x0, y0) ? CLIMB_COST : 0)
+  const f = flagsAt(world, x1, y1)
+  const wet = f & WATER ? (f & DEEP ? SWIM_COST : WADE_COST) : 0
+  return 1 + (walkHeightAt(world, x1, y1) !== walkHeightAt(world, x0, y0) ? CLIMB_COST : 0) + wet
 }
 
 export const NEIGHBORS: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, 1], [-1, 0], [0, -1]]
@@ -157,28 +210,42 @@ export function componentsOf(height: Uint8Array, w: number, h: number, obstacle?
   return [label, sizes]
 }
 
-// 높이와 블록·장애물 표시로 월드를 만든다. 걷는 칸은 가장 큰 덩어리, 시작 칸은 가운데에서 가장 가까운 걷는 칸
-export type Spec = { w: number; h: number; height: Uint8Array; block?: Uint8Array; obstacle?: Uint8Array; prop?: Uint8Array; kind?: Uint8Array; deco?: Uint8Array; seed?: number }
+// 높이와 블록·장애물·물 표시로 월드를 만든다. 걷는 칸은 가장 큰 덩어리(깊은 물은 빼고 수면 높이로 이웃을 잇는다),
+// 시작 칸은 가운데에서 가장 가까운 걷는 칸(물이 아닌 칸이 있으면 그중에서).
+// water: 칸마다 0 땅, WATER_SHALLOW 얕은 물, WATER_DEEP 깊은 물. 물 칸의 height 는 바닥 높이다
+export const WATER_SHALLOW = Gen.WATER_SHALLOW
+export const WATER_DEEP = Gen.WATER_DEEP
+export type Spec = { w: number; h: number; height: Uint8Array; block?: Uint8Array; obstacle?: Uint8Array; prop?: Uint8Array; kind?: Uint8Array; deco?: Uint8Array; water?: Uint8Array; seed?: number }
 
 export function build(spec: Spec): World {
   const { w, h, height } = spec
   const flags = new Uint8Array(w * h)
+  const walkH = new Uint8Array(w * h)
+  const closed = new Uint8Array(w * h)
   for (let i = 0; i < w * h; i++) {
     if (spec.block?.[i]) flags[i]! |= BLOCK
-    if (spec.obstacle?.[i]) flags[i]! |= OBSTACLE
+    if (spec.obstacle?.[i]) { flags[i]! |= OBSTACLE; closed[i] = 1 }
+    const wet = spec.water?.[i] ?? 0
+    if (wet) flags[i]! |= wet === WATER_DEEP ? WATER | DEEP : WATER
+    if (wet === WATER_DEEP) closed[i] = 1
+    walkH[i] = height[i]! + (wet ? wet : 0)
   }
-  const [label, sizes] = componentsOf(height, w, h, spec.obstacle)
+  const [label, sizes] = componentsOf(walkH, w, h, closed)
   let best = 0
   for (let i = 1; i < sizes.length; i++) if (sizes[i]! > sizes[best]!) best = i
   if (sizes.length > 0) for (let i = 0; i < w * h; i++) if (label[i] === best) flags[i]! |= WALK
   let spawn = { x: 0, y: 0 }
   let near = Infinity
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (!(flags[y * w + x]! & WALK)) continue
-      const d = Math.abs(x - w / 2) + Math.abs(y - h / 2)
-      if (d < near) { near = d; spawn = { x, y } }
+  for (const dry of [true, false]) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const f = flags[y * w + x]!
+        if (!(f & WALK) || (dry && f & WATER)) continue
+        const d = Math.abs(x - w / 2) + Math.abs(y - h / 2)
+        if (d < near) { near = d; spawn = { x, y } }
+      }
     }
+    if (near < Infinity) break
   }
   let maxHeight = 0
   for (let i = 0; i < w * h; i++) maxHeight = Math.max(maxHeight, height[i]!)
@@ -208,7 +275,7 @@ export function create(seed: number, gen: Gen.GenParams = PAPER_GEN, opts: Creat
   const obstacle = new Uint8Array(w * h)
   const prop = new Uint8Array(w * h)
   if (opts.props) for (let i = 0; i < w * h; i++) if (r.prop[i]) { obstacle[i] = 1; prop[i] = r.prop[i]! }
-  return build({ w, h, height: r.height, block: r.block, obstacle, prop, kind: r.kind, deco: r.deco, seed })
+  return build({ w, h, height: r.height, block: r.block, obstacle, prop, kind: r.kind, deco: r.deco, water: r.water, seed })
 }
 
 // 칸 (x, y) 앞쪽(화면 아래) reach 대각선 안, 좌우로 한 칸 폭 안에 나무가 있는지.

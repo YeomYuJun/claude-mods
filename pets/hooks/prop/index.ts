@@ -1,4 +1,4 @@
-// 소품 그리기(순수 모듈): 나무·바위(장애물)와 꽃·풀포기·버섯(걷는 꾸밈). 그림은 art.ts, 색은 세트가 소품 묶음에 채운다.
+// 소품 그리기(순수 모듈): 나무·바위(장애물)와 꽃·풀포기·버섯·갈대·연잎(걷는 꾸밈). 그림은 art.ts, 색은 세트가 소품 묶음에 채운다.
 //
 // 모든 타일을 그린 뒤 뒤에서 앞으로(x + y 순) 픽셀마다 깊이를 비교해 그리고 깊이를 쓴다.
 // 깊이: 장애물 소품 = 칸 x + y + 0.45(같은 칸 동물 0.4 보다 조금 앞), 걷는 꾸밈 = x + y + 0.6(같은 칸 동물의 발을 조금 가린다).
@@ -26,7 +26,7 @@ const G = World.Gen
 const PROP_IDS: ReadonlyArray<readonly [number, PropArtId]> = [
   [G.PROP_ROCK, 'rock'], [G.PROP_BROADLEAF, 'broadleaf'], [G.PROP_PINE, 'pine'], [G.PROP_OAK, 'oak'], [G.PROP_WILLOW, 'willow'], [G.PROP_PAPER_TREE, 'paperTree'],
 ]
-const DECO_IDS: ReadonlyArray<readonly [number, PropArtId]> = [[G.DECO_FLOWER, 'flower'], [G.DECO_TUFT, 'tuft'], [G.DECO_MUSHROOM, 'mushroom']]
+const DECO_IDS: ReadonlyArray<readonly [number, PropArtId]> = [[G.DECO_FLOWER, 'flower'], [G.DECO_TUFT, 'tuft'], [G.DECO_MUSHROOM, 'mushroom'], [G.DECO_REED, 'reed'], [G.DECO_LILY, 'lily']]
 
 // 팔레트 번호로 바꾼 그림. 투명은 255
 type Compiled = { w: number; h: number; ax: number; ay: number; px: Uint8Array; isTall: boolean }
@@ -101,8 +101,10 @@ export function drawProps(b: Buffer, world: WorldState, view: View, proj: Proj =
       const pair = prop ? byProp.get(prop) : deco ? byDeco.get(deco) : undefined
       const c = pair && (isFar ? pair[1] : pair[0])
       if (!c) continue
-      const s = Iso.screenOf(x, y, World.heightAt(world, x, y) * Names.STEP_PX, proj)
-      stamp(b, c, Math.round(s.sx) - view.ox, Math.round(s.sy) - view.oy, d + (prop ? PROP_DEPTH : DECO_DEPTH), hollow)
+      // 물 위 꾸밈(갈대·연잎)은 수면에 놓는다. 수면은 물가 윗면보다 1 픽셀 낮다
+      const s = Iso.screenOf(x, y, World.walkHeightAt(world, x, y) * Names.STEP_PX, proj)
+      const sink = World.isWater(world, x, y) ? 1 : 0
+      stamp(b, c, Math.round(s.sx) - view.ox, Math.round(s.sy) - view.oy + sink, d + (prop ? PROP_DEPTH : DECO_DEPTH), hollow)
       drawn++
     }
   }

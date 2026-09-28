@@ -1,7 +1,7 @@
-// 짧게 살다 사라지는 효과: 먼지, 흙, 잠꼬대 z, 머리 위 감정 표시(순수 모듈).
+// 짧게 살다 사라지는 효과: 먼지, 흙, 털 때 튀는 물방울, 물에서 튀는 물보라, 잠꼬대 z, 머리 위 감정 표시(순수 모듈).
 // 위치는 세계 픽셀이라 카메라가 움직여도 제자리에 남는다.
 
-export type ParticleKind = 'dust' | 'dirt' | 'z' | 'drop'
+export type ParticleKind = 'dust' | 'dirt' | 'z' | 'drop' | 'splash'
 
 export type Particle = {
   kind: ParticleKind

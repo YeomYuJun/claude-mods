@@ -22,6 +22,8 @@ export type Scene = {
   theme: Palette.Theme
   // 고정 스텝에 못 미친 나머지 시간(ms)
   acc: number
+  // 물 반짝임 위상과 마지막으로 바뀐 뒤 흐른 시뮬레이션 시간(ms)
+  glint: { phase: number; ms: number }
   // 카메라가 앞서 보는 양(세계 픽셀). 강아지 화면 속도에 LEAD_S 를 곱해 부드럽게 따라간다
   lead: { x: number; y: number }
   prev: { sx: number; sy: number }
@@ -50,11 +52,12 @@ export function create(seed: number, now: number, biome: BiomeId = Biome.DEFAULT
   const world = worldOf(seed, biome)
   const pet = Pet.create(world, seed, now, Species.lookOf(breed))
   const f = focusOf(pet)
-  return { seed, world, cam: Iso.cameraOf(f.sx, f.sy), pet, biome, breed, theme: Biome.themeOf(biome, Species.breedOf(breed).bank), acc: 0, lead: { x: 0, y: 0 }, prev: f }
+  return { seed, world, cam: Iso.cameraOf(f.sx, f.sy), pet, biome, breed, theme: Biome.themeOf(biome, Species.breedOf(breed).bank), acc: 0, glint: { phase: 0, ms: 0 }, lead: { x: 0, y: 0 }, prev: f }
 }
 
 // 세트를 바꾼다: 그 세트의 맵을 새로 만들고 강아지를 새 시작 칸에 둔다. 대기열·길·방문 기록은 옛 맵 것이라 버리고,
-// 기운·들뜸·욕구, 신호 시각, 돌고 있는 도구·턴은 이어 간다(도구가 도는 중이면 계속 잠들지 않고 기다리러 온다). 카메라는 강아지로 옮긴다
+// 기운·들뜸·욕구, 신호 시각, 돌고 있는 도구·턴은 이어 간다(도구가 도는 중이면 계속 잠들지 않고 기다리러 온다). 목마름은 새 맵에서 물가를 다시 판정해
+// 16 걸음 안에 물가가 없으면 0 이 된다. 카메라는 강아지로 옮긴다
 export function setBiome(scene: Scene, biome: BiomeId, now: number): void {
   const old = scene.pet
   scene.biome = biome
@@ -84,6 +87,21 @@ export function setBreed(scene: Scene, breed: BreedId): void {
   scene.theme = Biome.themeOf(scene.biome, Species.breedOf(breed).bank)
 }
 
+// 물 반짝임은 화면이 어차피 매 프레임 바뀌는 동안(움직임·효과가 있음)에는 GLINT_BUSY_MS 마다, 가만히 있을 때는 GLINT_IDLE_MS 마다만 옮긴다.
+// 가만히 있을 때 반짝임 때문에 더 보내는 프레임은 초당 1000 / GLINT_IDLE_MS 번 이하다. 자는 동안은 멈춘다
+export const GLINT_BUSY_MS = 600
+export const GLINT_IDLE_MS = 1200
+
+function stepGlint(scene: Scene): void {
+  const g = scene.glint
+  if (scene.pet.isAsleep) return
+  g.ms += Names.SIM_STEP_MS
+  if (g.ms >= (renderEveryMs(scene) === Names.FRAME_MS ? GLINT_BUSY_MS : GLINT_IDLE_MS)) {
+    g.phase = (g.phase + 1) & 1023
+    g.ms = 0
+  }
+}
+
 // 실제로 흐른 시간(상한 MAX_CATCHUP_MS)을 고정 스텝으로 잘라 돌린다
 export function step(scene: Scene, dtMs: number, now: number): void {
   scene.acc += Math.min(Names.MAX_CATCHUP_MS, Math.max(0, dtMs))
@@ -101,6 +119,7 @@ export function step(scene: Scene, dtMs: number, now: number): void {
     scene.lead.y += (clamp(vy * LEAD_S) - scene.lead.y) * k
     scene.prev = f
     Iso.follow(scene.cam, f.sx + scene.lead.x, f.sy + scene.lead.y, Names.SIM_STEP_MS)
+    stepGlint(scene)
   }
 }
 
@@ -154,24 +173,24 @@ function drawPet(b: Buffer, scene: Scene, ox: number, oy: number, proj: Proj): v
   const s = Iso.screenOf(p.x, p.y, p.z, proj)
   const x = Math.round(s.sx) - ox
   const y = Math.round(s.sy) - oy
-  // 그림자는 땅에 붙어 있고, 높이 뛸수록 작아진다
+  // 그림자는 땅(물이면 수면)에 붙어 있고, 높이 뛸수록 작아진다
   const tx = Math.round(p.x)
   const ty = Math.round(p.y)
-  const groundZ = World.heightAt(world, tx, ty) * Names.STEP_PX
+  const groundZ = World.walkHeightAt(world, tx, ty) * Names.STEP_PX
   const g = Iso.screenOf(p.x, p.y, groundZ, proj)
-  const lift = Math.max(0, p.z - groundZ)
+  const lift = Math.max(0, p.z - World.standZ(world, tx, ty))
   const curled = p.pose === 'sleep' && !Pet.isMoving(p)
   const sprite = p.species.sprite
-  Iso.drawShadow(b, g.sx - ox + 0.5, g.sy - oy - 0.5, Math.max(2.5, (curled ? sprite.shadow.rxCurl : sprite.shadow.rx) - lift * 0.3), sprite.shadow.ry, World.heightAt(world, tx, ty) + 1, shadowOf)
+  Iso.drawShadow(b, g.sx - ox + 0.5, g.sy - oy - 0.5, Math.max(2.5, (curled ? sprite.shadow.rxCurl : sprite.shadow.rx) - lift * 0.3), sprite.shadow.ry, World.walkHeightAt(world, tx, ty) + 1, shadowOf)
   // 공과 공 그림자
   const ball = p.ball
   const bt = Pet.Ball.tileOf(ball)
-  const bg = Iso.screenOf(ball.x, ball.y, World.heightAt(world, bt.x, bt.y) * Names.STEP_PX, proj)
-  Iso.drawShadow(b, bg.sx - ox + 0.5, bg.sy - oy - 0.5, 2, 1, World.heightAt(world, bt.x, bt.y) + 1, shadowOf)
+  const bg = Iso.screenOf(ball.x, ball.y, World.walkHeightAt(world, bt.x, bt.y) * Names.STEP_PX, proj)
+  Iso.drawShadow(b, bg.sx - ox + 0.5, bg.sy - oy - 0.5, 2, 1, World.walkHeightAt(world, bt.x, bt.y) + 1, shadowOf)
   const bs = Iso.screenOf(ball.x, ball.y, ball.z, proj)
   Sprite.drawBall(b, Math.round(bs.sx) - ox, Math.round(bs.sy) - oy, ball.roll, ball.x + ball.y + 0.25)
   Sprite.drawPet(b, p.species, Pet.poseOf(p), x, y, p.x + p.y + 0.4)
-  // 흙·물방울·z 는 강아지가 멈춰 있을 때만 생겨 강아지 기준 오프셋을 그대로 둔다.
+  // 흙·물방울·물보라·z 는 강아지가 멈춰 있을 때만 생겨 강아지 기준 오프셋을 그대로 둔다.
   // 먼지는 달리거나 내려앉은 자리에 남으므로 카메라와 같은 비율로 옮긴다
   const near = Iso.screenOf(p.x, p.y, p.z)
   for (const q of p.particles) {
@@ -179,7 +198,7 @@ function drawPet(b: Buffer, scene: Scene, ox: number, oy: number, proj: Proj): v
     const px = Math.round(m.sx) - ox
     const py = Math.round(m.sy) - oy
     if (q.kind === 'z') Sprite.drawEmote(b, 'z', px, py)
-    else Pixel.plot(b, px, py, q.kind === 'dirt' ? Palette.DIRT : Palette.DUST)
+    else Pixel.plot(b, px, py, q.kind === 'dirt' ? Palette.DIRT : q.kind === 'splash' ? Palette.SPLASH : Palette.DUST)
   }
   if (p.emote) {
     // 떠오르며 나타났다가 제자리에서 머문다
@@ -192,7 +211,7 @@ function drawPet(b: Buffer, scene: Scene, ox: number, oy: number, proj: Proj): v
 
 // 지형과 소품. 키 큰 소품은 동물 화면 상자 안에서 동물보다 앞이면 한 칸 걸러 비운다
 export function drawGround(b: Buffer, scene: Scene, view: { ox: number; oy: number }, proj: Proj): void {
-  Iso.drawWorld(b, scene.world, view, proj, scene.theme)
+  Iso.drawWorld(b, scene.world, view, proj, scene.theme, scene.glint.phase)
   const p = scene.pet
   const s = Iso.screenOf(p.x, p.y, p.z, proj)
   const x = Math.round(s.sx) - view.ox

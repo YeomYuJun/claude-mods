@@ -18,6 +18,31 @@ export function flatWorld(w: number, h: number, raise: ReadonlyArray<readonly [n
   return World.build({ w, h, height, obstacle, prop })
 }
 
+// 칸 사각형(양 끝 포함)
+export type Rect = { x0: number; y0: number; x1: number; y1: number }
+
+function inRect(r: Rect | undefined, x: number, y: number): boolean {
+  return r !== undefined && x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1
+}
+
+// 높이 level 인 평평한 w × h 땅에 얕은 못(pond)을 판 맵. deep 은 못 안의 깊은 물(못 둘레 한 줄 이상은 얕게 남겨야 한다).
+// 물가 땅이 수면 높이 level 이 되게 얕은 물 바닥은 level - 1, 깊은 물 바닥은 level - 2. walls 는 못 지나는 칸 [x, y](바위)
+export function pondWorld(w: number, h: number, level: number, pond: Rect, deep?: Rect, walls: ReadonlyArray<readonly [number, number]> = []): WorldState {
+  const height = new Uint8Array(w * h)
+  const water = new Uint8Array(w * h)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x
+      height[i] = level
+      if (inRect(deep, x, y)) { water[i] = World.WATER_DEEP; height[i] = level - 2 } else if (inRect(pond, x, y)) { water[i] = World.WATER_SHALLOW; height[i] = level - 1 }
+    }
+  }
+  const obstacle = new Uint8Array(w * h)
+  const prop = new Uint8Array(w * h)
+  for (const [x, y] of walls) { obstacle[y * w + x] = 1; prop[y * w + x] = World.Gen.PROP_ROCK }
+  return World.build({ w, h, height, obstacle, prop, water })
+}
+
 // 시작 칸 둘레 ±r 칸(행 우선)
 export function tilesAround(world: WorldState, r = 24): Tile[] {
   const out: Tile[] = []

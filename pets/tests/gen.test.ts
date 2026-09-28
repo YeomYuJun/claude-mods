@@ -6,7 +6,7 @@ import World, { Gen } from '../hooks/world'
 const C = Gen.CHUNK
 
 function same(a: Gen.Region, b: Gen.Region): boolean {
-  for (const k of ['height', 'prop', 'block', 'kind', 'deco'] as const) {
+  for (const k of ['height', 'prop', 'block', 'kind', 'deco', 'water'] as const) {
     const x = a[k]
     const y = b[k]
     if (x.length !== y.length) return false
@@ -18,7 +18,7 @@ function same(a: Gen.Region, b: Gen.Region): boolean {
 // 2 × 2 청크를 따로 만들어 붙인 것
 function stitched(seed: number, p: Gen.GenParams, x0: number, y0: number): Gen.Region {
   const w = 2 * C
-  const out: Gen.Region = { x0, y0, w, h: w, height: new Uint8Array(w * w), prop: new Uint8Array(w * w), block: new Uint8Array(w * w), kind: new Uint8Array(w * w), deco: new Uint8Array(w * w) }
+  const out: Gen.Region = { x0, y0, w, h: w, height: new Uint8Array(w * w), prop: new Uint8Array(w * w), block: new Uint8Array(w * w), kind: new Uint8Array(w * w), deco: new Uint8Array(w * w), water: new Uint8Array(w * w) }
   for (let cy = 0; cy < 2; cy++) {
     for (let cx = 0; cx < 2; cx++) {
       const r = Gen.region(seed, p, x0 + cx * C, y0 + cy * C, C, C)
@@ -30,6 +30,7 @@ function stitched(seed: number, p: Gen.GenParams, x0: number, y0: number): Gen.R
           out.block[o] = r.block[j * C + i]!
           out.kind[o] = r.kind[j * C + i]!
           out.deco[o] = r.deco[j * C + i]!
+          out.water[o] = r.water[j * C + i]!
         }
       }
     }
@@ -37,19 +38,23 @@ function stitched(seed: number, p: Gen.GenParams, x0: number, y0: number): Gen.R
   return out
 }
 
-// 기본 이동 규칙(오르기 1)으로, 소품 장애물을 뺀 칸을 4 방향으로 묶었을 때 가장 큰 덩어리 밖에 남는 지형 칸(블록 아님) 수.
-// 가장자리에서 잘려 생긴 조각을 세지 않도록 안쪽(둘레 inset 칸 제외)만 센다
+// 기본 이동 규칙(오르기 1, 헤엄 못 함)으로, 소품 장애물과 깊은 물을 뺀 칸을 걷는 높이(물이면 수면)로 4 방향으로 묶었을 때
+// 가장 큰 덩어리 밖에 남는 지형 칸(블록·깊은 물 아님) 수. 가장자리에서 잘려 생긴 조각을 세지 않도록 안쪽(둘레 inset 칸 제외)만 센다
 function stranded(r: Gen.Region, inset: number): number {
   const obstacle = new Uint8Array(r.w * r.h)
-  for (let i = 0; i < obstacle.length; i++) if (r.prop[i]) obstacle[i] = 1
-  const [label, sizes] = World.componentsOf(r.height, r.w, r.h, obstacle)
+  const walk = new Uint8Array(r.w * r.h)
+  for (let i = 0; i < obstacle.length; i++) {
+    if (r.prop[i] || r.water[i] === Gen.WATER_DEEP) obstacle[i] = 1
+    walk[i] = r.height[i]! + r.water[i]!
+  }
+  const [label, sizes] = World.componentsOf(walk, r.w, r.h, obstacle)
   let best = 0
   for (let i = 1; i < sizes.length; i++) if (sizes[i]! > sizes[best]!) best = i
   let n = 0
   for (let y = inset; y < r.h - inset; y++) {
     for (let x = inset; x < r.w - inset; x++) {
       const i = y * r.w + x
-      if (!r.block[i] && !r.prop[i] && label[i] !== best) n++
+      if (!r.block[i] && !r.prop[i] && r.water[i] !== Gen.WATER_DEEP && label[i] !== best) n++
     }
   }
   return n
@@ -69,8 +74,8 @@ describe('generator', () => {
       const p = b.gen
       const r = Gen.reachOf(p)
       if (r === 0) continue
-      // 가장 높은 땅 한가운데 가장 낮은 칸 하나를, 영역 왼쪽 끝에서 r 칸 밖에 둔다
-      const raw = (x: number, y: number) => (x === -r && y === 5 ? p.hmin : p.hmax)
+      // 가장 높은 땅 한가운데 가장 낮을 수 있는 칸(호수가 있는 세트는 깊은 물 바닥) 하나를, 영역 왼쪽 끝에서 r 칸 밖에 둔다
+      const raw = (x: number, y: number) => (x === -r && y === 5 ? Gen.floorOf(p) : p.hmax)
       const wide = Gen.envelope(1, p, 0, 0, 12, 12, { raw }, r + 6)
       const exact = Gen.envelope(1, p, 0, 0, 12, 12, { raw }, r)
       const short = Gen.envelope(1, p, 0, 0, 12, 12, { raw }, r - 1)
@@ -80,7 +85,8 @@ describe('generator', () => {
     }
   })
 
-  test('terrain stays within each set\'s range, neighbours that are not blocks differ by at most one step, and nothing is above 8', async () => {
+  test('terrain stays within each set\'s range (a lake\'s surface too, its floor down to the set floor), neighbours that are not blocks differ by at most one step, and nothing is above 8', async () => {
+    let wet = 0
     for (const b of Biome.BIOMES) {
       const r = Gen.region(3, b.gen, -20, -20, 96, 96)
       for (let y = 0; y < r.h; y++) {
@@ -88,7 +94,9 @@ describe('generator', () => {
           const i = y * r.w + x
           const h = r.height[i]!
           if (h > Gen.MAX_HEIGHT) expect(`${b.id} too high ${h}`).toBe('')
-          if (!r.block[i] && (h < b.gen.hmin || h > b.gen.hmax)) expect(`${b.id} terrain ${h}`).toBe('')
+          const top = h + r.water[i]!
+          if (r.water[i]) { wet++; if (h < Gen.floorOf(b.gen)) expect(`${b.id} lake floor ${h}`).toBe('') }
+          if (!r.block[i] && (top < b.gen.hmin || top > b.gen.hmax)) expect(`${b.id} terrain ${h} water ${r.water[i]}`).toBe('')
           if (r.block[i] && h > b.gen.hmax + 2) expect(`${b.id} block ${h}`).toBe('')
           for (const j of [x + 1 < r.w ? i + 1 : -1, y + 1 < r.h ? i + r.w : -1]) {
             if (j < 0 || r.block[i] || r.block[j]) continue
@@ -97,6 +105,7 @@ describe('generator', () => {
         }
       }
     }
+    expect(wet > 0).toBe(true)
   })
 
   for (const b of Biome.BIOMES) {
@@ -125,7 +134,7 @@ describe('generator', () => {
   })
 
   test('the generator uses no trigonometric, exponential or power functions', async () => {
-    for (const fn of [Gen.hash, Gen.unit, Gen.smooth, Gen.vnoise, Gen.rawHeight, Gen.reachOf, Gen.envelope, Gen.candidateOf, Gen.region, World.create]) {
+    for (const fn of [Gen.hash, Gen.unit, Gen.smooth, Gen.vnoise, Gen.rawHeight, Gen.floorOf, Gen.reachOf, Gen.envelope, Gen.candidateOf, Gen.lakeOf, Gen.lakesIn, Gen.lakeCellAt, Gen.kindOf, Gen.decoOf, Gen.waterDecoOf, Gen.region, World.create]) {
       const src = String(fn)
       expect(src.length > 20).toBe(true)
       expect(/Math\.(sin|cos|tan|asin|acos|atan|atan2|hypot|exp|expm1|pow|log|log2|log10|cbrt)\b|\*\*/.test(src)).toBe(false)
@@ -151,7 +160,7 @@ describe('generator', () => {
     expect(trees > 0).toBe(true)
   })
 
-  test('surface kinds follow the rules: blocks are the block kind, snow only at 5 steps or more, stone from the rock line, the rest ground or patch; decorations only on open ground of the right kind', async () => {
+  test('surface kinds follow the rules: lake tiles are water, the ring around a lake is the shore kind, blocks are the block kind, snow only at 5 steps or more, stone from the rock line, the rest ground or patch; decorations only on open ground of the right kind, reeds and lilies only on shallow water', async () => {
     for (const b of Biome.BIOMES) {
       const p = b.gen
       const r = Gen.region(3, p, -20, -20, 96, 96)
@@ -161,11 +170,25 @@ describe('generator', () => {
         const h = r.height[i]!
         seen.add(k)
         const at = `${b.id} ${i}`
+        const x = i % r.w
+        const y = (i - x) / r.w
+        // 영역 끝 칸은 밖의 호수를 볼 수 없어 테 판정에서 뺀다
+        const isEdge = x === 0 || y === 0 || x === r.w - 1 || y === r.h - 1
+        let isShore = false
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!isEdge && r.water[(y + dy) * r.w + x + dx]) isShore = true
+        const d = r.deco[i]!
+        if (r.water[i]) {
+          seen.add(k)
+          expect(`${at} ${k}`).toBe(`${at} ${Gen.KIND_WATER}`)
+          if (d !== Gen.DECO_NONE) expect(`${at} ${(d === Gen.DECO_REED || d === Gen.DECO_LILY) && r.water[i] === Gen.WATER_SHALLOW}`).toBe(`${at} true`)
+          continue
+        }
+        if (isShore) { expect(`${at} shore ${k}`).toBe(`${at} shore ${p.shore}`); continue }
+        if (isEdge && k === p.shore) continue
         if (r.block[i]) expect(`${at} ${k}`).toBe(`${at} ${p.blockKind ?? p.ground ?? Gen.KIND_PAPER}`)
         else if (k === Gen.KIND_SNOW) expect(`${at} snow ${p.snow !== undefined && h >= p.snow.min}`).toBe(`${at} snow true`)
         else if (k === Gen.KIND_STONE) expect(`${at} stone ${p.rockLine !== undefined && h >= p.rockLine}`).toBe(`${at} stone true`)
         else expect(`${at} ${k === (p.ground ?? Gen.KIND_PAPER) || k === p.patch?.kind}`).toBe(`${at} true`)
-        const d = r.deco[i]!
         if (d === Gen.DECO_NONE) continue
         expect(`${at} deco on open ground ${!r.block[i] && !r.prop[i]}`).toBe(`${at} deco on open ground true`)
         if (d === Gen.DECO_MUSHROOM) expect(`${at} ${k === Gen.KIND_GRASS || k === Gen.KIND_LITTER}`).toBe(`${at} true`)

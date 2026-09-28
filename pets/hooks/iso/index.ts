@@ -118,21 +118,72 @@ function masksOf(id: number): Uint8Array[] | undefined {
   }
   return masks.get(id)
 }
+// 물 반짝임(1 배에서만): 칸마다 윗면 안쪽 픽셀 두 개. 위상이 바뀌면 칸 해시로 고른 자리가 옮겨 간다
+let inner: number[] | undefined
+
+function innerOf(): number[] {
+  inner ??= NEAR.tops.flatMap((p, j) => (p.edge === 0 && p.front === 0 ? [j] : []))
+  return inner
+}
+
+// 칸 윗면의 높이(픽셀, 이 투영의 단 높이로). 물 칸은 수면이고, 물가 윗면보다 1 픽셀 낮게 그린다
+export function topZ(world: WorldState, x: number, y: number, proj: Proj): number {
+  return World.isWater(world, x, y) ? World.walkHeightAt(world, x, y) * proj.step - 1 : World.heightAt(world, x, y) * proj.step
+}
+
+// 물 칸: 수면 한 장만 그리고(바닥·옆면 없음) 모눈선을 긋지 않는다. 땅과 닿은 변의 픽셀은 거품, 1 배에서는 반짝임 두 픽셀.
+// 물가는 늘 수면과 같은 높이라 물 칸 옆에 벽이 생기지 않는다
+function drawWater(b: Buffer, world: WorldState, x: number, y: number, tx: number, ty: number, proj: Proj, glint: number | undefined): void {
+  const fill = World.isDeep(world, x, y) ? Palette.DEEP_WATER : Palette.SHALLOW
+  const dryNW = !World.isWater(world, x - 1, y)
+  const dryNE = !World.isWater(world, x, y - 1)
+  const drySW = !World.isWater(world, x, y + 1)
+  const drySE = !World.isWater(world, x + 1, y)
+  let spark1 = -1
+  let spark2 = -1
+  if (glint !== undefined && proj === NEAR) {
+    const list = innerOf()
+    spark1 = list[(World.Gen.hash(world.seed, x, y, 402) + glint * 7) % list.length]!
+    spark2 = list[(World.Gen.hash(world.seed, x, y, 403) + glint * 13) % list.length]!
+  }
+  const base = x + y
+  const level = World.walkHeightAt(world, x, y) + 1
+  const tops = proj.tops
+  const w = b.w
+  for (let j = 0; j < tops.length; j++) {
+    const p = tops[j]!
+    const px = tx + p.dx
+    const py = ty + p.dy
+    if (px < 0 || py < 0 || px >= w || py >= b.h) continue
+    const isShore = (p.edge === 1 && dryNW) || (p.edge === 2 && dryNE) || (p.front === 1 && drySW) || (p.front === 2 && drySE)
+    const i = py * w + px
+    b.px[i] = isShore ? Palette.FOAM : j === spark1 || j === spark2 ? Palette.SHIMMER : fill
+    b.depth[i] = base + p.depth
+    b.surf[i] = SURF_TOP
+    b.level[i] = level
+  }
+}
+
 // 더 높은 NW 이웃이 드리우는 그늘의 폭(칸 폭 비율): 높이 차 한 단에 절반, 두 단 이상이면 칸 전체
 const CAST_PER_STEP = 0.5
 const CAST_MAX = 1
 // 더 높은 NE 이웃 벽 밑의 접촉 그늘 폭(nw·ne 와 같은 단위). 변의 선 픽셀과 그 안쪽 한 줄 정도가 어두워진다
 const CONTACT_PX = 1.5
 
-// 한 타일. 옆면은 앞 이웃보다 높은 만큼만(맵 가장자리면 밑판까지) 그린다. 화면 상자가 버퍼 밖이면 그리지 않고 false
-function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View, proj: Proj, theme: Palette.Theme): boolean {
+// 한 타일. 옆면은 앞 이웃 윗면보다 높은 만큼만(맵 가장자리면 밑판까지) 그린다. 앞 이웃이 물이면 수면까지라 물가에는 1 픽셀 턱만 생긴다.
+// 화면 상자가 버퍼 밖이면 그리지 않고 false
+function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View, proj: Proj, theme: Palette.Theme, glint: number | undefined): boolean {
   const hgt = World.heightAt(world, x, y)
-  const z = hgt * proj.step
+  const z = topZ(world, x, y, proj)
   const tx = (x - y) * proj.hw - view.ox
   const ty = (x + y) * proj.hh - z - view.oy
   // 화면 상자: 가로 tx ± hw, 세로 윗면 위 꼭짓점 ty 부터 옆면 아래 끝까지. 옆면은 윗면 아래 2hh 안에서 시작하고
   // 길이가 z + 밑판 이하라 아래 끝은 ty + 2hh + z + base 를 넘지 않는다(땅 높이 + 밑판)
   if (ty >= b.h || ty + 2 * proj.hh + z + proj.base <= 0 || tx + proj.hw <= 0 || tx - proj.hw >= b.w) return false
+  if (World.isWater(world, x, y)) {
+    drawWater(b, world, x, y, tx, ty, proj, glint)
+    return true
+  }
   const shadowOf = theme.shadowOf
   const id = World.kindAt(world, x, y)
   const kind = Palette.kind(theme.kindSlot[id] ?? 0)
@@ -142,8 +193,8 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   const base = x + y
   const isEdgeLeft = !World.inside(world, x, y + 1)
   const isEdgeRight = !World.inside(world, x + 1, y)
-  const frontLeft = isEdgeLeft ? z + proj.base : (hgt - World.heightAt(world, x, y + 1)) * proj.step
-  const frontRight = isEdgeRight ? z + proj.base : (hgt - World.heightAt(world, x + 1, y)) * proj.step
+  const frontLeft = isEdgeLeft ? z + proj.base : z - topZ(world, x, y + 1, proj)
+  const frontRight = isEdgeRight ? z + proj.base : z - topZ(world, x + 1, y, proj)
   const w = b.w
   if (frontLeft > 0) face(b, proj.left, tx, ty, frontLeft, base, side + Palette.Side.SIDE_L, side + Palette.Side.L_STEP, isEdgeLeft, brick, proj, w)
   if (frontRight > 0) face(b, proj.right, tx, ty, frontRight, base, side + Palette.Side.SIDE_R, side + Palette.Side.R_STEP, isEdgeRight, brick, proj, w)
@@ -159,8 +210,9 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   const lineNE = !World.inside(world, x, y - 1) ? Palette.RIM : y % every !== 0 ? 0 : y % 3 === 0 ? Palette.LINE_HEAVY : LINE
   // 빛은 왼쪽 앞(+y 쪽)에서 온다(왼쪽 면이 밝고 오른쪽 면이 어둡다). 그래서 NW 이웃(x - 1)의 그늘은 +x 로 이 칸에 떨어지고,
   // NE 이웃(y - 1)의 밝은 벽 밑에는 좁은 접촉 그늘만 진다
-  const upNW = x > 0 ? World.heightAt(world, x - 1, y) - hgt : 0
-  const upNE = y > 0 ? World.heightAt(world, x, y - 1) - hgt : 0
+  // 이웃 높이는 걷는 높이(물이면 수면)로 잰다. 물가는 수면과 같은 높이라 물 쪽으로 그늘이 지지 않는다
+  const upNW = x > 0 ? World.walkHeightAt(world, x - 1, y) - hgt : 0
+  const upNE = y > 0 ? World.walkHeightAt(world, x, y - 1) - hgt : 0
   const castNW = upNW > 0 ? Math.min(CAST_MAX, upNW * CAST_PER_STEP) * 2 * proj.hh : 0
   const castNE = upNE > 0 ? CONTACT_PX : 0
   const level = hgt + 1
@@ -212,9 +264,10 @@ function face(b: Buffer, cols: readonly FaceColumn[], tx: number, ty: number, he
 }
 
 // 버퍼에 보이는 타일만 뒤에서 앞으로 그리고 그린 타일 수를 돌려준다. 이웃이 드리우는 그늘은 theme 의 그림자 사슬로 칠한다.
+// glint: 물 반짝임 위상(없으면 반짝임을 그리지 않는다. 1 배에서만 그린다).
 // 대각선 d 타일의 윗면 위 꼭짓점은 d × hh - z 이고 아래 끝은 높이와 상관없이 d × hh + 2hh + base 이하다(drawTile 의 화면 상자).
 // 그래서 위쪽 여유는 높이와 상관없고, 아래쪽 여유만 맵에서 가장 높은 칸의 높이만큼 둔다
-export function drawWorld(b: Buffer, world: WorldState, view: View, proj: Proj = NEAR, theme: Palette.Theme = Palette.PAPER_THEME): number {
+export function drawWorld(b: Buffer, world: WorldState, view: View, proj: Proj = NEAR, theme: Palette.Theme = Palette.PAPER_THEME, glint?: number): number {
   const hw = proj.hw
   const hh = proj.hh
   const maxZ = World.maxHeightOf(world) * proj.step
@@ -226,7 +279,7 @@ export function drawWorld(b: Buffer, world: WorldState, view: View, proj: Proj =
     // sx = (2x - d) × hw 가 [ox - hw, ox + w + hw] 안에 드는 x
     const xLo = Math.max(x0, d - y1, Math.ceil(((view.ox - hw) / hw + d) / 2))
     const xHi = Math.min(x1, d - y0, Math.floor(((view.ox + b.w + hw) / hw + d) / 2))
-    for (let x = xLo; x <= xHi; x++) if (drawTile(b, world, x, d - x, view, proj, theme)) drawn++
+    for (let x = xLo; x <= xHi; x++) if (drawTile(b, world, x, d - x, view, proj, theme, glint)) drawn++
   }
   return drawn
 }

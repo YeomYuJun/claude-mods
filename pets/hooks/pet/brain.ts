@@ -16,12 +16,12 @@ import Iso from '../iso'
 import Names from '../names'
 import Path, { type Tile } from '../path'
 import Rng from '../rng'
-import World, { type World as WorldState } from '../world'
+import World, { type WaterEdge, type World as WorldState } from '../world'
 import * as Ball from './ball.js'
 import * as Fx from './fx.js'
 import * as Motion from './motion.js'
 import {
-  BUCKETS, DIR_VEC, DIRS, HISTORY_SIZE, isMoving, isRight, keyOf, tileOf,
+  BUCKETS, DIR_VEC, DIRS, dirOf, HISTORY_SIZE, isMoving, isRight, keyOf, tileOf,
   type ActClass, type ActName, type Activity, type BucketName, type Dir, type Needs, type Pet, type PlayName, type PoseName, type Step, type Survey,
 } from './state.js'
 
@@ -85,6 +85,15 @@ const EXCITE_TAU_S = 40
 // 공을 물었을 때 입 자리: 보는 쪽으로 이만큼(타일), 발에서 이만큼 위(px)
 const MOUTH_TILES = 0.45
 const MOUTH_PX = 4
+// 목마름: 물가가 처음 가까워졌을 때의 값, 늘 오르는 빠르기, 속보·달리기 중 더 오르는 빠르기, 마시는 동안 내리는 빠르기(초당)
+const THIRST_START = 0.1
+const THIRST_RATE = 0.0015
+const THIRST_MOVING = 0.006
+const THIRST_DRINK = 0.15
+// 이 목마름 이상이면 오래 도는 도구를 기다리기 전에 물부터 마시러 간다
+const THIRST_URGENT = 0.85
+// 물보라 뒤에 물에서 이만큼(맨해튼 거리) 떨어진 땅으로 나온다
+const SPLASH_OUT = 2
 
 function act(name: ActName, steps: Step[]): Activity {
   return { name, steps, i: 0, t: 0, started: -1 }
@@ -131,9 +140,19 @@ function pickFresh(p: Pet, world: WorldState, s: Survey, lo: number, hi: number,
   return tiles[tiles.length - 1]
 }
 
-// 화면 앞쪽(x + y 가 가장 큰) 칸. 같으면 난수로
+// 물이 아닌 칸만. 쉬러 가는 자리(잠자리, 자리잡기, 앞쪽 칸)는 물에 두지 않는다
+function dry(world: WorldState, tiles: Tile[]): Tile[] {
+  return tiles.filter(t => !World.isWater(world, t.x, t.y))
+}
+
+function pickDry(p: Pet, world: WorldState, s: Survey, lo: number, hi: number): Tile | undefined {
+  const tiles = dry(world, tilesAt(p, world, s, lo, hi))
+  return tiles.length > 0 ? Rng.pick(p.rng, tiles) : undefined
+}
+
+// 화면 앞쪽(x + y 가 가장 큰) 물이 아닌 칸. 같으면 난수로
 function frontTile(p: Pet, world: WorldState, s: Survey, lo: number, hi: number): Tile | undefined {
-  const tiles = tilesAt(p, world, s, lo, hi)
+  const tiles = dry(world, tilesAt(p, world, s, lo, hi))
   if (tiles.length === 0) return undefined
   const best = Math.max(...tiles.map(t => t.x + t.y))
   return Rng.pick(p.rng, tiles.filter(t => t.x + t.y === best))
@@ -156,9 +175,9 @@ function ms(p: Pet, lo: number, hi: number): number {
 // 4 로 넓혀도 잠든 동물이 절반 넘게 가린 시간이 줄지 않았다(세트 5 × 시드 3 × 한 시간)
 const BED_CLEAR = 2
 
-// 자기 전 아늑한 자리: 6 걸음 안에서 뒤쪽(화면 위쪽)에 높은 칸을 등진 곳. 앞쪽에 나무가 있는 칸은 빼고, 다 빠지면 전부에서 고른다
+// 자기 전 아늑한 자리: 6 걸음 안의 물이 아닌 칸 중 뒤쪽(화면 위쪽)에 높은 칸을 등진 곳. 앞쪽에 나무가 있는 칸은 빼고, 다 빠지면 전부에서 고른다
 function bedOf(p: Pet, world: WorldState, s: Survey): Tile | undefined {
-  const near = tilesAt(p, world, s, 0, 6)
+  const near = dry(world, tilesAt(p, world, s, 0, 6))
   const open = near.filter(t => !World.hasTreeInFront(world, t.x, t.y, BED_CLEAR))
   const tiles = open.length > 0 ? open : near
   let best: Tile | undefined
@@ -217,6 +236,61 @@ function patrolRoute(p: Pet, world: WorldState, s: Survey): Tile[] {
     for (let i = 0; i < n; i++) out.push(ring[(start + Math.floor((i * ring.length) / n)) % ring.length]!)
     return out
   })
+}
+
+// 선택의 BFS 범위(16 걸음) 안에서 갈 수 있는 물가 칸과 물 쪽 방향(행 우선)
+function edgesOf(p: Pet, world: WorldState, s: Survey): WaterEdge[] {
+  return memo(s, 'edges', () => World.waterEdgesWithin(world, s.from, s.reach.r, p.species.abilities).filter(e => Path.stepsAt(s.reach, e.x, e.y) >= 0))
+}
+
+// 한 걸음 이상 떨어진, 갈 수 있는 얕은 물 칸(행 우선)
+function shallowsOf(world: WorldState, s: Survey): Tile[] {
+  return memo(s, 'shallow', () => {
+    const { dist, r, from } = s.reach
+    const side = 2 * r + 1
+    const out: Tile[] = []
+    for (let i = 0; i < dist.length; i++) {
+      if (dist[i]! <= 0) continue
+      const t = { x: (i % side) + from.x - r, y: Math.floor(i / side) + from.y - r }
+      if (World.surfaceAt(world, t.x, t.y) === 'shallow') out.push(t)
+    }
+    return out
+  })
+}
+
+// 칸에서 가장 가까운 물까지의 맨해튼 거리. SPLASH_OUT 보다 멀면 SPLASH_OUT + 1
+function waterDistOf(world: WorldState, x: number, y: number): number {
+  for (let d = 0; d <= SPLASH_OUT; d++) {
+    for (let i = -d; i <= d; i++) {
+      const j = d - Math.abs(i)
+      if (World.isWater(world, x + i, y + j) || World.isWater(world, x + i, y - j)) return d
+    }
+  }
+  return SPLASH_OUT + 1
+}
+
+// 물보라 뒤에 나올 땅: 물에 들어간 칸 둘레 ±3 칸의 물이 아닌 걷는 칸 중, 물에서 SPLASH_OUT 만큼 떨어진 칸(없으면 더 먼 칸, 그다음 물가)으로
+// 들어간 칸에 가장 가까운 칸. 같으면 난수로
+function shoreOf(p: Pet, world: WorldState, s: Survey, into: Tile): Tile | undefined {
+  let best: Tile[] = []
+  let score = Infinity
+  for (let y = into.y - 3; y <= into.y + 3; y++) {
+    for (let x = into.x - 3; x <= into.x + 3; x++) {
+      if (World.isWater(world, x, y) || !World.isWalkable(world, x, y, p.species.abilities) || Path.stepsAt(s.reach, x, y) < 0) continue
+      const d = waterDistOf(world, x, y)
+      const v = (d === SPLASH_OUT ? 0 : d > SPLASH_OUT ? 10 : 20) + Math.abs(x - into.x) + Math.abs(y - into.y)
+      if (v < score) { score = v; best = [{ x, y }] } else if (v === score) best.push({ x, y })
+    }
+  }
+  return best.length > 0 ? Rng.pick(p.rng, best) : undefined
+}
+
+// 물가를 다시 판정한다. 16 걸음 안에 물가가 없으면 목마름을 0 에 묶고, 처음 가까워지면 THIRST_START 부터 오른다
+function judgeWater(p: Pet, world: WorldState, s: Survey): void {
+  const near = edgesOf(p, world, s).length > 0
+  if (!near) p.needs.thirst = 0
+  else if (!p.waterNear) p.needs.thirst = Math.max(p.needs.thirst, THIRST_START)
+  p.waterNear = near
 }
 
 function ballReachable(p: Pet, world: WorldState): boolean {
@@ -402,6 +476,40 @@ export const ACTS: Record<ActName, ActDef> = {
       pose('yawn', 800), pose('lie', 1000), pose('lieRest', ms(p, 10_000, 25_000)), pose('stretch', 900),
     ]),
   },
+  // 가장 가까운 물가로 가서 물 쪽을 보고 마신다. 마시는 그림이 생기기 전까지는 물 쪽을 보고 킁킁대는 자세로 대신한다
+  drink: {
+    name: 'drink', cls: 'N', base: 6, drive: { thirst: 2.5 }, cooldownMs: 60_000,
+    feasible: (p, world, s) => p.needs.thirst > 0.4 && edgesOf(p, world, s).length > 0,
+    adjust: FLAT,
+    build: (p, world, s) => {
+      const edges = edgesOf(p, world, s)
+      const near = Math.min(...edges.map(e => Path.stepsAt(s.reach, e.x, e.y)))
+      const e = Rng.pick(p.rng, edges.filter(c => Path.stepsAt(s.reach, c.x, c.y) === near))
+      const steps: Step[] = [
+        { k: 'go', to: { x: e.x, y: e.y }, gait: 'walk', must: true },
+        pose('sniff', ms(p, 2500, 5000), { face: dirOf(e.dx, e.dy) }),
+        pose('stand', 300),
+      ]
+      if (Rng.chance(p.rng, 0.3)) steps.push(pose('shake', 400))
+      return act('drink', steps)
+    },
+  },
+  // 얕은 물로 뛰어들어 발 둘레에 물보라를 튀기고, 물에서 조금 떨어진 땅으로 나와 몸을 턴다
+  splash: {
+    name: 'splash', cls: 'N', base: 2, drive: { play: 0.8 }, cooldownMs: 180_000,
+    feasible: (p, world, s) => p.excite > 0.4 && p.energy > 0.4 && shallowsOf(world, s).length > 0,
+    adjust: FLAT,
+    build: (p, world, s) => {
+      const into = Rng.pick(p.rng, shallowsOf(world, s))
+      const out = shoreOf(p, world, s, into)
+      return act('splash', [
+        { k: 'go', to: into, gait: 'run', must: true },
+        pose('stand', ms(p, 400, 800), { splash: true }),
+        ...(out ? [{ k: 'go', to: out, gait: 'trot' } as Step] : []),
+        pose('shake', 600),
+      ])
+    },
+  },
   greet: {
     name: 'greet', cls: 'G', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
     build: (p, world, s) => greetOf(p, world, s),
@@ -412,7 +520,10 @@ export const ACTS: Record<ActName, ActDef> = {
   },
   settle: {
     name: 'settle', cls: 'E', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
-    build: (p, world, s) => act('settle', [...go(p, world, s, 1, 3, 'walk'), pose('frontSit', ms(p, 5000, 9000), { emote: 'heart' })]),
+    build: (p, world, s) => {
+      const to = pickDry(p, world, s, 1, 3)
+      return act('settle', [...(to ? [{ k: 'go', to, gait: 'walk' } as Step] : []), pose('frontSit', ms(p, 5000, 9000), { emote: 'heart' })])
+    },
   },
   bedtime: {
     name: 'bedtime', cls: 'S', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
@@ -525,8 +636,11 @@ function choose(p: Pet, world: WorldState, now: number): Activity {
   const queued = p.queue.shift()
   if (queued) return queued
   if (p.permissionSince !== undefined) return begOf(p, world, now)
-  if (isWaiting(p, now)) return build('wait', p, world)
   const s = surveyOf(p, world)
+  judgeWater(p, world, s)
+  // 목마름이 급하면 오래 도는 도구를 기다리기 전에 마시러 간다
+  if (p.needs.thirst >= THIRST_URGENT && !(p.simMs < (p.blockedUntil.drink ?? -Infinity)) && ACTS.drink.feasible(p, world, s)) return ACTS.drink.build(p, world, s)
+  if (isWaiting(p, now)) return build('wait', p, world)
   if (p.energy <= NAP_NOW && !(p.simMs < (p.blockedUntil.nap ?? -Infinity)) && ACTS.nap.feasible(p, world, s)) return ACTS.nap.build(p, world, s)
   const weights = weightsOf(p, world, s, now)
   if (weights.every(([, w]) => w <= 0)) return ACTS.idle.build(p, world, s)
@@ -974,19 +1088,26 @@ function clamp01(v: number): number {
 }
 
 // 욕구: 호기심은 늘 오르고 킁킁대면 내린다. 놀고 싶음은 들뜰수록 빨리 오르고 놀면 내린다.
-// 사람 곁은 사람 신호가 30 초 넘게 없으면 오르고, 있거나 사람 쪽을 보고 앉아 있으면 내린다. 목마름은 물이 생기기 전까지 0
+// 사람 곁은 사람 신호가 30 초 넘게 없으면 오르고, 있거나 사람 쪽을 보고 앉아 있으면 내린다.
+// 목마름은 늘 조금씩 오르고 속보·달리기 중에는 더 오르며, 마시는 행동에서 멈춰 마시는 자세로 있는 동안 내린다. 16 걸음 안에 물가가 없으면 0 에 묶는다
 function updateNeeds(p: Pet, dtMs: number, now: number): void {
   const dt = dtMs / 1000
   const n = p.needs
   const moving = isMoving(p)
   const sniffing = moving ? p.gait === 'sniff' : p.pose === 'sniff'
   n.curiosity = clamp01(n.curiosity + (0.005 - (sniffing ? 0.01 : 0)) * dt)
-  const playing = p.act.name === 'play' || p.act.name === 'run' || p.act.name === 'rollOver'
+  const playing = p.act.name === 'play' || p.act.name === 'run' || p.act.name === 'rollOver' || p.act.name === 'splash'
   n.play = clamp01(n.play + (0.003 + 0.006 * p.excite - (playing ? 0.015 : 0)) * dt)
   const alone = now - p.lastHumanAt > SOCIAL_QUIET_MS
   const facing = !moving && p.pose === 'frontSit' && p.act.name === 'watch'
   n.social = clamp01(n.social + ((alone ? 0.004 : -0.01) - (facing ? 0.06 : 0)) * dt)
-  n.thirst = 0
+  if (!p.waterNear) {
+    n.thirst = 0
+    return
+  }
+  const fast = moving && (p.gait === 'trot' || p.gait === 'run')
+  const drinking = !moving && p.act.name === 'drink' && p.pose === 'sniff'
+  n.thirst = clamp01(n.thirst + (THIRST_RATE + (fast ? THIRST_MOVING : 0) - (drinking ? THIRST_DRINK : 0)) * dt)
 }
 
 // 선 칸이 바뀌면 방문 기록을 적는다. 걸어 다니는 행동 중 오래 안 간 칸에 들어서면 호기심이 풀린다
@@ -1043,7 +1164,8 @@ export function update(p: Pet, world: WorldState, dtMs: number, now: number): vo
     p.queue = []
     interrupt(p, build('bedtime', p, world))
   }
-  if (isWaiting(p, now) && classOf(p) === 'N') interrupt(p, build('wait', p, world))
+  // 마시는 중이면 다 마시고 나서 기다리러 온다(목마름이 급하면 기다리기보다 마시기를 먼저 고르므로)
+  if (isWaiting(p, now) && classOf(p) === 'N' && p.act.name !== 'drink') interrupt(p, build('wait', p, world))
   // 한 스텝에 여러 단계가 끝날 수 있다(길이 0 인 go 등). 무한 반복을 막으려고 몇 번까지만
   for (let guard = 0; guard < 6; guard++) {
     const a = p.act
@@ -1072,9 +1194,11 @@ export function update(p: Pet, world: WorldState, dtMs: number, now: number): vo
   if (!isMoving(p)) emit(p, dtMs)
 }
 
-// 제자리 자세가 내는 효과: 파면 흙이 뒤로 튀고, 털면 물방울이 옆으로, 자면 z 가 하나씩 떠오른다
+// 제자리 자세가 내는 효과: 파면 흙이 뒤로 튀고, 털면 물방울이 옆으로, 물에서 첨벙대면 물보라가 발 둘레로, 자면 z 가 하나씩 떠오른다
 function emit(p: Pet, dtMs: number): void {
-  const every = p.pose === 'dig' ? 80 : p.pose === 'shake' ? 60 : p.pose === 'sleep' ? 1700 : 0
+  const step = p.act.steps[p.act.i]
+  const splashing = step?.k === 'pose' && step.splash === true
+  const every = splashing ? 70 : p.pose === 'dig' ? 80 : p.pose === 'shake' ? 60 : p.pose === 'sleep' ? 1700 : 0
   if (every === 0) return
   p.fxClock += dtMs
   if (p.fxClock < every) return
@@ -1083,7 +1207,10 @@ function emit(p: Pet, dtMs: number): void {
   if (p.pose === 'sleep' && p.skipZ) { p.skipZ = false; return }
   const s = Iso.screenOf(p.x, p.y, p.z)
   const back = isRight(p.dir) ? -1 : 1
-  if (p.pose === 'dig') {
+  if (splashing) {
+    const side = Rng.chance(p.fxRng, 0.5) ? 1 : -1
+    Fx.spawn(p.particles, { kind: 'splash', x: s.sx + side * Rng.range(p.fxRng, 1, 5), y: s.sy - 1, vx: side * Rng.range(p.fxRng, 10, 30), vy: -Rng.range(p.fxRng, 30, 55), g: 220, life: 380 })
+  } else if (p.pose === 'dig') {
     Fx.spawn(p.particles, { kind: 'dirt', x: s.sx - back * 3, y: s.sy - 1, vx: back * Rng.range(p.fxRng, 25, 50), vy: -Rng.range(p.fxRng, 45, 75), g: 280, life: 420 })
   } else if (p.pose === 'shake') {
     const side = Rng.chance(p.fxRng, 0.5) ? 1 : -1

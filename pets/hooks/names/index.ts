@@ -1,16 +1,14 @@
 export const PLUGIN_NAME = 'pets'
 export const PANE_ID = 'pets'
 export const COMMAND_NAME = 'pets'
-export const COMMAND_DESCRIPTION = '강아지 패널을 열고 닫는다. band: 프롬프트 위 띠, zoom [in|out]: 원거리·1 배·2 배, world [세트|auto]: 맵 세트, pet [품종|auto]: 강아지 품종'
-export const ARGUMENT_HINT = 'band | zoom [in|out] | world [세트|auto] | pet [품종|auto]'
+export const COMMAND_DESCRIPTION = '강아지 패널을 열고 닫는다. zoom [in|out]: 원거리·1 배·2 배, world [세트|auto]: 맵 세트, pet [품종|auto]: 강아지 품종'
+export const ARGUMENT_HINT = 'zoom [in|out] | world [세트|auto] | pet [품종|auto]'
 export const PANE_TITLE = '강아지'
 export const PANEL_SHOWN_TEXT = '강아지 패널을 열었다'
 export const PANEL_HIDDEN_TEXT = '강아지 패널을 닫았다'
-export const BAND_SHOWN_TEXT = '프롬프트 위 띠에 강아지를 띄웠다'
-export const BAND_HIDDEN_TEXT = '프롬프트 위 띠에서 강아지를 내렸다'
 export const ZOOM_TEXT = (zoom: 'far' | 1 | 2) => zoom === 'far' ? '원거리로 넓게 보게 바꿨다' : `도트 크기를 ${zoom} 배로 바꿨다`
 export const ZOOM_LIMIT_TEXT = (zoom: 'far' | 1 | 2) => zoom === 'far' ? '이미 가장 넓게(원거리) 보고 있다' : '이미 가장 크게(2 배) 보고 있다'
-export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets band (띠 켜고 끄기), /pets zoom (원거리 → 1 배 → 2 배 순환), /pets zoom in · out (한 단계씩), /pets world (맵 세트 보기·바꾸기), /pets pet (강아지 품종 보기·바꾸기)'
+export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets zoom (원거리 → 1 배 → 2 배 순환), /pets zoom in · out (한 단계씩), /pets world (맵 세트 보기·바꾸기), /pets pet (강아지 품종 보기·바꾸기)'
 // 세트 목록 글: "paper 모눈종이, meadow 초원, …, auto(세션마다 모눈종이 밖에서 고름)"
 export const WORLD_CHOICES = (sets: ReadonlyArray<{ id: string; label: string }>) => `${sets.map(s => `${s.id} ${s.label}`).join(', ')}, auto(세션마다 모눈종이 밖에서 고름)`
 export const WORLD_NOW_TEXT = (label: string, isAuto: boolean, choices: string) => `지금 맵 세트: ${label}${isAuto ? '(자동)' : ''}. 고를 수 있는 세트: ${choices}`
@@ -23,7 +21,6 @@ export const PET_UNKNOWN_TEXT = (word: string, choices: string) => `'${word}' �
 export const WORLD_UNKNOWN_TEXT = (word: string, choices: string) => `'${word}' 라는 맵 세트는 없다. 고를 수 있는 세트: ${choices}`
 export const RASTER_KEY = 'map'
 export const BAND_KEY = 'band'
-export const STORE_BAND = 'band'
 // 줌 단계('far' | 1 | 2). 이 키에 숫자 1·2 만 저장된 세션도 그대로 읽는다(scene 의 zoomOf)
 export const STORE_SCALE = 'scale'
 // 맵 세트: { v: 1, set: 세트 id | 'auto' }. 모르는 모양·버전·id 면 모눈종이로 보고 지우지 않는다

@@ -195,7 +195,7 @@ describe('iso projections', () => {
         const { x0, y0, x1, y1 } = World.bounds(world)
         for (let y = y0; y <= y1; y++) {
           for (let x = x0; x <= x1; x++) {
-            const z = World.heightAt(world, x, y) * proj.step
+            const z = Iso.topZ(world, x, y, proj)
             const tx = (x - y) * proj.hw - view.ox
             const ty = (x + y) * proj.hh - z - view.oy
             if (tx - proj.hw < b.w && tx + proj.hw > 0 && ty < b.h && ty + 2 * proj.hh + z + proj.base > 0) meets++

@@ -37,10 +37,11 @@ export type PoseName =
 
 // go: to 가 있으면 그 칸, pick 이 있으면 단계를 시작할 때 지금 자리에서 걸음 수 [lo, hi] 인 칸을 고른다(front 면 화면 앞쪽 칸).
 // must 면 길이 없을 때 행동 전체를 그만둔다(목적지가 핵심인 행동). 아니면 그 단계만 건너뛴다.
-// pose 의 grow: 도구 호출이 이어지면 이 자세를 늘린다(새로 시작하지 않는다). hop: 제자리에서 솟았다 내려온다
+// pose 의 grow: 도구 호출이 이어지면 이 자세를 늘린다(새로 시작하지 않는다). splash: 서 있는 동안 발 둘레에 물보라를 튀긴다.
+// hop: 제자리에서 솟았다 내려온다
 export type Step =
   | { k: 'go'; to?: Tile; pick?: { lo: number; hi: number; front?: boolean }; gait: Gait; must?: boolean }
-  | { k: 'pose'; pose: PoseName; ms: number; face?: Dir; emote?: Emote['kind']; grow?: boolean }
+  | { k: 'pose'; pose: PoseName; ms: number; face?: Dir; emote?: Emote['kind']; grow?: boolean; splash?: boolean }
   | { k: 'hop'; peakPx: number; ms: number }
   | { k: 'spin'; quarters: number; msPer: number }
   | { k: 'pounce' }
@@ -52,7 +53,7 @@ export type Step =
 
 export type ActName =
   | 'idle' | 'walk' | 'run' | 'sniff' | 'play' | 'sit' | 'lie'
-  | 'explore' | 'patrol' | 'perch' | 'rollOver' | 'watch' | 'nap'
+  | 'explore' | 'patrol' | 'perch' | 'rollOver' | 'watch' | 'nap' | 'drink' | 'splash'
   | 'greet' | 'dig' | 'settle' | 'bedtime'
   | 'attend' | 'ponder' | 'seeOff' | 'shakeOff' | 'nose' | 'alert' | 'bark' | 'wait' | 'beg' | 'sulk' | 'startle' | 'puzzled'
 
@@ -121,6 +122,8 @@ export type Pet = {
   blockedUntil: Partial<Record<ActName, number>>
   aborts: number
   needs: Needs
+  // 마지막으로 행동을 고를 때 16 걸음 안에 물가가 있었는지. 새로 만든 동물은 첫 선택 전까지 없다고 본다(목마름이 0 으로 묶인다)
+  waterNear: boolean
   // 최근 놀이 변형, [0] 이 직전
   playHistory: PlayName[]
   // 칸 키마다 마지막으로 서 있던 시뮬레이션 시각. 새 칸을 고르는 데 쓴다. 가장 오래된 것부터 버린다
@@ -187,7 +190,7 @@ export function create(world: WorldState, seed: number, now: number, species: Sp
     species, x, y, z: World.heightAt(world, x, y) * Names.STEP_PX,
     dir: 'SE', speed: 0, gait: 'walk', path: [], crouchMs: 0, landMs: 0, stride: 0, turnMs: 0,
     act: idleActivity(), queue: [], history: [], lastEndAt: {}, simMs: 0, blockedUntil: {}, aborts: 0,
-    needs: { curiosity: 0.4, play: 0.3, social: 0.3, thirst: 0 }, playHistory: [], visits: new Map(), tileKey: keyOf(x, y), lastHumanAt: now, carrying: false,
+    needs: { curiosity: 0.4, play: 0.3, social: 0.3, thirst: 0 }, waterNear: false, playHistory: [], visits: new Map(), tileKey: keyOf(x, y), lastHumanAt: now, carrying: false,
     pose: 'stand',
     energy: species.behavior.initial.energy, excite: species.behavior.initial.excite, isAsleep: false,
     tail: 0, breath: 0, blinkIn: 2500, blinkMs: 0,

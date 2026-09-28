@@ -1,7 +1,8 @@
 // 경로 따라가기와 단차 뛰기(순수 모듈). 고정 스텝(약 16.7 ms)마다 한 번 부른다.
 // - 속도는 가속·감속 한도 안에서 목표 속도로 다가간다. 끝 칸에 가까우면 v = √(2·감속·남은 거리) 로 줄여 미끄러지지 않고 선다
 // - 꺾이는 칸은 가운데까지 가지 않고 조금 앞에서 다음 칸으로 넘어가 모서리를 둥글게 돈다(세 칸 높이가 같을 때만)
-// - 높이가 다른 칸으로 넘어갈 때는 경계 앞에서 웅크렸다가(걷기만) 포물선으로 뛰고, 착지하면 잠깐 눌리고 먼지가 인다
+// - 걷는 높이가 다른 칸으로 넘어갈 때는 경계 앞에서 웅크렸다가(걷기만) 포물선으로 뛰고, 착지하면 잠깐 눌리고 먼지가 인다.
+//   물 칸의 걷는 높이는 수면이라 물가에서 얕은 물로는 뛰지 않고 걸어 들어가며, 발은 수면 아래로 잠긴다(World.standZ)
 
 import Names from '../names'
 import Iso from '../iso'
@@ -11,7 +12,7 @@ import { dirOf, isRight, type Pet } from './state.js'
 
 
 function groundOf(world: WorldState, x: number, y: number): number {
-  return World.heightAt(world, Math.round(x), Math.round(y)) * Names.STEP_PX
+  return World.standZ(world, Math.round(x), Math.round(y))
 }
 
 function face(p: Pet, dx: number, dy: number): void {
@@ -106,8 +107,8 @@ export function step(p: Pet, world: WorldState, dtMs: number): void {
   const dx = wp.x - p.x
   const dy = wp.y - p.y
   const dist = Math.hypot(dx, dy)
-  const here = World.heightAt(world, Math.round(p.x), Math.round(p.y))
-  const there = World.heightAt(world, wp.x, wp.y)
+  const here = World.walkHeightAt(world, Math.round(p.x), Math.round(p.y))
+  const there = World.walkHeightAt(world, wp.x, wp.y)
   if (there !== here && dist <= m.hopAt) {
     faceTo(p, dx, dy)
     // 걷다가 오를 때는 멈칫 웅크리고, 뛰는 중에는 속도 그대로 뛰어오른다
@@ -143,7 +144,7 @@ export function step(p: Pet, world: WorldState, dtMs: number): void {
   const left = dist - move
   // 다음 구간이 지금 가는 축과 다른 축이면 꺾는 칸이다
   const isTurn = next !== undefined && (next.x !== wp.x) !== (Math.abs(dx) > Math.abs(dy))
-  const flat = next !== undefined && World.heightAt(world, next.x, next.y) === there && here === there
+  const flat = next !== undefined && World.walkHeightAt(world, next.x, next.y) === there && here === there
   if (left <= 1e-4 || (isTurn && flat && left < m.corner)) {
     p.path.shift()
     if (p.path.length === 0) { p.x = wp.x; p.y = wp.y; p.speed = 0 }

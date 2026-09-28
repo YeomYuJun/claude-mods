@@ -72,23 +72,18 @@ describe('register', () => {
     expect(cells.size > 10).toBe(true)
   })
 
-  test('/pets band draws a three-row Raster above the prompt and steps aside for a survey', async ($, on) => {
-    const world = Fixtures.worldOf(on)
-    // 엔진 자리: 플러그인이 비켜 주면 엔진이 제 것을 그린다
+  test('/pets band is no longer a command: it answers with the usage and no band is drawn even if an old save turned it on', async ($, on) => {
+    const world = Fixtures.worldOf(on, { band: true })
     on('ui.render', () => ({ type: 'Engine', props: {}, children: [] }) as never)
     await $.session.start(Fixtures.START)
-    const on1 = await $.command.run(Fixtures.BAND)
-    expect(on1.text).toBe('프롬프트 위 띠에 강아지를 띄웠다')
+    const answer = await $.command.run(Fixtures.BAND)
+    expect(answer.text).not.toContain('띠')
+    expect(answer.text).toContain('/pets zoom')
     const tree = await $.ui.render(Fixtures.bandOf(100, 10))
-    expect(Reflect.get(tree, 'type')).toBe('Raster')
-    expect(propsOf(tree).rows).toBe(3)
-    expect(propsOf(tree).columns).toBe(100)
+    expect(Reflect.get(tree, 'type')).not.toBe('Raster')
     await world.clock.advance(3000)
-    expect(world.blits.some(b => b.requestId === 'above-prompt' && b.key === 'band')).toBe(true)
-    const survey = await $.ui.render(Fixtures.bandOf(100, 10, true))
-    expect(Reflect.get(survey, 'type')).not.toBe('Raster')
-    const off = await $.command.run(Fixtures.BAND)
-    expect(off.text).toBe('프롬프트 위 띠에서 강아지를 내렸다')
+    expect(world.blits.some(b => b.key === 'band')).toBe(false)
+    expect(world.store.get('band')).toBe(true)
   })
 
   test('/pets zoom switches to two-column dots and keeps the Raster size', async ($, on) => {
@@ -235,21 +230,6 @@ describe('register', () => {
       expect((await $.command.run(PET(''))).text).toContain('지금 강아지: 흰 강아지.')
       expect(world.store.get('pets')).toEqual(value)
     }
-  })
-
-  test('the band dog switches to its light-terminal colors when the theme is light, and back when it turns dark', async ($, on) => {
-    Fixtures.worldOf(on, { band: true }, 'light')
-    on('config.set', ($, e) => ({ value: e.value }))
-    on('ui.render', () => ({ type: 'Engine', props: {}, children: [] }) as never)
-    await $.session.start(Fixtures.START)
-    const light = String(propsOf(await $.ui.render(Fixtures.bandOf(100, 10))).cells)
-    await $.config.set({ key: 'theme', value: 'dark', previous: 'light', provider: { kind: 'engine' }, origin: { kind: 'person' } } as never)
-    const dark = String(propsOf(await $.ui.render(Fixtures.bandOf(100, 10))).cells)
-    expect(light === dark).toBe(false)
-    const words = Fixtures.wordsOf(dark)
-    const colors = new Set<number>()
-    for (let i = 0; i + 2 < words.length; i += 3) { colors.add(words[i + 1]!); colors.add(words[i + 2]!) }
-    expect(colors.has(0xfdfdfd)).toBe(true)
   })
 
   test('far zoom keeps the Raster size and paints a different frame from 1 ×', async ($, on) => {

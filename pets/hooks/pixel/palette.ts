@@ -8,7 +8,7 @@
 //   1~55       지표 종류 5 개 × 11: 윗면 5 색(높이마다 어느 색인지는 세트의 높이 표), 윗면 그림자 2, 앞 모서리 하이라이트, 모눈선, 모눈선 그림자, 무늬
 //   56~59      세트 공통 지형: 굵은 모눈선, 그 그림자, 가장자리(밑판 맨 아래 줄), 테(맵 뒤쪽 변의 선)
 //   60~71      옆면 재질 3 개 × 4: 왼쪽 면, 오른쪽 면, 왼쪽 단 줄, 오른쪽 단 줄
-//   72~79      물
+//   72~79      물: 얕은 물, 깊은 물, 반짝임, 물가 거품, 얕은 물 그림자, 깊은 물 그림자, 그림자 사슬 끝, 예비 1
 //   80~99      소품
 //   100~111    효과
 //   112~159    동물 뱅크 4 개 × 12 역할
@@ -51,11 +51,19 @@ export function material(m: number): number {
   return 60 + 4 * m
 }
 
+// 물 묶음. 수면에 동물 그림자가 겹쳐 질수록 얕은 물, 얕은 물 그림자, 깊은 물 그림자, 사슬 끝 차례로 어두워진다
 export const WATER = 72
+export const SHALLOW = 72
+export const DEEP_WATER = 73
+export const SHIMMER = 74
+export const FOAM = 75
+export const SHALLOW_SH = 76
+export const DEEP_SH = 77
+export const WATER_END = 78
 export const PROP = 80
 export const PROP_COUNT = 20
-// 소품 묶음 안의 역할(나무 잎 밝음·보통·어둠, 줄기 둘, 바위 셋, 꽃잎 둘과 가운데, 풀포기, 버섯 갓·대). 나머지 6 칸은 예비
-export const PropSlot = { leafHi: 0, leaf: 1, leafDark: 2, trunk: 3, trunkDark: 4, rockHi: 5, rock: 6, rockDark: 7, petalA: 8, petalB: 9, petalMid: 10, tuft: 11, cap: 12, stem: 13 } as const
+// 소품 묶음 안의 역할(나무 잎 밝음·보통·어둠, 줄기 둘, 바위 셋, 꽃잎 둘과 가운데, 풀포기, 버섯 갓·대, 갈대 줄기·이삭, 연잎과 그 꽃). 나머지 2 칸은 예비
+export const PropSlot = { leafHi: 0, leaf: 1, leafDark: 2, trunk: 3, trunkDark: 4, rockHi: 5, rock: 6, rockDark: 7, petalA: 8, petalB: 9, petalMid: 10, tuft: 11, cap: 12, stem: 13, reed: 14, reedTip: 15, pad: 16, padFlower: 17 } as const
 export type PropSlotName = keyof typeof PropSlot
 
 // 효과. 흙·먼지·물방울은 세트가 칠하고 나머지는 고정 색이다
@@ -95,10 +103,15 @@ export type SetColors = {
   materials: readonly MaterialColors[]
   // 소품 역할마다 RGB(세트가 그리지 않는 역할도 채운다). 없으면 소품 묶음을 채우지 않는다
   props?: Readonly<Record<PropSlotName, number>>
+  // 물 색. 호수가 없는 세트(모눈종이)는 없다
+  water?: WaterColors
   dust: number
   dirt: number
   splash: number
 }
+// 얕은 물·깊은 물 수면, 반짝임, 물가 거품. 그림자는 얕은 물·깊은 물 × WATER_SHADE, 사슬 끝은 깊은 물 그림자 × 0.85
+export type WaterColors = { shallow: number; deep: number; shimmer: number; foam: number }
+export const WATER_SHADE = 0.8
 export type BankColors = Record<RoleName, number>
 
 export type Theme = {
@@ -204,6 +217,21 @@ export function themeOf(set: SetColors, banks: readonly BankColors[]): Theme {
     rgb[base + Side.L_STEP] = c.lStep
     rgb[base + Side.R_STEP] = c.rStep
   })
+  const water = set.water
+  if (water) {
+    rgb[SHALLOW] = water.shallow
+    rgb[DEEP_WATER] = water.deep
+    rgb[SHIMMER] = water.shimmer
+    rgb[FOAM] = water.foam
+    rgb[SHALLOW_SH] = scale(water.shallow, WATER_SHADE)
+    rgb[DEEP_SH] = scale(water.deep, WATER_SHADE)
+    rgb[WATER_END] = scale(rgb[DEEP_SH]!, 0.85)
+    // 반짝임·거품은 밝은 점이라 그림자가 지면 얕은 물 색이 된다. 얕은 물 그림자의 그림자는 깊은 물 그림자(깊은 물이 더 어둡다)
+    const chain: ReadonlyArray<readonly [number, number]> = [
+      [SHALLOW, SHALLOW_SH], [DEEP_WATER, DEEP_SH], [SHIMMER, SHALLOW], [FOAM, SHALLOW], [SHALLOW_SH, DEEP_SH], [DEEP_SH, WATER_END],
+    ]
+    for (const [from, to] of chain) shadowOf[from] = to
+  }
   const props = set.props
   if (props) for (const role of Object.keys(PropSlot) as PropSlotName[]) rgb[PROP + PropSlot[role]] = props[role]
   rgb[DUST] = set.dust
