@@ -1,14 +1,13 @@
 import Band from '../../hooks/band'
 import Rng from '../../hooks/rng'
-import Scene, { type Zoom } from '../../hooks/scene'
+import Scene from '../../hooks/scene'
 
-// 시드 3 × 시각 3 × 줌 3 의 패널 셀과 시드 3 × 시각 3 의 띠 셀을 해시로 줄인다.
+// 시드 3 × 시각 3 × 줌 4 의 패널 셀과 시드 3 × 시각 3 의 띠 셀을 해시로 줄인다.
 // 색 표 구조를 바꿀 때 화면이 한 셀도 달라지지 않았는지 이 값으로 본다
 export function frameHashes(): string[] {
   const out: string[] = []
-  const zooms: Zoom[] = ['far', 1, 2]
   for (const seed of [7, 42, 1234]) {
-    for (const zoom of zooms) {
+    for (const zoom of Scene.ZOOMS) {
       const scene = Scene.create(seed, 0)
       let now = 0
       for (let i = 1; i <= 240; i++) {

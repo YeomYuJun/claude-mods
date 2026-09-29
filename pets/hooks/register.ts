@@ -52,7 +52,7 @@ export function register(on: On) {
   let isOpen = false
   // 프롬프트 위 띠는 쓰지 않는 기능으로 둔다: 켜는 명령이 없고 예전 저장값(band 키)도 읽지 않아 늘 꺼져 있다
   let isBandOn = false
-  let zoom: Zoom = 1
+  let zoom: Zoom = Scene.DEFAULT_ZOOM
   let scene = Scene.create(0x5eed, 0)
   let band = Band.create(0x5eed, 0)
   let timer: Timer | undefined
@@ -216,10 +216,11 @@ export function register(on: On) {
 
   on('command.run', { command: Names.COMMAND_NAME }, async ($, e) => {
     const [arg = '', sub = '', ...rest] = e.args.trim().toLowerCase().split(/\s+/)
-    // zoom 은 원거리 → 1 배 → 2 배 를 돌고, zoom in · out 은 한 단계씩 가다 끝에서 멈춘다
-    if (arg === 'zoom' && (sub === '' || sub === 'in' || sub === 'out') && rest.length === 0) {
-      const next = sub === '' ? Scene.zoomNext(zoom) : Scene.zoomBy(zoom, sub === 'in' ? 1 : -1)
-      if (next === zoom) return { text: Names.ZOOM_LIMIT_TEXT(zoom) }
+    // zoom 은 맵 보기 → 원거리 → 1 배 → 2 배 를 돌고, zoom in · out 은 한 단계씩 가다 끝에서 멈추고, zoom <wide|far|1|2> 는 그 단계로 바로 간다
+    const named = arg === 'zoom' ? Scene.zoomNamed(sub) : undefined
+    if (arg === 'zoom' && (sub === '' || sub === 'in' || sub === 'out' || named !== undefined) && rest.length === 0) {
+      const next = named ?? (sub === '' ? Scene.zoomNext(zoom) : Scene.zoomBy(zoom, sub === 'in' ? 1 : -1))
+      if (next === zoom) return { text: named !== undefined ? Names.ZOOM_SAME_TEXT(zoom) : Names.ZOOM_LIMIT_TEXT(zoom) }
       zoom = next
       await host?.store(Names.STORE_SCALE, zoom)
       if (pane) {

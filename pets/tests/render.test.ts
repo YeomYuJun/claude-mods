@@ -48,6 +48,41 @@ describe('pixel', () => {
     expect(words.slice(6, 9)).toEqual([0x20, 0x01000000, RGB[TOP]!])
   })
 
+  test('shrink by 2 keeps a 2 × 2 cell when half of it is covered, paints its heaviest color, and counts weak colors at 0.45', async () => {
+    const O = 1
+    const W = 2
+    // 기준점 (2, 3). rowShift 0: 줄 0 이 줄인 줄 -2, 줄 1·2 가 줄인 줄 -1, 줄 3 이 줄인 줄 0
+    const src = { w: 4, h: 4, px: Uint8Array.from([
+      0, 0, 0, 0,
+      O, O, W, O,
+      O, W, O, 0,
+      0, 0, 0, W,
+    ]) }
+    const small = Pixel.shrink(src, 2, 3, 0, { by: 2, minCover: 0.5, rowShift: 0, weak: [O] })
+    expect([small.w, small.h, small.ax, small.ay]).toEqual([2, 3, 1, 2])
+    // 칸 (-1, -1): O 3 개(1.35) · W 1 개 → O. 칸 (0, -1): O 2 개(0.9) · W 1 개 → W. 칸 (0, 0) 은 넓이 1/4 만 덮여 비운다
+    expect(Array.from(small.px)).toEqual([0, 0, O, W, 0, 0])
+    // rowShift 1: 기준점 줄과 그 위 줄이 줄인 줄 0 이다. 같은 무게면 먼저 나온 색(위 줄, 왼쪽)
+    const shifted = Pixel.shrink(src, 2, 3, 0, { by: 2, minCover: 0, rowShift: 1 })
+    expect([shifted.h, shifted.ay]).toEqual([2, 1])
+    expect(Array.from(shifted.px)).toEqual([O, W, O, O])
+  })
+
+  test('shrink by 1.5 turns 3 × 3 pixels into 2 × 2, weighing each pixel by the area it shares with the smaller pixel', async () => {
+    const A = 1
+    const B = 2
+    // 기준점 (0, 3): 세 줄이 줄인 줄 -2([-3, -1.5))와 -1([-1.5, 0))로, 세 열이 줄인 열 0([0, 1.5))과 1([1.5, 3))로 나뉜다
+    const src = { w: 3, h: 3, px: Uint8Array.from([
+      B, B, A,
+      B, B, A,
+      A, A, A,
+    ]) }
+    const small = Pixel.shrink(src, 0, 3, 0, { by: 1.5, minCover: 0.5, rowShift: 0 })
+    expect([small.w, small.h, small.ax, small.ay]).toEqual([2, 2, 0, 2])
+    // 왼쪽 위: B 1 + 0.5 + 0.5 + 0.25 = 2.25. 오른쪽 위: B 0.5 + 0.25 = 0.75, A 1 + 0.5 = 1.5
+    expect(Array.from(small.px)).toEqual([B, A, A, A])
+  })
+
   test('scale 2 paints one logical pixel over two columns and a whole row', async () => {
     const b = Pixel.bufferOf(4, 2, 2)
     expect([b.w, b.h]).toEqual([2, 2])
@@ -110,8 +145,8 @@ describe('iso', () => {
   })
 })
 
-// 두 투영에 똑같이 거는 기하 검사
-const PROJS: ReadonlyArray<readonly [string, Proj]> = [['near', Iso.NEAR], ['far', Iso.FAR]]
+// 세 투영에 똑같이 거는 기하 검사
+const PROJS: ReadonlyArray<readonly [string, Proj]> = [['near', Iso.NEAR], ['far', Iso.FAR], ['wide', Iso.WIDE]]
 
 // 시작 칸 둘레 ±24 칸이 모두 들어가는 버퍼와 그 원점
 const fullOf = (world: WorldState, proj: Proj) => Fixtures.drawAround(world, proj)
@@ -124,7 +159,7 @@ function setWorlds(): ReadonlyArray<readonly [string, WorldState]> {
 }
 
 describe('iso projections', () => {
-  test('diamond tops of both projections tile the plane: every pixel is covered exactly once', async () => {
+  test('diamond tops of every projection tile the plane: every pixel is covered exactly once', async () => {
     for (const [, proj] of PROJS) {
       const cover = new Map<string, number>()
       for (let x = -6; x <= 6; x++) {
@@ -147,6 +182,15 @@ describe('iso projections', () => {
     Pixel.clear(b)
     const s = Iso.screenOf(8, 8, 0, Iso.FAR)
     Iso.drawWorld(b, world, { ox: Math.round(s.sx) - 20, oy: Math.round(s.sy) - 20 }, Iso.FAR)
+    for (let i = 0; i < b.px.length; i++) expect(b.px[i] === Palette.VOID).toBe(false)
+  })
+
+  test('map-view flat tiles fill the view without gaps', async () => {
+    const world = flatWorld(48, 48)
+    const b = Pixel.bufferOf(40, 20, 1)
+    Pixel.clear(b)
+    const s = Iso.screenOf(24, 24, 0, Iso.WIDE)
+    Iso.drawWorld(b, world, { ox: Math.round(s.sx) - 20, oy: Math.round(s.sy) - 20 }, Iso.WIDE)
     for (let i = 0; i < b.px.length; i++) expect(b.px[i] === Palette.VOID).toBe(false)
   })
 
@@ -186,15 +230,15 @@ describe('iso projections', () => {
     for (const [id, world] of setWorlds()) {
       for (const [name, proj] of PROJS) {
         // 120 열 × 60 행 패널 = 120 × 120 픽셀, 시작 칸이 가운데
-        // 경계 없는 월드는 시작 칸 ±48 칸을 훑는다(원거리 120 × 120 픽셀 화면은 대각선 ±30 칸 안). 그 안의 청크를 먼저 만든다
-        Fixtures.loadAround(world, 48)
+        // 경계 없는 월드는 시작 칸 ±r 칸을 훑는다(원거리 120 × 120 픽셀 화면은 대각선 ±30 칸 안, 맵 보기는 대각선 ±60 칸 안). 그 안의 청크를 먼저 만든다
+        const r = proj === Iso.WIDE ? 72 : 48
+        Fixtures.loadAround(world, r)
         const b = Pixel.bufferOf(120, 60, 1)
         Pixel.clear(b)
         const s = Iso.screenOf(world.spawn.x, world.spawn.y, 0, proj)
         const view = { ox: Math.round(s.sx) - 60, oy: Math.round(s.sy) - 60 }
         const drawn = Iso.drawWorld(b, world, view, proj)
         let meets = 0
-        const r = 48
         const all = World.bounds(world)
         const x0 = Math.max(all.x0, world.spawn.x - r)
         const x1 = Math.min(all.x1, world.spawn.x + r)
@@ -250,7 +294,8 @@ describe('iso projections', () => {
   })
 
   test('a dog behind a tree shows through every other pixel (its colors on odd cells, its outline on even ones), a dog in front hides the tree, and short props are never hollowed', async () => {
-    for (const [name, proj] of PROJS) {
+    // 맵 보기 나무(3 × 5 픽셀 안팎)는 두 대각선 뒤 원래 크기 개를 가리지 않아 1 배·원거리 투영만 본다
+    for (const [name, proj] of PROJS.filter(([, q]) => q !== Iso.WIDE)) {
       // 강아지 (5, 5). 나무는 두 대각선 앞 (6, 6) 이나 뒤 (4, 4), 바위는 바로 앞 (5, 6)
       const draw = (world: WorldState, hollow: boolean) => {
         const b = Pixel.bufferOf(40, 20, 1)
@@ -301,7 +346,7 @@ describe('iso projections', () => {
     expect(visible(front) < open).toBe(true)
   })
 
-  test('on flat ground the dog is drawn whole in both projections (the tiles in front do not clip its feet)', async () => {
+  test('on flat ground the dog is drawn whole in every projection (the tiles in front do not clip its feet)', async () => {
     for (const [, proj] of PROJS) {
       const alone = Pixel.bufferOf(40, 20, 1)
       Pixel.clear(alone)
@@ -322,5 +367,47 @@ describe('iso projections', () => {
     expect(far.sy).toBe(near.sy * Iso.FAR.hh / Iso.NEAR.hh)
     const up = Iso.screenOf(7, 3, 2 * Iso.NEAR.step, Iso.FAR)
     expect(far.sy - up.sy).toBe(2 * Iso.FAR.step)
+  })
+})
+
+describe('small animal', () => {
+  // 원래 크기 개(선 모습)를 반전하지 않고 그린 버퍼. 바닥 점 (20, 32)
+  const figOf = () => {
+    const fig = Pixel.bufferOf(40, 20, 1)
+    Pixel.clear(fig)
+    Sprite.drawPet(fig, Species.DOG, STAND, 20, 32, 0)
+    return fig
+  }
+  const painted = (b: Buffer) => {
+    const out: Array<[number, number, number]> = []
+    for (let i = 0; i < b.px.length; i++) if (b.px[i] !== Palette.VOID) out.push([i % b.w, Math.floor(i / b.w), b.px[i]!])
+    return out
+  }
+  const drawn = (by: number, flip: boolean) => {
+    const b = Pixel.bufferOf(40, 20, 1)
+    Pixel.clear(b)
+    Sprite.drawSmall(b, figOf(), 20, 32, 20, 30, flip, 1, Species.DOG, by)
+    return b
+  }
+
+  test('far and map view draw the animal at 1/2 or 2/3 size with its feet one row above the ground point', async () => {
+    const full = painted(figOf())
+    const span = (list: Array<[number, number, number]>, k: 0 | 1) => Math.max(...list.map(p => p[k])) - Math.min(...list.map(p => p[k])) + 1
+    for (const by of [2, 1.5]) {
+      const small = painted(drawn(by, false))
+      expect(`${by} ${small.length > 0}`).toBe(`${by} true`)
+      expect(`${by} ${span(small, 0) <= Math.ceil(span(full, 0) / by) + 1} ${span(small, 1) <= Math.ceil(span(full, 1) / by) + 1}`).toBe(`${by} true true`)
+      expect(`${by} ${Math.max(...small.map(p => p[1]))}`).toBe(`${by} 29`)
+    }
+    expect(painted(drawn(1.5, false)).length > painted(drawn(2, false)).length).toBe(true)
+  })
+
+  test('the small animal facing left is the mirror of the one facing right about the ground point column', async () => {
+    for (const by of [2, 1.5]) {
+      const right = drawn(by, false)
+      const left = drawn(by, true)
+      for (const [x, y, c] of painted(right)) expect(`${by} ${x},${y} ${left.px[y * left.w + (40 - x)]}`).toBe(`${by} ${x},${y} ${c}`)
+      expect(painted(left).length).toBe(painted(right).length)
+    }
   })
 })

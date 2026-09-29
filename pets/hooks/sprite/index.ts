@@ -6,7 +6,7 @@
 // 비트맵 글자는 종이 정한 역할(윤곽, 몸, 눈 등)이고, 역할은 동물 뱅크 번호를 더해 팔레트 번호가 된다.
 // 종·뱅크마다 한 번만 번호로 바꿔 두고 다시 쓴다.
 
-import { Palette, plot, plotDepth, type Buffer } from '../pixel'
+import { Palette, plot, plotDepth, shrink, type Buffer } from '../pixel'
 import { BASE_BODIES, EXTRA_BODIES, type BitmapSpec, type BodyKind, type SpeciesDef } from '../species'
 
 type Mark = readonly [number, number]
@@ -361,6 +361,27 @@ export function drawPet(b: Buffer, species: SpeciesDef, pose: PetPose, x: number
   }, bank)
 }
 
+// 원거리·맵 보기: 원래 크기로 그린 동물 버퍼 fig(바닥 점 (gx, gy), 반전하지 않은 모습)를 by 로 줄여(2 는 절반, 1.5 는 2/3) (x, y) 에 그린다.
+// 줄인 픽셀의 절반 넘게 덮이면 칠하고 가장 무거운 색을 쓴다. 윤곽은 약하게 세어 줄인 그림이 윤곽색으로 덮이지 않게 한다. 발은 바닥 점 한 줄 위에 온다.
+// 깊이 비교와 윤곽 비침은 drawPet 과 같다
+export function drawSmall(b: Buffer, fig: Buffer, gx: number, gy: number, x: number, y: number, flip: boolean, depth: number, species: SpeciesDef, by: number, bank = 0): void {
+  const k = compile(species, bank)
+  const small = shrink(fig, gx, gy, Palette.VOID, { by, minCover: 0.5, rowShift: 0, weak: [k.role('outline')] })
+  for (let j = 0; j < small.h; j++) {
+    for (let i = 0; i < small.w; i++) {
+      const c = small.px[j * small.w + i]!
+      if (c === Palette.VOID) continue
+      const lx = i - small.ax
+      const X = x + (flip ? -lx : lx)
+      const Y = y + j - small.ay
+      if (X < 0 || Y < 0 || X >= b.w || Y >= b.h) continue
+      const n = Y * b.w + X
+      if (depth > b.depth[n]!) b.px[n] = c
+      else if (k.seeThrough.has(c) && ((X + Y) & 1) === 0) b.px[n] = Palette.LINE_HEAVY
+    }
+  }
+}
+
 // 동물 그림이 차지하는 상자(바닥 점 기준, 양 끝 포함). 키 큰 소품이 동물을 가릴 때 비울 범위를 정한다
 export function boundsOf(species: SpeciesDef, pose: PetPose): { x0: number; y0: number; x1: number; y1: number } {
   let x0 = Infinity
@@ -405,6 +426,24 @@ export function drawBall(b: Buffer, x: number, y: number, roll: number, depth: n
       if (shape[j]![i] !== 'o') continue
       const c = i === spot[0] && j === spot[1] ? Palette.BALL_HI : Palette.BALL
       plotDepth(b, x - 2 + i, y - 4 + j, c, depth)
+    }
+  }
+}
+
+// 원거리·맵 보기의 공: 절반(by 2)이면 2 × 2, 2/3(by 1.5)이면 3 × 3 십자. 굴러간 거리에 따라 흰 점이 네 칸을 돈다
+const SMALL_BALLS: ReadonlyArray<{ rows: readonly string[]; spots: ReadonlyArray<readonly [number, number]> }> = [
+  { rows: ['oo', 'oo'], spots: [[0, 0], [1, 0], [1, 1], [0, 1]] },
+  { rows: ['.o.', 'ooo', '.o.'], spots: [[1, 0], [2, 1], [1, 2], [0, 1]] },
+]
+
+export function drawBallSmall(b: Buffer, x: number, y: number, roll: number, depth: number, by: number): void {
+  const ball = SMALL_BALLS[by >= 2 ? 0 : 1]!
+  const n = ball.rows.length
+  const spot = ball.spots[Math.floor(roll * 5) % 4]!
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      if (ball.rows[j]![i] !== 'o') continue
+      plotDepth(b, x - (n >> 1) + i, y - n + j, i === spot[0] && j === spot[1] ? Palette.BALL_HI : Palette.BALL, depth)
     }
   }
 }

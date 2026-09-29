@@ -3,7 +3,7 @@
 // 좌표: 타일 (x, y) 의 가운데가 세계 좌표 (x, y). z 는 시뮬레이션 픽셀 높이(한 단 = Names.STEP_PX).
 // 투영(Proj)은 타일 반폭 hw, 반높이 hh, 한 단 높이 step 으로 정한다.
 // 화면 sx = (fx - fy) × hw, sy = (fx + fy) × hh + hh - z × step / STEP_PX. 타일의 위 꼭짓점은 (x - y) × hw, (x + y) × hh - 높이.
-// 시뮬레이션(공, 움직임, 효과, 카메라)은 NEAR(12 × 6, 한 단 4) 픽셀로 돈다. 원거리 줌은 그릴 때만 FAR 로 옮긴다.
+// 시뮬레이션(공, 움직임, 효과, 카메라)은 NEAR(12 × 6, 한 단 4) 픽셀로 돈다. 원거리·맵 보기 줌은 그릴 때만 FAR·WIDE 로 옮긴다.
 // 깊이: 같은 화면 픽셀에 겹치는 두 점은 시선 방향 (1, 1, 2hh × STEP_PX / step) 만큼만 다르므로 어느 투영이든 fx + fy 가 클수록 앞이다.
 // 깊이 버퍼는 Float32 라 fx + fy 를 그대로 담으면 좌표가 커질 때 작은 차이(동물 0.4, 소품 0.45)가 사라진다. 그래서 카메라 쪽 대각선 dz 를 뺀 값을 담는다.
 // 타일은 x + y 대각선 순서로(뒤에서 앞으로) 덮어 그리며 픽셀마다 깊이를 남기고,
@@ -68,6 +68,8 @@ function projOf(hw: number, hh: number, step: number, base: number, lineEvery: n
 
 export const NEAR = projOf(Names.TILE_W / 2, Names.TILE_H / 2, Names.STEP_PX, Names.BASE_PX, 1)
 export const FAR = projOf(Names.FAR_TILE_W / 2, Names.FAR_TILE_H / 2, Names.FAR_STEP_PX, Names.FAR_BASE_PX, Names.FAR_LINE_EVERY)
+// 4 × 2 다이아몬드는 윗면 픽셀 4 개가 모두 변에 걸린다(위 두 개는 NW·NE 선 자리, 아래 두 개는 앞 변 하이라이트 자리)
+export const WIDE = projOf(Names.WIDE_TILE_W / 2, Names.WIDE_TILE_H / 2, Names.WIDE_STEP_PX, Names.WIDE_BASE_PX, Names.WIDE_LINE_EVERY)
 
 // z 는 시뮬레이션 픽셀(NEAR 한 단 = STEP_PX)이다. 다른 투영에서는 단 수로 바꿔 그 투영의 단 높이를 곱한다
 export function screenOf(fx: number, fy: number, z: number, proj: Proj = NEAR): { sx: number; sy: number } {
@@ -88,7 +90,7 @@ export type View = {
   dz?: number
 }
 
-// 구덩이 흔적 픽셀(윗면 표 순번). 1 배는 가운데 4 × 2, 원거리는 2 × 1
+// 구덩이 흔적 픽셀(윗면 표 순번). 1 배는 가운데 4 × 2, 원거리는 2 × 1. 맵 보기는 윗면이 모두 변 픽셀이라 그리지 않는다
 const PIT_DOTS: ReadonlyArray<readonly [number, number]> = [[-2, 2], [-1, 2], [0, 2], [1, 2], [-2, 3], [-1, 3], [0, 3], [1, 3]]
 const PIT_DOTS_FAR: ReadonlyArray<readonly [number, number]> = [[-1, 2], [0, 2]]
 const pitMasks = new Map<Proj, Uint8Array>()
@@ -96,7 +98,7 @@ const pitMasks = new Map<Proj, Uint8Array>()
 function pitMaskOf(proj: Proj): Uint8Array {
   let m = pitMasks.get(proj)
   if (!m) {
-    const dots = proj === NEAR ? PIT_DOTS : PIT_DOTS_FAR
+    const dots = proj === NEAR ? PIT_DOTS : proj === FAR ? PIT_DOTS_FAR : []
     m = new Uint8Array(proj.tops.length)
     proj.tops.forEach((p, j) => { if (dots.some(([dx, dy]) => dx === p.dx && dy === p.dy)) m![j] = 1 })
     pitMasks.set(proj, m)

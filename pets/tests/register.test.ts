@@ -105,6 +105,8 @@ describe('register', () => {
     Fixtures.worldOf(on)
     await $.session.start(Fixtures.START)
     await $.command.run(Fixtures.PETS_DOCKED)
+    await $.command.run(Fixtures.ZOOM)
+    await $.command.run(Fixtures.ZOOM)
     const zoom = await $.command.run(Fixtures.ZOOM)
     expect(zoom.text).toBe('도트 크기를 2 배로 바꿨다')
     const tree = await $.ui.render(Fixtures.paneOf(40, 30))
@@ -116,17 +118,18 @@ describe('register', () => {
     expect(spaces).toBe(40 * 30)
   })
 
-  test('/pets zoom cycles 1 → 2 → far → 1, and zoom in · out move one step and stop at the ends', async ($, on) => {
+  test('/pets zoom starts at map view and cycles map view → far → 1 → 2 → map view, and zoom in · out move one step and stop at the ends', async ($, on) => {
     Fixtures.worldOf(on)
     await $.session.start(Fixtures.START)
     const texts: string[] = []
-    for (const e of [Fixtures.ZOOM, Fixtures.ZOOM, Fixtures.ZOOM, ZOOM_OUT, ZOOM_OUT, ZOOM_IN, ZOOM_IN, ZOOM_IN]) texts.push(String((await $.command.run(e)).text))
+    for (const e of [Fixtures.ZOOM, Fixtures.ZOOM, Fixtures.ZOOM, Fixtures.ZOOM, ZOOM_OUT, ZOOM_IN, ZOOM_IN, ZOOM_IN, ZOOM_IN]) texts.push(String((await $.command.run(e)).text))
     expect(texts).toEqual([
-      '도트 크기를 2 배로 바꿨다',
       '원거리로 넓게 보게 바꿨다',
       '도트 크기를 1 배로 바꿨다',
+      '도트 크기를 2 배로 바꿨다',
+      '맵 보기로 가장 넓게 보게 바꿨다',
+      '이미 가장 넓게(맵 보기) 보고 있다',
       '원거리로 넓게 보게 바꿨다',
-      '이미 가장 넓게(원거리) 보고 있다',
       '도트 크기를 1 배로 바꿨다',
       '도트 크기를 2 배로 바꿨다',
       '이미 가장 크게(2 배) 보고 있다',
@@ -135,15 +138,39 @@ describe('register', () => {
     expect(bad.text).toContain('/pets zoom in')
   })
 
-  test('the zoom is kept in the store: far comes back as far, and a 2 saved before far existed still reads as 2', async ($, on) => {
-    Fixtures.worldOf(on)
+  test('/pets zoom wide · far · 1 · 2 go straight to that step and save it, the same step says so, and another word shows the usage', async ($, on) => {
+    const world = Fixtures.worldOf(on)
     await $.session.start(Fixtures.START)
-    await $.command.run(Fixtures.ZOOM)
+    const texts: string[] = []
+    for (const args of ['zoom far', 'zoom 2', 'zoom 2', 'zoom 1', 'zoom wide', 'ZOOM  Far']) texts.push(String((await $.command.run({ ...Fixtures.PETS, args })).text))
+    expect(texts).toEqual([
+      '원거리로 넓게 보게 바꿨다',
+      '도트 크기를 2 배로 바꿨다',
+      '이미 2 배로 보고 있다',
+      '도트 크기를 1 배로 바꿨다',
+      '맵 보기로 가장 넓게 보게 바꿨다',
+      '원거리로 넓게 보게 바꿨다',
+    ])
+    expect(world.store.get('scale')).toBe('far')
+    expect((await $.command.run({ ...Fixtures.PETS, args: 'zoom 3' })).text).toContain('/pets zoom wide')
+    expect(world.store.get('scale')).toBe('far')
+  })
+
+  test('the zoom is kept in the store: 2 and map view come back, a 1 or far saved before map view existed still reads as saved, and an unknown value is map view', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    for (let i = 0; i < 3; i++) await $.command.run(ZOOM_IN)
     await $.session.start(Fixtures.START)
     expect((await $.command.run(ZOOM_IN)).text).toBe('이미 가장 크게(2 배) 보고 있다')
     await $.command.run(Fixtures.ZOOM)
+    expect(world.store.get('scale')).toBe('wide')
     await $.session.start(Fixtures.START)
-    expect((await $.command.run(ZOOM_OUT)).text).toBe('이미 가장 넓게(원거리) 보고 있다')
+    expect((await $.command.run(ZOOM_OUT)).text).toBe('이미 가장 넓게(맵 보기) 보고 있다')
+    for (const [saved, out] of [[1, '원거리로 넓게 보게 바꿨다'], ['far', '맵 보기로 가장 넓게 보게 바꿨다'], ['huge', '이미 가장 넓게(맵 보기) 보고 있다']] as const) {
+      world.store.set('scale', saved)
+      await $.session.start(Fixtures.START)
+      expect(`${saved} ${(await $.command.run(ZOOM_OUT)).text}`).toBe(`${saved} ${out}`)
+    }
   })
 
   test('typing, a prompt typed during a turn, a subagent spawn, a compaction and a denied tool pass through unchanged while the pane is open', async ($, on) => {
@@ -265,17 +292,19 @@ describe('register', () => {
     }
   })
 
-  test('far zoom keeps the Raster size and paints a different frame from 1 ×', async ($, on) => {
+  test('map view and far zoom keep the Raster size and paint frames different from each other and from 1 ×', async ($, on) => {
     Fixtures.worldOf(on)
     await $.session.start(Fixtures.START)
     await $.command.run(Fixtures.PETS_DOCKED)
-    const near = Fixtures.wordsOf(String(propsOf(await $.ui.render(Fixtures.paneOf(40, 30))).cells))
-    await $.command.run(ZOOM_OUT)
-    const tree = await $.ui.render(Fixtures.paneOf(40, 30))
-    expect(propsOf(tree).columns).toBe(40)
-    expect(propsOf(tree).rows).toBe(30)
-    const far = Fixtures.wordsOf(String(propsOf(tree).cells))
-    expect(far.length).toBe(near.length)
-    expect(far.join(',') === near.join(',')).toBe(false)
+    const frames: string[] = []
+    for (let i = 0; i < 3; i++) {
+      if (i > 0) await $.command.run(ZOOM_IN)
+      const tree = await $.ui.render(Fixtures.paneOf(40, 30))
+      expect(propsOf(tree).columns).toBe(40)
+      expect(propsOf(tree).rows).toBe(30)
+      frames.push(String(propsOf(tree).cells))
+    }
+    expect(frames.map(f => Fixtures.wordsOf(f).length)).toEqual([3600, 3600, 3600])
+    expect(new Set(frames).size).toBe(3)
   })
 })

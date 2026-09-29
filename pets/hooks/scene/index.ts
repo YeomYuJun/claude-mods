@@ -33,6 +33,8 @@ export type Scene = {
   // 붙은 크기가 바뀔 때만 새로 만든다
   buf?: Buffer
   grid?: Grid
+  // 원거리·맵 보기에서 동물을 원래 크기로 그려 두는 버퍼(줄여서 패널 버퍼로 옮긴다)
+  fig?: Buffer
   // 마지막 미리 만들기 때 본 A* 횟수(그 뒤 A* 가 돌았으면 이번 틱은 청크를 만들지 않는다)
   searches: number
   // 마지막으로 계산한 미리 만들 청크 목록과 그 계산의 열쇠(패널 크기·줌, 8 픽셀로 자른 화면 원점, 강아지 창)
@@ -90,7 +92,7 @@ const WANT_SNAP = 8
 // 강아지 청크와 그 둘레 한 겹이 늘 들어 강아지 둘레 32 칸 이상이 덮이므로, 길 찾기 창(±16)과 행동 판정이 읽는 칸은 늘 캐시에 있다.
 // 각각 강아지 청크에서 가까운 순(체비셰프 거리, 같으면 유클리드 거리, 같으면 좌표 순)
 export function chunksFor(scene: Scene, cols: number, rows: number, zoom: Zoom): { visible: ChunkXY[]; ring: ChunkXY[] } {
-  const proj = zoom === 'far' ? Iso.FAR : Iso.NEAR
+  const proj = projOf(zoom)
   const { w, h } = sizeOf(cols, rows, zoom)
   const exact = Iso.viewOf(scene.cam, { w, h }, proj)
   const view = { ox: Math.floor(exact.ox / WANT_SNAP) * WANT_SNAP, oy: Math.floor(exact.oy / WANT_SNAP) * WANT_SNAP }
@@ -137,7 +139,7 @@ function aim(scene: Scene, want: { visible: ChunkXY[]; ring: ChunkXY[] }): void 
 
 // 미리 만들 목록. 패널 크기·줌·잘린 화면 원점·강아지 청크가 그대로면 지난 계산을 쓴다
 function wantOf(scene: Scene, cols: number, rows: number, zoom: Zoom): { list: ChunkXY[]; visible: ChunkXY[]; ring: ChunkXY[] } {
-  const proj = zoom === 'far' ? Iso.FAR : Iso.NEAR
+  const proj = projOf(zoom)
   const { w, h } = sizeOf(cols, rows, zoom)
   const v = Iso.viewOf(scene.cam, { w, h }, proj)
   const C = World.Chunks
@@ -260,13 +262,20 @@ export function renderEveryMs(scene: Scene): number {
   return 66
 }
 
-// 보기 단계: 원거리(8 × 4 타일, 도트 1 배) · 1 배 · 2 배(논리 픽셀 하나 = 2 열 × 1 행)
-export type Zoom = 'far' | 1 | 2
-export const ZOOMS: readonly Zoom[] = ['far', 1, 2]
+// 보기 단계: 맵 보기(4 × 2 타일) · 원거리(8 × 4 타일) · 1 배 · 2 배(논리 픽셀 하나 = 2 열 × 1 행). 맵 보기·원거리는 도트 1 배다
+export type Zoom = 'wide' | 'far' | 1 | 2
+export const ZOOMS: readonly Zoom[] = ['wide', 'far', 1, 2]
+// 처음 단계(저장한 값이 없을 때): 맵이 가장 넓게 보이는 단계
+export const DEFAULT_ZOOM: Zoom = 'wide'
 
-// 저장된 값을 읽는다. 원거리가 생기기 전에 저장한 1·2 도 그대로 읽힌다
+// 저장된 값을 읽는다. 원거리·맵 보기가 생기기 전에 저장한 1·2 도 그대로 읽히고, 값이 없거나 모르는 값이면 처음 단계다
 export function zoomOf(value: unknown): Zoom {
-  return value === 'far' ? 'far' : value === 2 ? 2 : 1
+  return value === 'wide' || value === 'far' || value === 1 || value === 2 ? value : DEFAULT_ZOOM
+}
+
+// 줌 단계가 그리는 투영
+export function projOf(zoom: Zoom): Proj {
+  return zoom === 'wide' ? Iso.WIDE : zoom === 'far' ? Iso.FAR : Iso.NEAR
 }
 
 // 한 단계 안(+1)·밖(-1)으로. 끝에서는 그대로 둔다
@@ -275,7 +284,12 @@ export function zoomBy(zoom: Zoom, delta: 1 | -1): Zoom {
   return ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i))]!
 }
 
-// 원거리 → 1 배 → 2 배 → 원거리
+// 명령에서 부른 단계 이름(wide, far, 1, 2). 모르는 이름이면 undefined
+export function zoomNamed(word: string): Zoom | undefined {
+  return word === 'wide' || word === 'far' ? word : word === '1' ? 1 : word === '2' ? 2 : undefined
+}
+
+// 맵 보기 → 원거리 → 1 배 → 2 배 → 맵 보기
 export function zoomNext(zoom: Zoom): Zoom {
   return ZOOMS[(ZOOMS.indexOf(zoom) + 1) % ZOOMS.length]!
 }
@@ -291,14 +305,63 @@ function buffersFor(scene: Scene, cols: number, rows: number, scale: 1 | 2): [Bu
   return [nb, ng]
 }
 
-// 시뮬레이션 값은 NEAR 픽셀이다. 위치는 투영으로 옮기고, 동물·공·감정 표시·그림자 크기는 스프라이트 픽셀 그대로 둔다
-// (원거리에서도 스프라이트를 원래 크기로 그린다)
+// 원거리·맵 보기의 동물: 이 버퍼(FIG_COLS 열 = 가로 FIG_COLS, 세로 2 × FIG_ROWS 픽셀)의 (FIG_X, FIG_Y) 를 바닥 점으로
+// 원래 크기로 그린 뒤 Names.FAR_PET_SCALE 만큼 줄여 옮긴다. 가장 큰 모습(뛰어오른 자세, 입에 문 나뭇가지)도 들어가는 크기다
+const FIG_COLS = 40
+const FIG_ROWS = 20
+const FIG_X = 20
+const FIG_Y = 32
+
+// 1 배·2 배는 동물을 원래 크기로, 원거리·맵 보기는 Names.FAR_PET_SCALE 크기로 그린다. 가까이 보는 것은 동물을 보려는 것이고 멀리 보는 것은 맵을 보려는 것이다.
+// 줄이는 비를 돌려준다(1 이면 줄이지 않는다)
+const SHRINK_BY: Readonly<Record<Names.PetScale, number>> = { full: 1, twoThirds: 1.5, half: 2 }
+
+function shrinkOf(proj: Proj): number {
+  return proj === Iso.NEAR ? 1 : SHRINK_BY[Names.FAR_PET_SCALE]
+}
+
+// 정면 모습은 좌우 반전하지 않는다(sprite 의 paintPet 과 같은 규칙)
+function isMirrored(pose: Sprite.PetPose): boolean {
+  return pose.flip && !pose.body.startsWith('front')
+}
+
+// 동물과 입에 문 공·나뭇가지. 문 것은 얼굴이 보이면 동물 다음에 그려 머리 앞에 오고,
+// 뒷모습이면 먼저 그려 머리에 가린다(동물 그림은 깊이를 쓰지 않는다). 공은 입 칸에서 보는 쪽으로 한 칸 나가 가운데가 입 칸 줄에 온다
+function drawFigure(b: Buffer, p: PetState, pose: Sprite.PetPose, x: number, y: number, depth: number): void {
+  const mouth = Sprite.mouthOf(p.species, pose)
+  const drawHeld = () => {
+    if (!mouth) return
+    const held = depth + (mouth.facing ? 0.01 : -0.01)
+    if (p.carrying) Sprite.drawBall(b, x + mouth.x + (pose.flip ? -1 : 1), y + mouth.y + 2, p.ball.roll, held)
+    if (p.holding) Prop.drawHeldBranch(b, x + mouth.x, y + mouth.y, held)
+  }
+  if (mouth && !mouth.facing) drawHeld()
+  Sprite.drawPet(b, p.species, pose, x, y, depth)
+  if (mouth?.facing) drawHeld()
+}
+
+// 동물 그림이 차지하는 상자(바닥 점 기준, 양 끝 포함). 줄여 그리면 줄인 픽셀로 잰다(원래 픽셀 [a, a + 1) 이 걸치는 줄인 픽셀 모두)
+function figureBox(p: PetState, pose: Sprite.PetPose, by: number): { x0: number; y0: number; x1: number; y1: number } {
+  if (by === 1) return Sprite.boundsOf(p.species, pose)
+  const u = Sprite.boundsOf(p.species, { ...pose, flip: false })
+  const lo = (a: number) => Math.floor(a / by)
+  const hi = (a: number) => Math.ceil((a + 1) / by) - 1
+  const x0 = lo(u.x0)
+  const x1 = hi(u.x1)
+  const box = { x0, y0: lo(u.y0), x1, y1: hi(u.y1) }
+  return isMirrored(pose) ? { ...box, x0: -x1, x1: -x0 } : box
+}
+
+// 시뮬레이션 값은 NEAR 픽셀이다. 위치는 투영으로 옮기고, 동물·공·감정 표시·그림자 크기는 1 배·2 배에서 스프라이트 픽셀 그대로,
+// 원거리·맵 보기에서 동물과 같은 비로 줄인다(감정 표시 그림은 어느 줌이든 원래 크기)
 function drawPet(b: Buffer, scene: Scene, view: View, proj: Proj): void {
   const { ox, oy } = view
   const dz = view.dz ?? 0
   const p = scene.pet
   const world = scene.world
   const shadowOf = scene.theme.shadowOf
+  const by = shrinkOf(proj)
+  const k = 1 / by
   const s = Iso.screenOf(p.x, p.y, p.z, proj)
   const x = Math.round(s.sx) - ox
   const y = Math.round(s.sy) - oy
@@ -310,37 +373,35 @@ function drawPet(b: Buffer, scene: Scene, view: View, proj: Proj): void {
   const lift = Math.max(0, p.z - World.standZ(world, tx, ty))
   const curled = p.pose === 'sleep' && !Pet.isMoving(p)
   const sprite = p.species.sprite
-  Iso.drawShadow(b, g.sx - ox + 0.5, g.sy - oy - 0.5, Math.max(2.5, (curled ? sprite.shadow.rxCurl : sprite.shadow.rx) - lift * 0.3), sprite.shadow.ry, World.walkHeightAt(world, tx, ty) + 1, shadowOf)
+  Iso.drawShadow(b, g.sx - ox + 0.5, g.sy - oy - 0.5, Math.max(2.5, (curled ? sprite.shadow.rxCurl : sprite.shadow.rx) - lift * 0.3) * k, sprite.shadow.ry * k, World.walkHeightAt(world, tx, ty) + 1, shadowOf)
   // 공과 공 그림자. 공의 청크가 캐시에 없으면(강아지가 멀리 두고 온 공) 화면 밖이라 그리지 않는다
   const ball = p.ball
   const bt = Pet.Ball.tileOf(ball)
   const pose = Pet.poseOf(p)
   const depth = p.x + p.y + 0.4 - dz
-  const mouth = Sprite.mouthOf(p.species, pose)
-  // 문 공은 입 칸에 그린다(아래). 입 칸이 없는 모습(웅크린 잠)이면 공의 자리에 그대로 둔다
-  const inMouth = p.carrying && mouth !== undefined
+  // 문 공은 입 칸에 그린다(drawFigure). 입 칸이 없는 모습(웅크린 잠)이면 공의 자리에 그대로 둔다
+  const inMouth = p.carrying && Sprite.mouthOf(p.species, pose) !== undefined
   if (!inMouth && World.isLoaded(world, bt.x, bt.y)) {
     const bg = Iso.screenOf(ball.x, ball.y, World.walkHeightAt(world, bt.x, bt.y) * Names.STEP_PX, proj)
-    Iso.drawShadow(b, bg.sx - ox + 0.5, bg.sy - oy - 0.5, 2, 1, World.walkHeightAt(world, bt.x, bt.y) + 1, shadowOf)
+    Iso.drawShadow(b, bg.sx - ox + 0.5, bg.sy - oy - 0.5, 2 * k, 1 * k, World.walkHeightAt(world, bt.x, bt.y) + 1, shadowOf)
     const bs = Iso.screenOf(ball.x, ball.y, ball.z, proj)
-    Sprite.drawBall(b, Math.round(bs.sx) - ox, Math.round(bs.sy) - oy, ball.roll, ball.x + ball.y + 0.25 - dz)
+    const ballX = Math.round(bs.sx) - ox
+    const ballY = Math.round(bs.sy) - oy
+    if (by > 1) Sprite.drawBallSmall(b, ballX, ballY, ball.roll, ball.x + ball.y + 0.25 - dz, by)
+    else Sprite.drawBall(b, ballX, ballY, ball.roll, ball.x + ball.y + 0.25 - dz)
   }
-  // 문 공·나뭇가지는 머리 그림의 입 칸에 찍는다. 얼굴이 보이면 강아지 다음에 그려 머리 앞에 오고,
-  // 뒷모습이면 먼저 그려 머리에 가린다(강아지 그림은 깊이를 쓰지 않는다). 공은 입 칸에서 보는 쪽으로 한 칸 나가 가운데가 입 칸 줄에 온다
-  const drawHeld = () => {
-    if (!mouth) return
-    const held = depth + (mouth.facing ? 0.01 : -0.01)
-    if (inMouth) Sprite.drawBall(b, x + mouth.x + (pose.flip ? -1 : 1), y + mouth.y + 2, ball.roll, held)
-    if (p.holding) Prop.drawHeldBranch(b, x + mouth.x, y + mouth.y, held)
-  }
-  if (mouth && !mouth.facing) drawHeld()
-  Sprite.drawPet(b, p.species, pose, x, y, depth)
-  if (mouth?.facing) drawHeld()
-  // 흙·물방울·물보라·z 는 강아지가 멈춰 있을 때만 생겨 강아지 기준 오프셋을 그대로 둔다.
+  if (by > 1) {
+    // 반전하지 않은 모습을 원래 크기로 그려 줄인 뒤 반전해 옮긴다
+    scene.fig ??= Pixel.bufferOf(FIG_COLS, FIG_ROWS, 1)
+    Pixel.clear(scene.fig)
+    drawFigure(scene.fig, p, { ...pose, flip: false }, FIG_X, FIG_Y, 0)
+    Sprite.drawSmall(b, scene.fig, FIG_X, FIG_Y, x, y, isMirrored(pose), depth, p.species, by)
+  } else drawFigure(b, p, pose, x, y, depth)
+  // 흙·물방울·물보라·z 는 강아지가 멈춰 있을 때만 생겨 강아지 기준 오프셋을 그대로 둔다(줄여 그리면 같은 비로 줄인다).
   // 먼지는 달리거나 내려앉은 자리에 남으므로 카메라와 같은 비율로 옮긴다
   const near = Iso.screenOf(p.x, p.y, p.z)
   for (const q of p.particles) {
-    const m = q.kind === 'dust' ? Iso.mapOf(q.x, q.y, proj) : { sx: s.sx + q.x - near.sx, sy: s.sy + q.y - near.sy }
+    const m = q.kind === 'dust' ? Iso.mapOf(q.x, q.y, proj) : { sx: s.sx + (q.x - near.sx) * k, sy: s.sy + (q.y - near.sy) * k }
     const px = Math.round(m.sx) - ox
     const py = Math.round(m.sy) - oy
     if (q.kind === 'z') Sprite.drawEmote(b, 'z', px, py)
@@ -349,9 +410,9 @@ function drawPet(b: Buffer, scene: Scene, view: View, proj: Proj): void {
   if (p.emote) {
     // 떠오르며 나타났다가 제자리에서 머문다
     const rise = Math.max(0, 3 - Math.floor(p.emote.age / 50))
-    const side = Pet.isRight(p.dir) ? sprite.emoteAt.side : -sprite.emoteAt.side
+    const side = Math.round((Pet.isRight(p.dir) ? sprite.emoteAt.side : -sprite.emoteAt.side) * k)
     const front = pose.body.startsWith('front')
-    Sprite.drawEmote(b, p.emote.kind, x + (front ? 0 : side), y - sprite.emoteAt.up + rise)
+    Sprite.drawEmote(b, p.emote.kind, x + (front ? 0 : side), y - Math.round(sprite.emoteAt.up * k) + rise)
   }
 }
 
@@ -362,12 +423,12 @@ export function drawGround(b: Buffer, scene: Scene, view: View, proj: Proj): voi
   const s = Iso.screenOf(p.x, p.y, p.z, proj)
   const x = Math.round(s.sx) - view.ox
   const y = Math.round(s.sy) - view.oy
-  const box = Sprite.boundsOf(p.species, Pet.poseOf(p))
+  const box = figureBox(p, Pet.poseOf(p), shrinkOf(proj))
   Prop.drawProps(b, scene.world, view, proj, { x0: x + box.x0, y0: y + box.y0, x1: x + box.x1, y1: y + box.y1, depth: p.x + p.y + 0.4 - (view.dz ?? 0) })
 }
 
 export function compose(scene: Scene, cols: number, rows: number, zoom: Zoom): string {
-  const proj = zoom === 'far' ? Iso.FAR : Iso.NEAR
+  const proj = projOf(zoom)
   const [b, g] = buffersFor(scene, cols, rows, zoom === 2 ? 2 : 1)
   Pixel.clear(b)
   const view = Iso.viewOf(scene.cam, b, proj)

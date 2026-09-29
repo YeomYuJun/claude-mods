@@ -212,7 +212,7 @@ export const PROP_ART: Readonly<Record<PropArtId, PropArt>> = {
       'p',
     ] },
   },
-  // 땅에 누운 나뭇가지: 나무 줄기 색 두 칸, 곁가지 하나. 원거리에서는 그리지 않는다
+  // 땅에 누운 나뭇가지: 나무 줄기 색 두 칸, 곁가지 하나. 원거리·맵 보기에서는 그리지 않는다
   branch: {
     near: { ax: 2, ay: 1, rows: [
       'T....',

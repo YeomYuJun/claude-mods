@@ -3,7 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import Biome from '../hooks/biome'
 import Iso from '../hooks/iso'
 import { Palette, SURF_TOP } from '../hooks/pixel'
-import Scene, { type Zoom } from '../hooks/scene'
+import Scene from '../hooks/scene'
 import World from '../hooks/world'
 import Fixtures from './fixtures'
 
@@ -50,7 +50,7 @@ describe('palette', () => {
 
   test('no frame of any set paints a slot the set or the dog left unfilled', async () => {
     for (const b of Biome.BIOMES) {
-      for (const zoom of ['far', 1, 2] as Zoom[]) {
+      for (const zoom of Scene.ZOOMS) {
         const scene = Scene.create(42, 0, b.id)
         let now = 0
         for (let i = 1; i <= 120; i++) {
@@ -76,14 +76,14 @@ describe('palette', () => {
         const scene = Scene.create(seed, 0, b.id)
         let now = 0
         let most = 0
-        // 신호를 섞어 감정 표시·흙·먼지가 화면에 있는 프레임도 센다. 같은 시각에 줌 3 × 패널 3 을 모두 그린다
+        // 신호를 섞어 감정 표시·흙·먼지가 화면에 있는 프레임도 센다. 같은 시각에 줌 4 × 패널 3 을 모두 그린다
         for (let i = 1; i <= 90; i++) {
           now += 33
           if (i === 5) Scene.onTurnStart(scene, now)
           if (i === 50) Scene.onTool(scene, now)
           Scene.step(scene, 33, now)
           if (i % 30 !== 0) continue
-          for (const zoom of ['far', 1, 2] as Zoom[]) {
+          for (const zoom of Scene.ZOOMS) {
             for (const [cols, rows] of [[40, 30], [120, 60], [200, 80]] as const) {
               // 경계 없는 월드: 패널처럼 보이는 청크를 다 만든 뒤 센다. 비워 그린 칸이 있으면 온 프레임이 아니다
               Scene.ensureVisible(scene, cols, rows, zoom)

@@ -5,13 +5,13 @@
 // 버퍼에는 타일과 같이 view.dz 를 뺀 값을 담는다(비우기 범위의 동물 깊이도 뺀 값으로 받는다).
 // 그래서 뒤 칸의 동물은 소품에 가리고 앞 칸의 동물은 소품을 가린다. 줄기 위로 솟은 잎은 뒤 칸 타일 위에 그려진다.
 // 비우기: 나무(1 배에서 키 8 픽셀 넘는 소품)가 동물 화면 상자 안에서 동물보다 앞이면 (X + Y) 홀수 칸을 칠하지 않는다.
-// 원거리 나무는 6~9 픽셀이지만 동물은 원래 크기로 그려 가려지므로 원거리에서도 비운다.
+// 원거리·맵 보기에서는 나무와 동물을 모두 작게 그리지만 나무가 동물보다 커 가려지므로 비운다.
 // 동물의 윤곽 비침은 짝수 칸이라, 나무 뒤 동물은 홀수 칸에 제 색, 짝수 칸에 윤곽 비침으로 보인다.
 // 소품 픽셀은 윗면이 아니라서 동물 그림자가 떨어지지 않는다.
 
 import Iso, { type Proj, type View } from '../iso'
 import Names from '../names'
-import { Palette, SURF_NONE, type Buffer } from '../pixel'
+import { Palette, shrink, SURF_NONE, type Buffer } from '../pixel'
 import World, { type World as WorldState } from '../world'
 import { PROP_ART, PROP_CODES, type PropArtId, type PropBitmap } from './art.js'
 
@@ -45,14 +45,21 @@ function compile(bm: PropBitmap, isTall: boolean): Compiled {
   return { w, h, ax: bm.ax, ay: bm.ay, px, isTall }
 }
 
-// 소품·꾸밈 번호마다 [1 배 그림, 원거리 그림(없으면 원거리에서 그리지 않음)]
-const byProp = new Map<number, [Compiled, Compiled | undefined]>()
-const byDeco = new Map<number, [Compiled, Compiled | undefined]>()
-for (const [id, art] of PROP_IDS) {
-  const tall = G.isTree(id)
-  byProp.set(id, [compile(PROP_ART[art].near, tall), PROP_ART[art].far && compile(PROP_ART[art].far, tall)])
+// 맵 보기 그림: 원거리 그림을 2 × 2 픽셀마다 한 픽셀로 줄인다. 한 픽셀짜리 꽃잎도 남게 픽셀이 하나라도 있으면 칠한다
+function wideOf(c: Compiled): Compiled {
+  return { ...shrink(c, c.ax, c.ay, Palette.TRANSPARENT, { by: 2, minCover: 0, rowShift: 1 }), isTall: c.isTall }
 }
-for (const [id, art] of DECO_IDS) byDeco.set(id, [compile(PROP_ART[art].near, false), PROP_ART[art].far && compile(PROP_ART[art].far, false)])
+
+// 소품·꾸밈 번호마다 [1 배 그림, 원거리 그림, 맵 보기 그림]. 원거리 그림이 없으면 원거리·맵 보기에서 그리지 않는다
+type Set3 = [Compiled, Compiled | undefined, Compiled | undefined]
+const byProp = new Map<number, Set3>()
+const byDeco = new Map<number, Set3>()
+function set3Of(art: PropArtId, tall: boolean): Set3 {
+  const far = PROP_ART[art].far && compile(PROP_ART[art].far, tall)
+  return [compile(PROP_ART[art].near, tall), far, far && wideOf(far)]
+}
+for (const [id, art] of PROP_IDS) byProp.set(id, set3Of(art, G.isTree(id)))
+for (const [id, art] of DECO_IDS) byDeco.set(id, set3Of(art, false))
 
 // 가장 키 큰 그림(원거리 포함). 화면 아래 칸의 나무가 위로 솟아 보이는 만큼 여유를 둔다
 const MAX_H = Math.max(...[...byProp.values(), ...byDeco.values()].flat().map(c => c?.h ?? 0))
@@ -89,7 +96,7 @@ export function drawProps(b: Buffer, world: WorldState, view: View, proj: Proj =
 function stampAll(b: Buffer, world: WorldState, view: View, proj: Proj, hollow: Hollow | undefined): number {
   const hw = proj.hw
   const hh = proj.hh
-  const isFar = proj !== Iso.NEAR
+  const slot = proj === Iso.NEAR ? 0 : proj === Iso.FAR ? 1 : 2
   const maxZ = World.maxHeightOf(world) * proj.step
   const { x0, y0, x1, y1 } = World.bounds(world)
   // 그림 바닥 점은 칸 가운데(d × hh + hh - z). 위로 MAX_H 까지 솟는다
@@ -106,7 +113,7 @@ function stampAll(b: Buffer, world: WorldState, view: View, proj: Proj, hollow: 
       const prop = World.propAt(world, x, y)
       const deco = prop ? 0 : World.decoAt(world, x, y)
       const pair = prop ? byProp.get(prop) : deco ? byDeco.get(deco) : undefined
-      const c = pair && (isFar ? pair[1] : pair[0])
+      const c = pair?.[slot]
       if (!c) continue
       // 물 위 꾸밈(갈대·연잎)은 수면에 놓는다. 수면은 물가 윗면보다 1 픽셀 낮다
       const s = Iso.screenOf(x, y, World.walkHeightAt(world, x, y) * Names.STEP_PX, proj)

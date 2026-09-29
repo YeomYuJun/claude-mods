@@ -7,7 +7,7 @@ import Path from '../hooks/path'
 import Pet from '../hooks/pet'
 import Pixel, { Palette, SURF_SIDE } from '../hooks/pixel'
 import Rng from '../hooks/rng'
-import Scene, { type Zoom } from '../hooks/scene'
+import Scene from '../hooks/scene'
 import World, { Gen, type World as WorldState } from '../hooks/world'
 import Fixtures from './fixtures'
 
@@ -183,7 +183,7 @@ describe('water', () => {
 
   test('the water surface has no grid lines, foam where it meets land, shimmer only at 1 × and only when a phase is given, and the shore lip above it is 1 pixel', async () => {
     const w = pond()
-    for (const proj of [Iso.NEAR, Iso.FAR]) {
+    for (const proj of [Iso.NEAR, Iso.FAR, Iso.WIDE]) {
       expect(Iso.topZ(w, 3, 7, proj) - Iso.topZ(w, 4, 7, proj)).toBe(1)
       for (const glint of [undefined, 5]) {
         const b = Pixel.bufferOf(240, 120, 1)
@@ -240,7 +240,7 @@ describe('water', () => {
       if (i === 50) Scene.onTool(scene, now)
       Scene.step(scene, 33, now)
       if (i % 30 !== 0) continue
-      for (const zoom of ['far', 1, 2] as Zoom[]) {
+      for (const zoom of Scene.ZOOMS) {
         for (const [cols, rows] of [[40, 30], [120, 60], [200, 80]] as const) {
           Scene.ensureVisible(scene, cols, rows, zoom)
           const blank = scene.world.chunks?.blank ?? 0

@@ -1,15 +1,16 @@
 export const PLUGIN_NAME = 'pets'
 export const PANE_ID = 'pets'
 export const COMMAND_NAME = 'pets'
-export const COMMAND_DESCRIPTION = '동물 패널을 열고 닫는다. zoom [in|out]: 원거리·1 배·2 배, world [세트|auto]: 맵 세트, pet [품종|auto]: 동물(강아지·고양이 품종)'
-export const ARGUMENT_HINT = 'zoom [in|out] | world [세트|auto] | pet [품종|auto]'
+export const COMMAND_DESCRIPTION = '동물 패널을 열고 닫는다. zoom [in|out|wide|far|1|2]: 맵 보기(wide)·원거리(far)·1 배·2 배, world [세트|auto]: 맵 세트, pet [품종|auto]: 동물(강아지·고양이 품종)'
+export const ARGUMENT_HINT = 'zoom [in|out|wide|far|1|2] | world [세트|auto] | pet [품종|auto]'
 // 패널 제목은 여는 순간의 동물 종 이름(강아지, 고양이)
 export const PANE_TITLE = (speciesLabel: string) => speciesLabel
 export const PANEL_SHOWN_TEXT = '동물 패널을 열었다'
 export const PANEL_HIDDEN_TEXT = '동물 패널을 닫았다'
-export const ZOOM_TEXT = (zoom: 'far' | 1 | 2) => zoom === 'far' ? '원거리로 넓게 보게 바꿨다' : `도트 크기를 ${zoom} 배로 바꿨다`
-export const ZOOM_LIMIT_TEXT = (zoom: 'far' | 1 | 2) => zoom === 'far' ? '이미 가장 넓게(원거리) 보고 있다' : '이미 가장 크게(2 배) 보고 있다'
-export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets zoom (원거리 → 1 배 → 2 배 순환), /pets zoom in · out (한 단계씩), /pets world (맵 세트 보기·바꾸기), /pets pet (동물 보기·바꾸기)'
+export const ZOOM_TEXT = (zoom: 'wide' | 'far' | 1 | 2) => zoom === 'wide' ? '맵 보기로 가장 넓게 보게 바꿨다' : zoom === 'far' ? '원거리로 넓게 보게 바꿨다' : `도트 크기를 ${zoom} 배로 바꿨다`
+export const ZOOM_LIMIT_TEXT = (zoom: 'wide' | 'far' | 1 | 2) => zoom === 'wide' ? '이미 가장 넓게(맵 보기) 보고 있다' : '이미 가장 크게(2 배) 보고 있다'
+export const ZOOM_SAME_TEXT = (zoom: 'wide' | 'far' | 1 | 2) => `이미 ${zoom === 'wide' ? '맵 보기로' : zoom === 'far' ? '원거리로' : `${zoom} 배로`} 보고 있다`
+export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets zoom (맵 보기 → 원거리 → 1 배 → 2 배 순환), /pets zoom in · out (한 단계씩), /pets zoom wide · far · 1 · 2 (그 단계로 바로), /pets world (맵 세트 보기·바꾸기), /pets pet (동물 보기·바꾸기)'
 // 세트 목록 글: "paper 모눈종이, meadow 초원, …, auto(세션마다 모눈종이 밖에서 고름)"
 export const WORLD_CHOICES = (sets: ReadonlyArray<{ id: string; label: string }>) => `${sets.map(s => `${s.id} ${s.label}`).join(', ')}, auto(세션마다 모눈종이 밖에서 고름)`
 export const WORLD_NOW_TEXT = (label: string, isAuto: boolean, choices: string) => `지금 맵 세트: ${label}${isAuto ? '(자동)' : ''}. 고를 수 있는 세트: ${choices}`
@@ -22,7 +23,7 @@ export const PET_UNKNOWN_TEXT = (word: string, choices: string) => `'${word}' �
 export const WORLD_UNKNOWN_TEXT = (word: string, choices: string) => `'${word}' 라는 맵 세트는 없다. 고를 수 있는 세트: ${choices}`
 export const RASTER_KEY = 'map'
 export const BAND_KEY = 'band'
-// 줌 단계('far' | 1 | 2). 이 키에 숫자 1·2 만 저장된 세션도 그대로 읽는다(scene 의 zoomOf)
+// 줌 단계('wide' | 'far' | 1 | 2). 값이 없거나 모르는 값이면 맵 보기이고, 이 키에 숫자 1·2 만 저장된 세션도 그대로 읽는다(scene 의 zoomOf)
 export const STORE_SCALE = 'scale'
 // 맵 세트: { v: 1, set: 세트 id | 'auto' }. 모르는 모양·버전·id 면 모눈종이로 보고 지우지 않는다
 export const STORE_WORLD = 'world'
@@ -58,6 +59,17 @@ export const FAR_TILE_H = 4
 export const FAR_STEP_PX = 3
 export const FAR_BASE_PX = 2
 export const FAR_LINE_EVERY = 3
+// 맵 보기 줌(가장 넓게, 처음 단계): 그릴 때만 쓰는 4 × 2 픽셀 다이아몬드, 한 단 2 픽셀, 밑판 1 픽셀. 모눈선은 6 칸마다만 긋는다
+export const WIDE_TILE_W = 4
+export const WIDE_TILE_H = 2
+export const WIDE_STEP_PX = 2
+export const WIDE_BASE_PX = 1
+export const WIDE_LINE_EVERY = 6
+// 원거리·맵 보기에서 동물을 그리는 크기. 개발용 전환이다: 명령·저장값이 없어 사용자는 바꿀 수 없고, 이 줄을 고쳐 바꾼다.
+// 'full' 원래 크기, 'twoThirds' 2/3(3 × 3 픽셀을 2 × 2 로), 'half' 절반(2 × 2 픽셀을 한 픽셀로). 1 배·2 배는 늘 원래 크기다.
+// 바꾸면 tests/frames.test.ts 의 원거리·맵 보기 셀 해시 18 개가 달라져 다시 기록해야 한다
+export type PetScale = 'full' | 'twoThirds' | 'half'
+export const FAR_PET_SCALE: PetScale = 'full'
 
 // 맵 크기(타일): 시드로 MIN~MAX 사이에서 정한다
 export const MAP_MIN = 20
