@@ -68,6 +68,7 @@ const FAIL_STREAK_MS = 20_000
 // 메인 루프가 글·도구 없이 이만큼 넘게 생각하면 앉아서 생각한다. 생각 자세는 최대 PONDER_MAX_MS
 const PONDER_AFTER_MS = 3000
 const PONDER_MAX_MS = 20_000
+const PONDER_DOTS_MS = 2500
 // 이보다 짧은 프롬프트에는 속보로 조금만 간다
 const SHORT_PROMPT = 40
 // 이보다 긴 턴이 답으로 끝나면 자리잡기 전에 기지개를 켜고 턴다
@@ -82,8 +83,8 @@ const GLANCE_MS = 400
 const CHASE_REPATH_MS = 300
 const CHASE_GIVEUP_MS = 8000
 const EXCITE_TAU_S = 40
-// 공을 물었을 때 입 자리: 보는 쪽으로 이만큼(타일), 발에서 이만큼 위(px)
-export const MOUTH_TILES = 0.45
+// 공을 물었을 때 공의 자리(내려놓을 곳): 보는 쪽으로 이만큼(타일), 발에서 이만큼 위(px). 그림은 그리는 쪽이 입 칸에 그린다
+const MOUTH_TILES = 0.45
 const MOUTH_PX = 4
 // 목마름: 물가가 처음 가까워졌을 때의 값, 늘 오르는 빠르기, 속보·달리기 중 더 오르는 빠르기, 마시는 동안 내리는 빠르기(초당)
 const THIRST_START = 0.1
@@ -165,7 +166,7 @@ function go(p: Pet, world: WorldState, s: Survey, lo: number, hi: number, gait: 
   return to ? [{ k: 'go', to, gait }] : []
 }
 
-function pose(pose: PoseName, ms: number, extra: { face?: Dir; emote?: 'heart' | '!' | '?' | 'note'; grow?: boolean } = {}): Step {
+function pose(pose: PoseName, ms: number, extra: { face?: Dir; emote?: Fx.EmoteKind; grow?: boolean } = {}): Step {
   return { k: 'pose', pose, ms, ...extra }
 }
 
@@ -373,7 +374,7 @@ function buildPlay(p: Pet, world: WorldState): Activity {
       return act('play', steps)
     }
     case 'fetch':
-      // 공을 물고 화면 앞쪽(사람 쪽)으로 가져와 내려놓고 앉는다. 입에 문 공을 그리는 그림은 아직 없어 공을 입 자리에 붙여 그린다
+      // 공을 물고 화면 앞쪽(사람 쪽)으로 가져와 내려놓고 앉는다. 문 공은 그리는 쪽이 입 칸에 그린다
       return act('play', [
         { k: 'chase' }, pose('bow', 300), { k: 'grab' },
         { k: 'go', pick: { lo: 3, hi: 6, front: true }, gait: 'trot' },
@@ -384,8 +385,8 @@ function buildPlay(p: Pet, world: WorldState): Activity {
     case 'pounce':
       return act('play', [pose('bow', ms(p, 700, 1000)), { k: 'pounce' }, pose('bow', 400), { k: 'pounce' }, pose('stand', 300)])
     case 'stalk':
-      // 살금살금 다가가 덮친다. 살금 걸음이 생기기 전까지는 킁킁 걸음으로 다가간다
-      return act('play', [pose('bow', 300), { k: 'go', pick: { lo: 2, hi: 4 }, gait: 'sniff' }, pose('bow', ms(p, 600, 1200)), { k: 'pounce' }, pose('stand', 400)])
+      // 몸을 낮춰 살금살금 다가가 덮친다
+      return act('play', [pose('bow', 300), { k: 'go', pick: { lo: 2, hi: 4 }, gait: 'creep' }, pose('bow', ms(p, 600, 1200)), { k: 'pounce' }, pose('stand', 400)])
     case 'chaseTail':
       return act('play', [pose('bow', 300), { k: 'spin', quarters: Rng.int(r, 12, 20), msPer: 70 }, pose('stand', 400, { emote: 'note' })])
     case 'zoomies': {
@@ -495,19 +496,20 @@ export const ACTS: Record<ActName, ActDef> = {
       pose('sit', ms(p, 2000, 4000), { face: 'SE' }),
     ]),
   },
-  // 누워 뒹굴다 일어나 턴다. 배를 보이는 그림이 생기기 전까지는 엎드린 모습으로 대신한다
+  // 엎드렸다가 배를 보이며 뒹굴고, 일어나 턴다
   rollOver: {
     name: 'rollOver', cls: 'N', base: 4, drive: { play: 1 }, cooldownMs: 90_000,
     feasible: p => p.excite > 0.2 || p.needs.play > 0.2,
     adjust: FLAT,
-    build: p => act('rollOver', [pose('lie', ms(p, 600, 900)), pose('lie', ms(p, 1200, 2000)), pose('stand', 200), pose('shake', 500)]),
+    build: p => act('rollOver', [pose('lie', ms(p, 600, 900)), pose('roll', ms(p, 1200, 2000)), pose('stand', 200), pose('shake', 500)]),
   },
-  // 화면 앞쪽 칸으로 와서 사람 쪽을 보고 앉는다
+  // 화면 앞쪽 칸으로 와서 사람 쪽을 보고 앉는다. 반은 끝에 고개를 갸웃한다
   watch: {
     name: 'watch', cls: 'N', base: 6, drive: { social: 1.5 }, cooldownMs: 40_000, feasible: ALWAYS, adjust: FLAT,
     build: (p, world, s) => act('watch', [
       { k: 'go', to: frontTile(p, world, s, 0, 5), gait: 'walk', must: true },
       pose('frontSit', ms(p, 4000, 8000)),
+      ...(Rng.chance(p.rng, 0.5) ? [pose('tilt', 700)] : []),
     ]),
   },
   // 잠자리로 가서 하품하고 엎드려 존다. 잠(isAsleep)이 아니라서 어떤 신호에도 깬다
@@ -520,7 +522,7 @@ export const ACTS: Record<ActName, ActDef> = {
       pose('yawn', 800), pose('lie', 1000), pose('lieRest', ms(p, 10_000, 25_000)), pose('stretch', 900),
     ]),
   },
-  // 가장 가까운 물가로 가서 물 쪽을 보고 마신다. 마시는 그림이 생기기 전까지는 물 쪽을 보고 킁킁대는 자세로 대신한다
+  // 가장 가까운 물가로 가서 물 쪽을 보고 마신다
   drink: {
     name: 'drink', cls: 'N', base: 6, drive: { thirst: 2.5 }, cooldownMs: 60_000,
     feasible: (p, world, s) => p.needs.thirst > 0.4 && edgesOf(p, world, s).length > 0,
@@ -531,7 +533,7 @@ export const ACTS: Record<ActName, ActDef> = {
       const e = Rng.pick(p.rng, edges.filter(c => Path.stepsAt(s.reach, c.x, c.y) === near))
       const steps: Step[] = [
         { k: 'go', to: { x: e.x, y: e.y }, gait: 'walk', must: true },
-        pose('sniff', ms(p, 2500, 5000), { face: dirOf(e.dx, e.dy) }),
+        pose('drink', ms(p, 2500, 5000), { face: dirOf(e.dx, e.dy) }),
         pose('stand', 300),
       ]
       if (Rng.chance(p.rng, 0.3)) steps.push(pose('shake', 400))
@@ -555,7 +557,6 @@ export const ACTS: Record<ActName, ActDef> = {
     },
   },
   // 12 걸음 안의 나뭇가지로 가서 물고 몇 걸음 옮긴 뒤 엎드려 씹고, 그 자리에 내려놓는다. 옮긴 자리는 편집 표에 남는다.
-  // 씹는 그림이 생기기 전까지는 엎드린 모습에 입 자리의 나뭇가지로 대신한다
   chew: {
     name: 'chew', cls: 'N', base: 3, drive: { play: 0.6, rest: 0.4 }, cooldownMs: 120_000,
     feasible: (p, world, s) => branchesOf(world, s).length > 0,
@@ -568,7 +569,7 @@ export const ACTS: Record<ActName, ActDef> = {
         { k: 'go', to, gait: 'walk', must: true },
         pose('sniff', 400), { k: 'take' },
         { k: 'go', pick: { lo: 3, hi: 6 }, gait: 'walk' },
-        pose('lie', 400), pose('lie', ms(p, 5000, 10_000)), { k: 'put' }, pose('stand', 300),
+        pose('lie', 400), pose('chew', ms(p, 5000, 10_000)), { k: 'put' }, pose('stand', 300),
       ])
     },
   },
@@ -606,16 +607,16 @@ export const ACTS: Record<ActName, ActDef> = {
       return act('bedtime', steps)
     },
   },
-  // 아래는 신호만 부르는 반응이다. 갸웃·귀 세움·조르기·귀 처짐·말줄임표 그림이 생기기 전까지는 있는 자세로 대신한다
-  // 사람 쪽을 본다(타이핑, 턴 도중 입력)
+  // 아래는 신호만 부르는 반응이다
+  // 사람 쪽을 본다(타이핑, 턴 도중 입력). 가끔 고개를 갸웃한다
   attend: {
     name: 'attend', cls: 'A', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
-    build: p => act('attend', [pose('look', ms(p, 800, 1400))]),
+    build: p => act('attend', [pose('look', ms(p, 800, 1400)), ...(Rng.chance(p.rng, 0.4) ? [pose('tilt', 700)] : [])]),
   },
-  // 왼쪽 위를 보고 앉아 생각한다. 생각이 끝나면 멈춘다
+  // 왼쪽 위를 보고 앉아 생각한다. 말줄임표를 PONDER_DOTS_MS 마다 띄운다. 생각이 끝나면 멈춘다
   ponder: {
     name: 'ponder', cls: 'A', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
-    build: () => act('ponder', [pose('sit', PONDER_MAX_MS, { face: 'NW' })]),
+    build: () => act('ponder', Array.from({ length: PONDER_MAX_MS / PONDER_DOTS_MS }, () => pose('sit', PONDER_DOTS_MS, { face: 'NW', emote: 'dots' }))),
   },
   // 서브에이전트를 오른쪽 위로 배웅한다
   seeOff: {
@@ -632,40 +633,40 @@ export const ACTS: Record<ActName, ActDef> = {
     name: 'nose', cls: 'T', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
     build: (p, world, s) => act('nose', [...go(p, world, s, 0, 1, 'sniff'), pose('sniff', ms(p, 800, 1400), { grow: true })]),
   },
-  // 바깥 도구(웹, MCP): 오른쪽 위를 보고 섰다가 한두 칸 가 본다
+  // 바깥 도구(웹, MCP): 오른쪽 위를 보고 귀를 세웠다가 한두 칸 가 본다
   alert: {
     name: 'alert', cls: 'T', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
-    build: (p, world, s) => act('alert', [pose('stand', ms(p, 1200, 2000), { face: 'NE', grow: true }), ...go(p, world, s, 1, 2, 'trot')]),
+    build: (p, world, s) => act('alert', [pose('alert', ms(p, 1200, 2000), { face: 'NE', grow: true }), ...go(p, world, s, 1, 2, 'trot')]),
   },
-  // 도구 오류: 사람 쪽을 보고 입을 벌려 짖는다
+  // 도구 오류: 귀를 세우고 입을 두 번 벌려 짖는다
   bark: {
     name: 'bark', cls: 'T', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
-    build: () => act('bark', [pose('look', 200), pose('pant', 600, { emote: '!' }), pose('stand', 400)]),
+    build: () => act('bark', [pose('alert', 200), pose('alert', 600, { emote: 'bark' }), pose('stand', 400)]),
   },
   // 오래 도는 도구: 앞쪽 칸에 와서 사람 쪽을 보고 앉아 기다린다. 도구가 끝나면 멈춘다
   wait: {
     name: 'wait', cls: 'T', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
     build: () => act('wait', [{ k: 'go', pick: { lo: 1, hi: 3, front: true }, gait: 'walk' }, pose('frontSit', 6000)]),
   },
-  // 권한 대기: 앞쪽 칸에서 사람 쪽을 보고 조른다
+  // 권한 대기: 앞쪽 칸에서 사람 쪽을 보고 앞발을 들어 조른다
   beg: {
     name: 'beg', cls: 'P', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
-    build: p => act('beg', [{ k: 'go', pick: { lo: 1, hi: 3, front: true }, gait: 'walk' }, pose('frontSit', ms(p, 2500, 3500), { emote: '?' }), pose('frontSit', 3000)]),
+    build: p => act('beg', [{ k: 'go', pick: { lo: 1, hi: 3, front: true }, gait: 'walk' }, pose('beg', ms(p, 2500, 3500), { emote: '?' }), pose('frontSit', 3000)]),
   },
-  // 턴 오류·연속 실패: 엎드려 있다가 기지개
+  // 턴 오류·연속 실패: 귀를 처뜨리고 엎드려 있다가 기지개
   sulk: {
     name: 'sulk', cls: 'E', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
-    build: p => act('sulk', [pose('lie', ms(p, 3000, 5000)), pose('stretch', 900)]),
+    build: p => act('sulk', [pose('droop', ms(p, 3000, 5000)), pose('stretch', 900)]),
   },
   // 턴 중단: 제자리에서 솟았다가 사람 쪽을 본다
   startle: {
     name: 'startle', cls: 'E', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
     build: () => act('startle', [{ k: 'hop', peakPx: 6, ms: 300 }, pose('look', 600, { emote: '!' })]),
   },
-  // 거절: 사람 쪽을 보고 앉아 있다가 물음표
+  // 거절: 사람 쪽을 보고 앉아 있다가 고개를 갸웃하며 물음표
   puzzled: {
     name: 'puzzled', cls: 'E', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
-    build: () => act('puzzled', [pose('frontSit', 2000), pose('look', 700, { emote: '?' })]),
+    build: () => act('puzzled', [pose('frontSit', 2000), pose('tilt', 700, { emote: '?' })]),
   },
 }
 
@@ -1187,14 +1188,14 @@ function updateNeeds(p: Pet, dtMs: number, now: number): void {
   const playing = p.act.name === 'play' || p.act.name === 'run' || p.act.name === 'rollOver' || p.act.name === 'splash' || p.act.name === 'chew'
   n.play = clamp01(n.play + (0.003 + 0.006 * p.excite - (playing ? 0.015 : 0)) * dt)
   const alone = now - p.lastHumanAt > SOCIAL_QUIET_MS
-  const facing = !moving && p.pose === 'frontSit' && p.act.name === 'watch'
+  const facing = !moving && (p.pose === 'frontSit' || p.pose === 'tilt') && p.act.name === 'watch'
   n.social = clamp01(n.social + ((alone ? 0.004 : -0.01) - (facing ? 0.06 : 0)) * dt)
   if (!p.waterNear) {
     n.thirst = 0
     return
   }
   const fast = moving && (p.gait === 'trot' || p.gait === 'run')
-  const drinking = !moving && p.act.name === 'drink' && p.pose === 'sniff'
+  const drinking = !moving && p.act.name === 'drink' && p.pose === 'drink'
   n.thirst = clamp01(n.thirst + (THIRST_RATE + (fast ? THIRST_MOVING : 0) - (drinking ? THIRST_DRINK : 0)) * dt)
 }
 

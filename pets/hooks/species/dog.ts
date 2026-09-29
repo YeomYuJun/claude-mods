@@ -50,6 +50,8 @@ export const DOG: SpeciesDef = {
     trot: { speed: 3.6, accel: 10, decel: 9, stride: 0.9, sigma: 0.5, amp: 1, phase: [0, 0.5, 0.5, 0], energyPerS: -0.01 },
     run: { speed: 6.0, accel: 14, decel: 12, stride: 1.3, sigma: 0.38, amp: 2, phase: [0, 0.08, 0.5, 0.58], energyPerS: -0.025 },
     sniff: { speed: 1.1, accel: 5, decel: 5, stride: 0.45, sigma: 0.75, amp: 1, phase: [0, 0.5, 0.25, 0.75], energyPerS: -0.002 },
+    // 살금 걸음: 몸을 낮추고 앞을 숙여 천천히 다가간다(그리는 쪽이 몸 1 px 낮춤, 앞 기울기 1)
+    creep: { speed: 0.8, accel: 4, decel: 6, stride: 0.4, sigma: 0.75, amp: 1, phase: [0, 0.5, 0.25, 0.75], energyPerS: -0.003 },
   },
   motion: { corner: 0.22, crouchMs: 80, landMs: 90, turnMs: 110, hopAt: 0.62, runDustMs: 110 },
   jump: { upPx: 5, downPx: 3, runBonusPx: 2, minSpeed: 2.2, minMs: 220, maxMs: 420, pounce: { peakPx: 7, ms: 360 } },
@@ -128,6 +130,44 @@ export const DOG: SpeciesDef = {
         '...owo.owo...',
         '...owo.owo...',
       ] },
+      // 정면으로 앉아 앞발을 가슴 앞에 든 모습(조르기). 머리 줄은 정면 앉기와 같다
+      frontBeg: { ax: 6, ay: 13, rows: [
+        '...ooooooo...',
+        '.oowwwwwwwoo.',
+        'oeewwwwwwweeo',
+        'oeewEwwwEweeo',
+        'oeewEwkwEweeo',
+        'odeowwwwwoedo',
+        '.oo.ooMoo.oo.',
+        '...occccco...',
+        '.oowwwwwwwoo.',
+        'owwoswwwsowwo',
+        '.oo.oswso.oo.',
+        '...owssswo...',
+        '..ooo.o.ooo..',
+      ] },
+      // 배를 보이며 등으로 누운 모습(뒹굴기). 네 다리가 위로 들리고 머리는 거꾸로 귀가 바닥에 늘어진다.
+      // A 와 B 는 들린 다리 자리만 다르다(버둥거림)
+      bellyA: { ax: 7, ay: 8, rows: [
+        '...ow....ow.....',
+        '...owow..owow...',
+        '..ossssssssso...',
+        '.eowwwwwwwwwcoo.',
+        'eeowwwwwwwwwcwMo',
+        '..owwwwwwwwwcEwk',
+        '...ooooooooocwdo',
+        '............oeeo',
+      ] },
+      bellyB: { ax: 7, ay: 8, rows: [
+        '.....ow....ow...',
+        '..owow...owow...',
+        '..ossssssssso...',
+        '.eowwwwwwwwwcoo.',
+        'eeowwwwwwwwwcwMo',
+        '..owwwwwwwwwcEwk',
+        '...ooooooooocwdo',
+        '............oeeo',
+      ] },
     },
     heads: {
       // 오른쪽 보기. 늘어진 갈색 귀가 뒤쪽 절반을 덮고, 맨 아래 줄에 목줄이 있다.
@@ -150,6 +190,38 @@ export const DOG: SpeciesDef = {
         'oeedwwwwo',
         '.oeeswwo.',
         '..occco..',
+      ] },
+      // 귀를 세운 옆머리(바깥 소리에 귀 기울이기·짖기). 귀가 머리 위로 두 줄 솟는다
+      alert: { ax: 1, ay: 8, rows: [
+        '.oo......',
+        'oedo.....',
+        'oedooo...',
+        'oeewwwoo.',
+        'owwwwwwwo',
+        'owwwwEwwo',
+        'owwwwEwwk',
+        '.owwswwoo',
+        '..occcMo.',
+      ] },
+      // 귀가 뒤로 처지고 눈꺼풀이 반쯤 덮인 옆머리(풀 죽기)
+      droop: { ax: 1, ay: 6, rows: [
+        '..oooo...',
+        '.owwwwoo.',
+        'oowwwwwwo',
+        'oeedwlwwo',
+        'oeedwEwwk',
+        'oeedswwoo',
+        '.oeecMo..',
+      ] },
+      // 갸웃한 정면 머리. 정면 몸의 위 7 줄을 덮는다. 왼쪽 눈이 한 줄 높다
+      tilt: { ax: 6, ay: 13, rows: [
+        '..oooooo.....',
+        '.owwwwwwoo...',
+        'oeewEwwwwwoo.',
+        'oeewEwwwEweeo',
+        'odewwwkwEweeo',
+        '.ooowwwwwoedo',
+        '...ooMooo.oo.',
       ] },
     },
     anchors: {
@@ -193,6 +265,7 @@ export const DOG: SpeciesDef = {
     energyRate: {
       stand: 0.002, look: 0.002, pant: 0.004, sniff: -0.001, dig: -0.01, bow: -0.01, shake: -0.006, scratch: 0,
       yawn: 0.002, stretch: 0, sit: 0.006, frontSit: 0.006, lie: 0.012, lieRest: 0.016, sleep: 0.03, wake: 0.01,
+      roll: -0.004, drink: 0.004, chew: 0.008, tilt: 0.006, alert: 0, beg: -0.002, droop: 0.012,
     },
     exciteGain: { turnStart: 0.45, turnEnd: 0.15 },
   },

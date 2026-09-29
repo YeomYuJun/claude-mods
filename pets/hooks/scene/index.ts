@@ -313,22 +313,28 @@ function drawPet(b: Buffer, scene: Scene, view: View, proj: Proj): void {
   // 공과 공 그림자. 공의 청크가 캐시에 없으면(강아지가 멀리 두고 온 공) 화면 밖이라 그리지 않는다
   const ball = p.ball
   const bt = Pet.Ball.tileOf(ball)
-  if (World.isLoaded(world, bt.x, bt.y)) {
+  const pose = Pet.poseOf(p)
+  const depth = p.x + p.y + 0.4 - dz
+  const mouth = Sprite.mouthOf(p.species, pose)
+  // 문 공은 입 칸에 그린다(아래). 입 칸이 없는 모습(웅크린 잠)이면 공의 자리에 그대로 둔다
+  const inMouth = p.carrying && mouth !== undefined
+  if (!inMouth && World.isLoaded(world, bt.x, bt.y)) {
     const bg = Iso.screenOf(ball.x, ball.y, World.walkHeightAt(world, bt.x, bt.y) * Names.STEP_PX, proj)
     Iso.drawShadow(b, bg.sx - ox + 0.5, bg.sy - oy - 0.5, 2, 1, World.walkHeightAt(world, bt.x, bt.y) + 1, shadowOf)
     const bs = Iso.screenOf(ball.x, ball.y, ball.z, proj)
     Sprite.drawBall(b, Math.round(bs.sx) - ox, Math.round(bs.sy) - oy, ball.roll, ball.x + ball.y + 0.25 - dz)
   }
-  Sprite.drawPet(b, p.species, Pet.poseOf(p), x, y, p.x + p.y + 0.4 - dz)
-  // 문 나뭇가지는 입 자리(보는 쪽으로 MOUTH_TILES, 엎드리면 발에서 2 px, 서면 4 px 위)에 찍는다
-  if (p.holding) {
-    const [vx, vy] = Pet.DIR_VEC[p.dir]
-    const hx = p.x + vx * Pet.MOUTH_TILES
-    const hy = p.y + vy * Pet.MOUTH_TILES
-    const low = p.pose === 'lie' || p.pose === 'lieRest'
-    const hs = Iso.screenOf(hx, hy, p.z + (low ? 2 : 4), proj)
-    Prop.drawHeldBranch(b, Math.round(hs.sx) - ox, Math.round(hs.sy) - oy, hx + hy + 0.4 - dz)
+  // 문 공·나뭇가지는 머리 그림의 입 칸에 찍는다. 얼굴이 보이면 강아지 다음에 그려 머리 앞에 오고,
+  // 뒷모습이면 먼저 그려 머리에 가린다(강아지 그림은 깊이를 쓰지 않는다). 공은 입 칸에서 보는 쪽으로 한 칸 나가 가운데가 입 칸 줄에 온다
+  const drawHeld = () => {
+    if (!mouth) return
+    const held = depth + (mouth.facing ? 0.01 : -0.01)
+    if (inMouth) Sprite.drawBall(b, x + mouth.x + (pose.flip ? -1 : 1), y + mouth.y + 2, ball.roll, held)
+    if (p.holding) Prop.drawHeldBranch(b, x + mouth.x, y + mouth.y, held)
   }
+  if (mouth && !mouth.facing) drawHeld()
+  Sprite.drawPet(b, p.species, pose, x, y, depth)
+  if (mouth?.facing) drawHeld()
   // 흙·물방울·물보라·z 는 강아지가 멈춰 있을 때만 생겨 강아지 기준 오프셋을 그대로 둔다.
   // 먼지는 달리거나 내려앉은 자리에 남으므로 카메라와 같은 비율로 옮긴다
   const near = Iso.screenOf(p.x, p.y, p.z)
@@ -343,7 +349,7 @@ function drawPet(b: Buffer, scene: Scene, view: View, proj: Proj): void {
     // 떠오르며 나타났다가 제자리에서 머문다
     const rise = Math.max(0, 3 - Math.floor(p.emote.age / 50))
     const side = Pet.isRight(p.dir) ? sprite.emoteAt.side : -sprite.emoteAt.side
-    const front = Pet.poseOf(p).body.startsWith('front')
+    const front = pose.body.startsWith('front')
     Sprite.drawEmote(b, p.emote.kind, x + (front ? 0 : side), y - sprite.emoteAt.up + rise)
   }
 }

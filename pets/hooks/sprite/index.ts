@@ -39,12 +39,23 @@ type Compiled = {
   bodies: Record<BodyKind, Bitmap>
   face: Bitmap
   back: Bitmap
+  alert: Bitmap
+  alertBack: Bitmap
+  droop: Bitmap
+  droopBack: Bitmap
+  tilt: Bitmap
   role: (name: Palette.RoleName) => number
   seeThrough: Set<number>
 }
 
 // 종 정의 객체마다(품종 무늬 사본은 따로), 뱅크마다
 const compiled = new WeakMap<SpeciesDef, Map<number, Compiled>>()
+
+// 옆머리의 뒷모습: 눈(E)은 털(w)로, 코끝(k)과 입(M)은 윤곽(o)으로 바꾼다(뒷모습 머리 그림과 같은 규칙)
+function backOf(s: BitmapSpec): BitmapSpec {
+  const to: Readonly<Record<string, string>> = { E: 'w', k: 'o', M: 'o' }
+  return { ...s, rows: s.rows.map(r => [...r].map(ch => to[ch] ?? ch).join('')) }
+}
 
 function compile(species: SpeciesDef, bank: number): Compiled {
   let byBank = compiled.get(species)
@@ -57,11 +68,20 @@ function compile(species: SpeciesDef, bank: number): Compiled {
   for (const [ch, name] of Object.entries(species.sprite.codes)) code[ch] = role(name)
   const of = (s: BitmapSpec) => bitmap(s.ax, s.ay, s.rows, code)
   const b = species.sprite.bodies
+  const h = species.sprite.heads
   const out: Compiled = {
     species,
-    bodies: { stand: of(b.stand), sit: of(b.sit), lie: of(b.lie), curlA: of(b.curlA), curlB: of(b.curlB), frontSit: of(b.frontSit), frontStand: of(b.frontStand) },
-    face: of(species.sprite.heads.face),
-    back: of(species.sprite.heads.back),
+    bodies: {
+      stand: of(b.stand), sit: of(b.sit), lie: of(b.lie), curlA: of(b.curlA), curlB: of(b.curlB), frontSit: of(b.frontSit), frontStand: of(b.frontStand),
+      bellyA: of(b.bellyA), bellyB: of(b.bellyB), frontBeg: of(b.frontBeg),
+    },
+    face: of(h.face),
+    back: of(h.back),
+    alert: of(h.alert),
+    alertBack: of(backOf(h.alert)),
+    droop: of(h.droop),
+    droopBack: of(backOf(h.droop)),
+    tilt: of(h.tilt),
     role,
     seeThrough: new Set(species.sprite.seeThrough.map(role)),
   }
@@ -84,6 +104,8 @@ export type PetPose = {
   // 몸통 앞쪽을 내리는 정도(인사 자세). 앞으로 갈수록 이만큼까지 내려간다
   tilt: number
   head: 'face' | 'back' | 'none'
+  // 머리 모양: 옆모습이면 alert·droop 이 귀 모양을 바꾸고, 정면 몸이면 tilt 가 위 줄을 갸웃한 머리로 바꾼다
+  headKind: 'plain' | 'alert' | 'droop' | 'tilt'
   headDx: number
   headDy: number
   eyeClosed: boolean
@@ -99,8 +121,9 @@ export type PetPose = {
 
 type Painter = (x: number, y: number, color: number) => void
 
-function stamp(bm: Bitmap, ox: number, oy: number, paint: Painter, flip: boolean, tilt = 0, tiltFrom = 0, tiltSpan = 1): void {
-  for (let y = 0; y < bm.h; y++) {
+// fromRow: 이 줄부터 찍는다(정면 몸의 머리 줄을 갸웃한 머리로 바꿀 때)
+function stamp(bm: Bitmap, ox: number, oy: number, paint: Painter, flip: boolean, tilt = 0, tiltFrom = 0, tiltSpan = 1, fromRow = 0): void {
+  for (let y = fromRow; y < bm.h; y++) {
     for (let x = 0; x < bm.w; x++) {
       const c = bm.px[y * bm.w + x]!
       if (c === TRANSPARENT) continue
@@ -134,14 +157,35 @@ function paintFace(k: Compiled, bm: Bitmap, ox: number, oy: number, pose: PetPos
   } else if (pose.tongue) mark(bm, ox, oy, mx, my, tongue, flip, paint)
 }
 
-// 머리를 그리고 눈·입을 덧칠한다. (hx, hy) 는 머리 기준점(맨 아래 줄).
-// 착지로 몸이 눌린 채 코를 박으면 머리가 바닥 아래로 내려가므로 맨 아래 줄을 y -1 에서 멈춘다
-function paintHead(k: Compiled, pose: PetPose, hx: number, rawHy: number, paint: Painter): void {
+function headOf(k: Compiled, pose: PetPose): Bitmap {
+  const back = pose.head === 'back'
+  if (pose.headKind === 'alert') return back ? k.alertBack : k.alert
+  if (pose.headKind === 'droop') return back ? k.droopBack : k.droop
+  return back ? k.back : k.face
+}
+
+// 옆모습 몸의 머리 기준점(맨 아래 줄). 착지로 몸이 눌린 채 코를 박으면 머리가 바닥 아래로 내려가므로 맨 아래 줄을 y -1 에서 멈춘다
+function headAt(species: SpeciesDef, pose: PetPose): readonly [number, number] | undefined {
+  const a = species.sprite.anchors
+  const at = pose.body === 'stand' ? a.stand.head : pose.body === 'sit' ? a.sit.head : pose.body === 'lie' ? a.lie.head : undefined
+  if (!at) return undefined
+  const drop = pose.body === 'stand' ? Math.round(pose.tilt) : 0
+  return [at[0] + pose.bodyDx + pose.headDx, Math.min(at[1] + pose.bodyDy + pose.headDy + drop, -1)]
+}
+
+// 머리를 그리고 눈·입을 덧칠한다
+function paintHead(k: Compiled, pose: PetPose, paint: Painter): void {
   if (pose.head === 'none') return
-  const head = pose.head === 'back' ? k.back : k.face
-  const hy = Math.min(rawHy, -1)
-  stamp(head, hx, hy, paint, pose.flip)
-  paintFace(k, head, hx, hy, pose, pose.flip, paint)
+  const at = headAt(k.species, pose)
+  if (!at) return
+  const head = headOf(k, pose)
+  stamp(head, at[0], at[1], paint, pose.flip)
+  paintFace(k, head, at[0], at[1], pose, pose.flip, paint)
+}
+
+// 갸웃한 정면 머리를 정면 몸의 맨 위 줄에 맞춘다
+function tiltOn(k: Compiled, body: Bitmap): Bitmap {
+  return { ...k.tilt, ax: body.ax, ay: body.ay }
 }
 
 // 다리: 가까운 다리는 뒤쪽 윤곽 한 줄 + 앞쪽 털 한 줄, 먼 다리는 옅은 두 줄
@@ -196,7 +240,7 @@ export function paintPet(species: SpeciesDef, pose: PetPose, paint: Painter, ban
       paintLegs(k, pose, paint, true)
       stamp(k.bodies.stand, bx, by, paint, pose.flip, pose.tilt, tilt.x0, tilt.span)
       paintLegs(k, pose, paint, false)
-      paintHead(k, pose, a.stand.head[0] + bx + pose.headDx, a.stand.head[1] + by + pose.headDy + Math.round(pose.tilt), paint)
+      paintHead(k, pose, paint)
       if (pose.back) paintTail(k, pose, a.stand.tail, paint)
       return
     }
@@ -213,13 +257,13 @@ export function paintPet(species: SpeciesDef, pose: PetPose, paint: Painter, ban
           paint(pose.flip ? -lx : lx, ly - 1, k.role(fillRole))
         }
       }
-      paintHead(k, pose, a.sit.head[0] + bx + pose.headDx, a.sit.head[1] + by + pose.headDy, paint)
+      paintHead(k, pose, paint)
       return
     }
     case 'lie': {
       paintTail(k, pose, a.lie.tail, paint)
       stamp(k.bodies.lie, bx, by, paint, pose.flip)
-      paintHead(k, pose, a.lie.head[0] + bx + pose.headDx, a.lie.head[1] + by + pose.headDy, paint)
+      paintHead(k, pose, paint)
       return
     }
     case 'curlA':
@@ -227,19 +271,65 @@ export function paintPet(species: SpeciesDef, pose: PetPose, paint: Painter, ban
       stamp(k.bodies[pose.body], bx, by, paint, pose.flip)
       return
     }
+    // 배를 보인 모습은 다리·머리·꼬리가 그림에 들어 있다
+    case 'bellyA':
+    case 'bellyB': {
+      const bm = k.bodies[pose.body]
+      stamp(bm, bx, by, paint, pose.flip)
+      paintFace(k, bm, bx, by, pose, pose.flip, paint)
+      return
+    }
     case 'frontSit':
-    case 'frontStand': {
+    case 'frontStand':
+    case 'frontBeg': {
       const bm = k.bodies[pose.body]
       // 꼬리는 몸 뒤에서 옆으로 흔든다
       if (pose.tailLen > 0) {
         const side = Math.sin(pose.tailAngle) > 0 ? 1 : -1
-        const ty = pose.body === 'frontSit' ? a.front.sitY : a.front.standY
+        const ty = pose.body === 'frontStand' ? a.front.standY : a.front.sitY
         const { role, tipRole } = species.sprite.tail
         for (let i = 1; i <= 2; i++) paint((a.front.x + i) * side + bx, ty + by - (i === 2 ? 1 : 0), k.role(i === 2 ? tipRole : role))
+      }
+      if (pose.headKind === 'tilt') {
+        const head = tiltOn(k, bm)
+        stamp(bm, bx, by, paint, false, 0, 0, 1, head.h)
+        stamp(head, bx, by, paint, false)
+        paintFace(k, head, bx, by, pose, false, paint)
+        return
       }
       stamp(bm, bx, by, paint, false)
       paintFace(k, bm, bx, by, pose, false, paint)
       return
+    }
+  }
+}
+
+// 입 칸(바닥 점 기준, 반전한 좌표). 물고 있는 공·나뭇가지를 여기에 그린다.
+// 뒷모습은 입이 보이지 않아 옆머리의 입 자리를 쓰고 facing 이 false 다. 웅크려 자면 없다
+export function mouthOf(species: SpeciesDef, pose: PetPose, bank = 0): { x: number; y: number; facing: boolean } | undefined {
+  const k = compile(species, bank)
+  const at = (bm: Bitmap, ox: number, oy: number, flip: boolean, facing: boolean) => {
+    if (!bm.mouth) return undefined
+    const lx = ox + bm.mouth[0] - bm.ax
+    return { x: flip ? -lx : lx, y: oy + bm.mouth[1] - bm.ay, facing }
+  }
+  switch (pose.body) {
+    case 'curlA':
+    case 'curlB':
+      return undefined
+    case 'bellyA':
+    case 'bellyB':
+      return at(k.bodies[pose.body], pose.bodyDx, pose.bodyDy, pose.flip, true)
+    case 'frontSit':
+    case 'frontStand':
+    case 'frontBeg': {
+      const bm = k.bodies[pose.body]
+      return at(pose.headKind === 'tilt' ? tiltOn(k, bm) : bm, pose.bodyDx, pose.bodyDy, false, true)
+    }
+    default: {
+      const h = headAt(species, pose)
+      if (!h || pose.head === 'none') return undefined
+      return at(headOf(k, { ...pose, head: 'face' }), h[0], h[1], pose.flip, pose.head !== 'back')
     }
   }
 }
@@ -281,6 +371,9 @@ const EMOTES: Record<string, Bitmap> = {
   heart: bitmap(2, 4, ['.p.p.', 'ppppp', '.ppp.', '..p..'], EMOTE_CODE),
   note: bitmap(1, 5, ['.oo', '.o.', '.o.', 'oo.', 'oo.'], EMOTE_CODE),
   z: bitmap(1, 2, ['zzz', '.z.', 'zzz'], EMOTE_CODE),
+  // 생각 중 말줄임표, 짖는 소리
+  dots: bitmap(2, 1, ['o.o.o'], EMOTE_CODE),
+  bark: bitmap(2, 5, ['o...o', '.o.o.', '.....', 'oo.oo', '.....'], EMOTE_CODE),
 }
 
 export function drawEmote(b: Buffer, kind: string, x: number, y: number): void {

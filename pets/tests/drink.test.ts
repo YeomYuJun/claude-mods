@@ -72,7 +72,7 @@ describe('thirst and water', () => {
     let wasDrinking = false
     quiet(p, world, 10 * 60_000, T0, q => {
       if (q.needs.thirst > 0.2) rose = true
-      const drinking = q.act.name === 'drink' && q.pose === 'sniff' && !Pet.isMoving(q)
+      const drinking = q.act.name === 'drink' && q.pose === 'drink' && !Pet.isMoving(q)
       if (drinking && !wasDrinking) {
         drinks++
         before = q.needs.thirst

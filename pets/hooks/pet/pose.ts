@@ -35,7 +35,7 @@ function wag(t: number, base: number, amp: number, hz: number): number {
 function base(p: Pet): PetPose {
   return {
     body: 'stand', flip: !isRight(p.dir), back: isBack(p.dir), bodyDx: 0, bodyDy: 0, tilt: 0,
-    head: isBack(p.dir) ? 'back' : 'face', headDx: 0, headDy: 0,
+    head: isBack(p.dir) ? 'back' : 'face', headKind: 'plain', headDx: 0, headDy: 0,
     eyeClosed: p.blinkMs > 0, tongue: false, mouthOpen: false,
     legs: legsStill(p), tailAngle: p.species.sprite.tail.rest, tailLen: p.species.sprite.tail.len, scratch: 0,
   }
@@ -80,11 +80,18 @@ export function poseOf(p: Pet): PetPose {
       d.headDx = 1
       d.headDy = 3
       d.tailAngle = wag(now, 1.1, 0.25, 5)
+    } else if (g === 'creep') {
+      // 몸을 한 픽셀 낮추고 앞을 숙인 채 머리를 내밀고, 꼬리는 굳힌다(더 낮추면 폭이 16 을 넘는다)
+      d.bodyDy = 1
+      d.tilt = 1
+      d.headDx = 1
+      d.tailAngle = wag(now, 0.7, 0.05, 1)
     } else {
       d.headDy = g === 'walk' && ph % 0.5 >= 0.25 ? 1 : 0
       d.tailAngle = wag(now, 0.75, 0.3, g === 'trot' ? 3 : 2)
     }
-    if (p.landMs > 0) { d.bodyDy += 1; d.headDy += 1 }
+    // 살금 걸음은 이미 몸을 낮춰 착지 눌림을 더하면 바닥 아래로 내려간다
+    if (p.landMs > 0 && g !== 'creep') { d.bodyDy += 1; d.headDy += 1 }
     return d
   }
   if (p.landMs > 0) { d.bodyDy = 1; d.headDy = 1 }
@@ -183,6 +190,54 @@ export function poseOf(p: Pet): PetPose {
       d.body = now % 2400 < 1100 ? 'curlA' : 'curlB'
       d.head = 'none'
       d.tailLen = 0
+      return d
+    case 'roll':
+      // 배를 보이며 다리를 버둥거린다. 머리·꼬리는 그림에 들어 있다
+      d.body = now % 500 < 250 ? 'bellyA' : 'bellyB'
+      d.head = 'none'
+      d.tailLen = 0
+      d.legs = []
+      d.tongue = true
+      return d
+    case 'drink':
+      // 킁킁 머리로 물에 코를 대고 혀를 넣었다 뺀다
+      d.headDx = 1
+      d.headDy = 4
+      d.tongue = Math.floor(now / 150) % 2 === 0
+      d.tailAngle = wag(now, 1.0, 0.2, 1.5)
+      return d
+    case 'chew':
+      // 엎드려 머리를 한 픽셀 위아래로 움직이며 씹는다
+      d.body = 'lie'
+      d.headDy = Math.floor(now / 180) % 2
+      d.tailAngle = wag(now, 0.1, 0.3, 1.5)
+      return d
+    case 'tilt':
+      // 사람을 보고 고개를 갸웃한다. 관심 보이기는 선 채로, 나머지는 앉아서
+      d.body = p.act.name === 'attend' ? 'frontStand' : 'frontSit'
+      d.headKind = 'tilt'
+      d.tailAngle = wag(now, 0, 0.6, 1.5)
+      return d
+    case 'alert': {
+      // 귀를 세우고 꼬리를 올려 굳힌다. 짖는 동안에는 입을 150 ms 씩 두 번 벌린다
+      d.headKind = 'alert'
+      d.tailAngle = wag(now, 1.2, 0.08, 3)
+      const bark = p.emote?.kind === 'bark' ? p.emote.age : -1
+      d.mouthOpen = bark >= 0 && bark < 600 && bark % 300 < 150
+      return d
+    }
+    case 'beg':
+      // 정면으로 앉아 앞발을 들고 꼬리를 빠르게 흔든다
+      d.body = 'frontBeg'
+      d.tailAngle = wag(now, 0, 1, 4)
+      d.tongue = true
+      return d
+    case 'droop':
+      // 엎드려 귀를 처뜨리고 머리를 낮춘다. 꼬리는 바닥에 붙인다
+      d.body = 'lie'
+      d.headKind = 'droop'
+      d.headDy = 1
+      d.tailAngle = 0
       return d
   }
 }

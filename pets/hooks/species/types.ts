@@ -6,7 +6,8 @@ import type { BankColors, RoleName } from '../pixel/palette.js'
 
 export type SpeciesId = 'dog'
 
-export type BodyKind = 'stand' | 'sit' | 'lie' | 'curlA' | 'curlB' | 'frontSit' | 'frontStand'
+// bellyA·bellyB: 배를 보이며 누운 모습(뒹굴기, 두 장 번갈아). frontBeg: 정면으로 앉아 앞발을 든 모습(조르기)
+export type BodyKind = 'stand' | 'sit' | 'lie' | 'curlA' | 'curlB' | 'frontSit' | 'frontStand' | 'bellyA' | 'bellyB' | 'frontBeg'
 
 // 비트맵: 글자 한 줄이 픽셀 한 줄. '.' 은 투명이고 나머지 글자는 codes 로 역할을 찾는다.
 // 'E' 는 눈(자리를 기억해 감은 눈을 덧칠한다), 'M' 은 입(자리를 기억해 혀를 덧칠한다). ax, ay: (0, 0) 에 놓일 칸
@@ -32,7 +33,9 @@ export type GaitDef = {
 export type SpriteSet = {
   codes: Readonly<Record<string, RoleName>>
   bodies: Readonly<Record<BodyKind, BitmapSpec>>
-  heads: { face: BitmapSpec; back: BitmapSpec }
+  // face·back: 옆모습 머리(오른쪽 보기)와 뒷모습 머리. alert: 귀 세운 옆머리, droop: 귀 처진 옆머리(뒷모습은 눈·코·입을 지워 만든다).
+  // tilt: 정면 몸의 위 줄들을 갈아 끼우는 갸웃한 정면 머리(줄 수만큼 몸의 위 줄을 덮는다)
+  heads: { face: BitmapSpec; back: BitmapSpec; alert: BitmapSpec; droop: BitmapSpec; tilt: BitmapSpec }
   // 몸 종류별 머리 기준점·꼬리 뿌리(몸 이동량을 더하기 전). sit 의 scratch 는 뒷다리로 귀 긁는 선의 시작점
   anchors: {
     stand: { head: Point; tail: Point }

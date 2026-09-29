@@ -17,7 +17,7 @@ const BODY = Palette.bank(0) + Palette.Role.body
 const flatWorld = Fixtures.flatWorld
 
 const STAND: PetPose = {
-  body: 'stand', flip: false, back: false, bodyDx: 0, bodyDy: 0, tilt: 0, head: 'face', headDx: 0, headDy: 0,
+  body: 'stand', flip: false, back: false, bodyDx: 0, bodyDy: 0, tilt: 0, head: 'face', headKind: 'plain', headDx: 0, headDy: 0,
   eyeClosed: false, tongue: false, mouthOpen: false, tailAngle: 0.8, tailLen: 3, scratch: 0,
   legs: [[-3, false], [-2, true], [2, false], [3, true]].map(([hipX, far]) => ({ hipX: hipX as number, far: far as boolean, dx: 0, lift: false, len: 2 })),
 }

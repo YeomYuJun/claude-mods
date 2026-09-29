@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import Pet, { type Pet as PetState, type PoseName, type Gait, type Dir } from '../hooks/pet'
+import Iso from '../hooks/iso'
+import Pet, { type Pet as PetState, type PoseName, type Gait, type Dir, type ActName } from '../hooks/pet'
 import Pixel, { Palette } from '../hooks/pixel'
+import Scene from '../hooks/scene'
 import Species, { type SpeciesDef } from '../hooks/species'
 import Sprite, { type PetPose } from '../hooks/sprite'
 import World from '../hooks/world'
@@ -12,8 +14,9 @@ const R = Palette.Role
 const POSES: readonly PoseName[] = [
   'stand', 'look', 'pant', 'sniff', 'dig', 'bow', 'shake', 'scratch', 'yawn', 'stretch',
   'sit', 'frontSit', 'lie', 'lieRest', 'sleep', 'wake',
+  'roll', 'drink', 'chew', 'tilt', 'alert', 'beg', 'droop',
 ]
-const GAITS: readonly Gait[] = ['walk', 'trot', 'run', 'sniff']
+const GAITS: readonly Gait[] = ['walk', 'trot', 'run', 'sniff', 'creep']
 const DIRS: readonly Dir[] = ['SE', 'SW', 'NW', 'NE']
 
 // 맵은 한 번만 만든다(모습을 훑는 동안 강아지를 수천 번 새로 만든다)
@@ -154,5 +157,81 @@ describe('sprite', () => {
       }
     }
     expect(heavy > 10).toBe(true)
+  })
+})
+
+// 한 자세를 시계를 돌려 그린 프레임들(픽셀 목록 문자열). 감정 표시는 나이를 돌린다
+function framesOf(p: PetState): Set<string> {
+  const out = new Set<string>()
+  for (let ms = 0; ms < 1500; ms += 37) {
+    p.breath = ms
+    p.act.t = ms % 700
+    if (p.emote) p.emote.age = ms % 1100
+    out.add([...pixelsOf(Pet.poseOf(p)).entries()].sort().join(';'))
+  }
+  return out
+}
+
+describe('new poses', () => {
+  test('each reaction and rolling draws its own pose, not the stand-in it replaced: belly, drooped ears, raised paws, tilted head, raised ears, barking mouth', async () => {
+    const cases: Array<[ActName, number, PoseName]> = [
+      ['rollOver', 1, 'lie'], ['sulk', 0, 'lie'], ['beg', 1, 'frontSit'], ['puzzled', 1, 'look'], ['alert', 0, 'stand'], ['bark', 1, 'pant'],
+    ]
+    for (const [name, i, standIn] of cases) {
+      const p = petOf()
+      p.act = Pet.build(name, p, WORLD)
+      const step = p.act.steps[i]!
+      if (step.k !== 'pose') throw new Error(`${name}: step ${i} is ${step.k}`)
+      p.dir = 'SE'
+      p.pose = step.pose
+      p.emote = step.emote ? Pet.Fx.emoteOf(step.emote, 1100) : undefined
+      const own = framesOf(p)
+      p.pose = standIn
+      const old = framesOf(p)
+      const same = [...own].filter(f => old.has(f)).length
+      expect(`${name} ${step.pose}: ${same} of ${own.size} frames drawn like ${standIn}`).toBe(`${name} ${step.pose}: 0 of ${own.size} frames drawn like ${standIn}`)
+    }
+  })
+
+  test('stalking creeps (low, slow gait), and pondering shows the dots every 2.5 s for its whole 20 s', async () => {
+    let stalks = 0
+    for (let seed = 1; seed < 400 && stalks === 0; seed++) {
+      const p = Pet.create(WORLD, seed, 0, Species.DOG)
+      const a = Pet.build('play', p, WORLD)
+      const go = a.steps.find(s => s.k === 'go')
+      if (!go || go.k !== 'go' || !a.steps.some(s => s.k === 'pounce')) continue
+      stalks++
+      expect(go.gait).toBe('creep')
+    }
+    expect(stalks).toBe(1)
+    const ponder = Pet.build('ponder', petOf(), WORLD).steps
+    const dots = ponder.filter(s => s.k === 'pose' && s.emote === 'dots')
+    expect(dots.length).toBe(8)
+    expect(ponder.reduce((t, s) => t + (s.k === 'pose' ? s.ms : 0), 0)).toBe(20_000)
+  })
+
+  test('a carried ball is drawn over the mouth cell of the head, facing either side and bowing', async () => {
+    const face = Species.DOG.sprite.heads.face
+    const mrow = face.rows.findIndex(r => r.includes('M'))
+    const mcol = face.rows[mrow]!.indexOf('M')
+    for (const [dir, pose] of [['SE', 'stand'], ['SW', 'stand'], ['SE', 'bow'], ['SW', 'bow']] as const) {
+      const scene = Scene.create(7, 0)
+      const p = scene.pet
+      p.dir = dir
+      p.pose = pose
+      p.carrying = true
+      p.blinkMs = 0
+      Scene.compose(scene, 60, 30, 1)
+      const b = scene.buf!
+      const view = Iso.viewOf(scene.cam, b, Iso.NEAR)
+      const s = Iso.screenOf(p.x, p.y, p.z, Iso.NEAR)
+      const d = Pet.poseOf(p)
+      const lx = Species.DOG.sprite.anchors.stand.head[0] + d.bodyDx + d.headDx + mcol - face.ax
+      const ly = Species.DOG.sprite.anchors.stand.head[1] + d.bodyDy + d.headDy + Math.round(d.tilt) + mrow - face.ay
+      const X = Math.round(s.sx) - view.ox + (d.flip ? -lx : lx)
+      const Y = Math.round(s.sy) - view.oy + ly
+      const c = b.px[Y * b.w + X]
+      expect(`${dir} ${pose} ${c === Palette.BALL || c === Palette.BALL_HI}`).toBe(`${dir} ${pose} true`)
+    }
   })
 })

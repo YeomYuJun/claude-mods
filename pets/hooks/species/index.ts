@@ -63,8 +63,12 @@ export function lookOf(id: BreedId): SpeciesDef {
         bodies: {
           stand: spotted(b.stand, d, 1), sit: spotted(b.sit, d, 2), lie: spotted(b.lie, d, 3), curlA: spotted(b.curlA, d, 4),
           curlB: spotted(b.curlB, d, 4), frontSit: spotted(b.frontSit, d, 5), frontStand: spotted(b.frontStand, d, 5),
+          bellyA: spotted(b.bellyA, d, 8), bellyB: spotted(b.bellyB, d, 8), frontBeg: spotted(b.frontBeg, d, 5),
         },
-        heads: { face: spotted(s.heads.face, d, 6), back: spotted(s.heads.back, d, 7) },
+        heads: {
+          face: spotted(s.heads.face, d, 6), back: spotted(s.heads.back, d, 7), alert: spotted(s.heads.alert, d, 6),
+          droop: spotted(s.heads.droop, d, 6), tilt: spotted(s.heads.tilt, d, 5),
+        },
       },
     }
   }

@@ -262,7 +262,7 @@ describe('chew and pits', () => {
       pet.lastSignalAt = now
       Pet.update(pet, world, Names.SIM_STEP_MS, now)
       if (pet.holding) held++
-      if (pet.holding && pet.pose === 'lie') lying++
+      if (pet.holding && pet.pose === 'chew') lying++
     }
     expect(pet.act.name === 'chew').toBe(false)
     expect(held > 0 && lying > 0).toBe(true)

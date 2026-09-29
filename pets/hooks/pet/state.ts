@@ -28,12 +28,13 @@ export function dirOf(dx: number, dy: number): Dir {
   return dy >= 0 ? 'SW' : 'NE'
 }
 
-export type Gait = 'walk' | 'trot' | 'run' | 'sniff'
+export type Gait = 'walk' | 'trot' | 'run' | 'sniff' | 'creep'
 
 // 멈춰서 하는 자세
 export type PoseName =
   | 'stand' | 'look' | 'pant' | 'sniff' | 'dig' | 'bow' | 'shake' | 'scratch' | 'yawn' | 'stretch'
   | 'sit' | 'frontSit' | 'lie' | 'lieRest' | 'sleep' | 'wake'
+  | 'roll' | 'drink' | 'chew' | 'tilt' | 'alert' | 'beg' | 'droop'
 
 // go: to 가 있으면 그 칸, pick 이 있으면 단계를 시작할 때 지금 자리에서 걸음 수 [lo, hi] 인 칸을 고른다(front 면 화면 앞쪽 칸).
 // must 면 길이 없을 때 행동 전체를 그만둔다(목적지가 핵심인 행동). 아니면 그 단계만 건너뛴다.

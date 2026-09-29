@@ -15,7 +15,7 @@ export type Particle = {
   life: number
 }
 
-export type EmoteKind = '!' | '?' | 'heart' | 'note'
+export type EmoteKind = '!' | '?' | 'heart' | 'note' | 'dots' | 'bark'
 
 export type Emote = { kind: EmoteKind; age: number; life: number }
 
