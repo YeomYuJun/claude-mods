@@ -35,6 +35,13 @@ export type PoseName =
   | 'stand' | 'look' | 'pant' | 'sniff' | 'dig' | 'bow' | 'shake' | 'scratch' | 'yawn' | 'stretch'
   | 'sit' | 'frontSit' | 'lie' | 'lieRest' | 'sleep' | 'wake'
   | 'roll' | 'drink' | 'chew' | 'tilt' | 'alert' | 'beg' | 'droop'
+  // 앉아 앞발을 핥는다(고양이가 도구 호출 때 땅 파기 대신)
+  | 'groom'
+
+// 이 종이 실제로 하는 자세: 종이 다른 자세로 바꾸는 자세면 바꾼 것
+export function poseFor(species: SpeciesDef, name: PoseName): PoseName {
+  return species.behavior.poseMap[name] ?? name
+}
 
 // go: to 가 있으면 그 칸, pick 이 있으면 단계를 시작할 때 지금 자리에서 걸음 수 [lo, hi] 인 칸을 고른다(front 면 화면 앞쪽 칸).
 // must 면 길이 없을 때 행동 전체를 그만둔다(목적지가 핵심인 행동). 아니면 그 단계만 건너뛴다.

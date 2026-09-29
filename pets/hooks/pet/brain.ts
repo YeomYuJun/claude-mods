@@ -21,7 +21,7 @@ import * as Ball from './ball.js'
 import * as Fx from './fx.js'
 import * as Motion from './motion.js'
 import {
-  BUCKETS, DIR_VEC, DIRS, dirOf, HISTORY_SIZE, isMoving, isRight, keyOf, tileOf,
+  BUCKETS, DIR_VEC, DIRS, dirOf, HISTORY_SIZE, isMoving, isRight, keyOf, poseFor, tileOf,
   type ActClass, type ActName, type Activity, type BucketName, type Dir, type Needs, type Pet, type PlayName, type PoseName, type Step, type Survey,
 } from './state.js'
 
@@ -1086,7 +1086,7 @@ function runStep(p: Pet, world: WorldState, step: Step, a: Activity, dtMs: numbe
     }
     case 'pose': {
       if (isStart) {
-        p.pose = step.pose
+        p.pose = poseFor(p.species, step.pose)
         if (step.face) Motion.faceTo(p, ...DIR_VEC[step.face])
         if (step.emote) p.emote = Fx.emoteOf(step.emote, 1100)
         if (step.pose === 'sleep') p.isAsleep = true

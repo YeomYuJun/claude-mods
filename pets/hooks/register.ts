@@ -274,8 +274,8 @@ export function register(on: On) {
     }
     const docked = e.presentation?.isFullscreen === true
     await $.ui.open(docked
-      ? { id: Names.PANE_ID, title: Names.PANE_TITLE, holdToasts: true, columns: Names.COLS }
-      : { id: Names.PANE_ID, title: Names.PANE_TITLE, holdToasts: true, rows: Names.INLINE_ROWS })
+      ? { id: Names.PANE_ID, title: Names.PANE_TITLE(Species.speciesOf(scene.breed).label), holdToasts: true, columns: Names.COLS }
+      : { id: Names.PANE_ID, title: Names.PANE_TITLE(Species.speciesOf(scene.breed).label), holdToasts: true, rows: Names.INLINE_ROWS })
     isOpen = true
     // 패널을 여는 것도 신호로 친다. 오래 닫아 두었다 열었을 때 강아지가 보자마자 잠자리로 가지 않는다
     scene.pet.lastSignalAt = await $.clock.now()

@@ -40,10 +40,12 @@ function startHop(p: Pet, world: WorldState, tx: number, ty: number, isPath: boo
   const dist = Math.hypot(tx - p.x, ty - p.y)
   const j = p.species.jump
   const v = Math.max(p.speed, j.minSpeed)
+  // 한 단보다 높이 오르면(오르기 2 인 종) 두 단 호 높이
+  const upPx = z1 - p.z > Names.STEP_PX && j.up2Px !== undefined ? j.up2Px : j.upPx
   p.hop = {
     fx: p.x, fy: p.y, tx, ty, z0: p.z, z1, t: 0,
     dur: Math.min(j.maxMs, Math.max(j.minMs, (dist / v) * 1000)),
-    peak: (up ? j.upPx : j.downPx) + (p.gait === 'run' ? j.runBonusPx : 0),
+    peak: (up ? upPx : j.downPx) + (p.gait === 'run' ? j.runBonusPx : 0),
     isPath,
   }
 }

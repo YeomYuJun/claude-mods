@@ -7,7 +7,7 @@
 // 종·뱅크마다 한 번만 번호로 바꿔 두고 다시 쓴다.
 
 import { Palette, plot, plotDepth, type Buffer } from '../pixel'
-import type { BitmapSpec, BodyKind, SpeciesDef } from '../species'
+import { BASE_BODIES, EXTRA_BODIES, type BitmapSpec, type BodyKind, type SpeciesDef } from '../species'
 
 type Mark = readonly [number, number]
 type Bitmap = { w: number; h: number; ax: number; ay: number; px: Uint8Array; eyes: Mark[]; mouth?: Mark }
@@ -33,17 +33,17 @@ function bitmap(ax: number, ay: number, rows: readonly string[], code: Readonly<
   return { w, h, ax, ay, px, eyes, mouth }
 }
 
-// 종 하나를 뱅크 하나의 팔레트 번호로 바꾼 것
+// 종 하나를 뱅크 하나의 팔레트 번호로 바꾼 것. 종이 그리지 않는 몸·머리는 없다
 type Compiled = {
   species: SpeciesDef
-  bodies: Record<BodyKind, Bitmap>
+  bodies: Partial<Record<BodyKind, Bitmap>>
   face: Bitmap
   back: Bitmap
-  alert: Bitmap
-  alertBack: Bitmap
-  droop: Bitmap
-  droopBack: Bitmap
-  tilt: Bitmap
+  alert?: Bitmap
+  alertBack?: Bitmap
+  droop?: Bitmap
+  droopBack?: Bitmap
+  tilt?: Bitmap
   role: (name: Palette.RoleName) => number
   seeThrough: Set<number>
 }
@@ -67,26 +67,39 @@ function compile(species: SpeciesDef, bank: number): Compiled {
   const code: Record<string, number> = {}
   for (const [ch, name] of Object.entries(species.sprite.codes)) code[ch] = role(name)
   const of = (s: BitmapSpec) => bitmap(s.ax, s.ay, s.rows, code)
-  const b = species.sprite.bodies
+  const maybe = (s: BitmapSpec | undefined) => s === undefined ? undefined : of(s)
+  const b: Readonly<Partial<Record<BodyKind, BitmapSpec>>> = species.sprite.bodies
   const h = species.sprite.heads
+  const bodies: Partial<Record<BodyKind, Bitmap>> = {}
+  for (const kind of [...BASE_BODIES, ...EXTRA_BODIES]) {
+    const spec = b[kind]
+    if (spec) bodies[kind] = of(spec)
+  }
   const out: Compiled = {
     species,
-    bodies: {
-      stand: of(b.stand), sit: of(b.sit), lie: of(b.lie), curlA: of(b.curlA), curlB: of(b.curlB), frontSit: of(b.frontSit), frontStand: of(b.frontStand),
-      bellyA: of(b.bellyA), bellyB: of(b.bellyB), frontBeg: of(b.frontBeg),
-    },
+    bodies,
     face: of(h.face),
     back: of(h.back),
-    alert: of(h.alert),
-    alertBack: of(backOf(h.alert)),
-    droop: of(h.droop),
-    droopBack: of(backOf(h.droop)),
-    tilt: of(h.tilt),
+    alert: maybe(h.alert),
+    alertBack: maybe(h.alert && backOf(h.alert)),
+    droop: maybe(h.droop),
+    droopBack: maybe(h.droop && backOf(h.droop)),
+    tilt: maybe(h.tilt),
     role,
     seeThrough: new Set(species.sprite.seeThrough.map(role)),
   }
   byBank.set(bank, out)
   return out
+}
+
+// 종이 그리지 않는 몸·머리를 찾으면 멈춘다(자세를 poseMap 으로 바꾸지 않은 것이다)
+function need(bm: Bitmap | undefined, k: Compiled, what: string): Bitmap {
+  if (!bm) throw new Error(`sprite: ${k.species.id} has no ${what}`)
+  return bm
+}
+
+function bodyOf(k: Compiled, kind: BodyKind): Bitmap {
+  return need(k.bodies[kind], k, kind)
 }
 
 export type Leg = { hipX: number; dx: number; lift: boolean; far: boolean; len: number }
@@ -159,8 +172,8 @@ function paintFace(k: Compiled, bm: Bitmap, ox: number, oy: number, pose: PetPos
 
 function headOf(k: Compiled, pose: PetPose): Bitmap {
   const back = pose.head === 'back'
-  if (pose.headKind === 'alert') return back ? k.alertBack : k.alert
-  if (pose.headKind === 'droop') return back ? k.droopBack : k.droop
+  if (pose.headKind === 'alert') return need(back ? k.alertBack : k.alert, k, 'alert head')
+  if (pose.headKind === 'droop') return need(back ? k.droopBack : k.droop, k, 'droop head')
   return back ? k.back : k.face
 }
 
@@ -185,7 +198,7 @@ function paintHead(k: Compiled, pose: PetPose, paint: Painter): void {
 
 // 갸웃한 정면 머리를 정면 몸의 맨 위 줄에 맞춘다
 function tiltOn(k: Compiled, body: Bitmap): Bitmap {
-  return { ...k.tilt, ax: body.ax, ay: body.ay }
+  return { ...need(k.tilt, k, 'tilt head'), ax: body.ax, ay: body.ay }
 }
 
 // 다리: 가까운 다리는 뒤쪽 윤곽 한 줄 + 앞쪽 털 한 줄, 먼 다리는 옅은 두 줄
@@ -238,7 +251,7 @@ export function paintPet(species: SpeciesDef, pose: PetPose, paint: Painter, ban
       const tilt = species.sprite.tilt
       if (!pose.back) paintTail(k, pose, a.stand.tail, paint)
       paintLegs(k, pose, paint, true)
-      stamp(k.bodies.stand, bx, by, paint, pose.flip, pose.tilt, tilt.x0, tilt.span)
+      stamp(bodyOf(k, 'stand'), bx, by, paint, pose.flip, pose.tilt, tilt.x0, tilt.span)
       paintLegs(k, pose, paint, false)
       paintHead(k, pose, paint)
       if (pose.back) paintTail(k, pose, a.stand.tail, paint)
@@ -246,7 +259,7 @@ export function paintPet(species: SpeciesDef, pose: PetPose, paint: Painter, ban
     }
     case 'sit': {
       paintTail(k, pose, a.sit.tail, paint)
-      stamp(k.bodies.sit, bx, by, paint, pose.flip)
+      stamp(bodyOf(k, 'sit'), bx, by, paint, pose.flip)
       if (pose.scratch > 0) {
         // 뒷다리를 들어 귀 뒤를 긁는다
         const [edgeRole, fillRole] = species.sprite.legs.near
@@ -262,19 +275,19 @@ export function paintPet(species: SpeciesDef, pose: PetPose, paint: Painter, ban
     }
     case 'lie': {
       paintTail(k, pose, a.lie.tail, paint)
-      stamp(k.bodies.lie, bx, by, paint, pose.flip)
+      stamp(bodyOf(k, 'lie'), bx, by, paint, pose.flip)
       paintHead(k, pose, paint)
       return
     }
     case 'curlA':
     case 'curlB': {
-      stamp(k.bodies[pose.body], bx, by, paint, pose.flip)
+      stamp(bodyOf(k, pose.body), bx, by, paint, pose.flip)
       return
     }
     // 배를 보인 모습은 다리·머리·꼬리가 그림에 들어 있다
     case 'bellyA':
     case 'bellyB': {
-      const bm = k.bodies[pose.body]
+      const bm = bodyOf(k, pose.body)
       stamp(bm, bx, by, paint, pose.flip)
       paintFace(k, bm, bx, by, pose, pose.flip, paint)
       return
@@ -282,7 +295,7 @@ export function paintPet(species: SpeciesDef, pose: PetPose, paint: Painter, ban
     case 'frontSit':
     case 'frontStand':
     case 'frontBeg': {
-      const bm = k.bodies[pose.body]
+      const bm = bodyOf(k, pose.body)
       // 꼬리는 몸 뒤에서 옆으로 흔든다
       if (pose.tailLen > 0) {
         const side = Math.sin(pose.tailAngle) > 0 ? 1 : -1
@@ -319,11 +332,11 @@ export function mouthOf(species: SpeciesDef, pose: PetPose, bank = 0): { x: numb
       return undefined
     case 'bellyA':
     case 'bellyB':
-      return at(k.bodies[pose.body], pose.bodyDx, pose.bodyDy, pose.flip, true)
+      return at(bodyOf(k, pose.body), pose.bodyDx, pose.bodyDy, pose.flip, true)
     case 'frontSit':
     case 'frontStand':
     case 'frontBeg': {
-      const bm = k.bodies[pose.body]
+      const bm = bodyOf(k, pose.body)
       return at(pose.headKind === 'tilt' ? tiltOn(k, bm) : bm, pose.bodyDx, pose.bodyDy, false, true)
     }
     default: {

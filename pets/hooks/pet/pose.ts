@@ -5,7 +5,7 @@
 // 자세마다 꼬리를 흔드는 폭·빠르기와 머리 움직임은 여기서 정한다. 달리기에서 네 발이 다 뜨면 몸이 솟는다.
 
 import type { Leg, PetPose } from '../sprite'
-import { isBack, isMoving, isRight, type Gait, type Pet } from './state.js'
+import { isBack, isMoving, isRight, poseFor, type Gait, type Pet } from './state.js'
 
 
 function foot(ph: number, sigma: number, amp: number): { dx: number; lift: boolean } {
@@ -95,7 +95,8 @@ export function poseOf(p: Pet): PetPose {
     return d
   }
   if (p.landMs > 0) { d.bodyDy = 1; d.headDy = 1 }
-  switch (p.pose) {
+  // 행동은 자세를 정할 때 이미 바꾼다. 상태를 바로 고친 경우(테스트·세트 바꾸기)에도 그 종이 그리는 자세로 그린다
+  switch (poseFor(p.species, p.pose)) {
     case 'stand':
       d.tailAngle = wag(now, 0.8, happy ? 0.5 : 0.35, happy ? 4 : 1.6)
       return d
@@ -238,6 +239,14 @@ export function poseOf(p: Pet): PetPose {
       d.headKind = 'droop'
       d.headDy = 1
       d.tailAngle = 0
+      return d
+    case 'groom':
+      // 앉아 눈을 감고 고개를 숙였다 들며 앞발을 핥는다
+      d.body = 'sit'
+      d.eyeClosed = true
+      d.headDy = Math.floor(now / 260) % 2 === 0 ? 1 : 2
+      d.tongue = Math.floor(now / 130) % 2 === 0
+      d.tailAngle = wag(now, 0.1, 0.2, 0.8)
       return d
   }
 }

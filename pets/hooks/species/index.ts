@@ -1,13 +1,15 @@
+import { CAT } from './cat.js'
 import { DOG } from './dog.js'
-import type { BitmapSpec, BreedDef, BreedId, SpeciesDef, SpeciesId } from './types.js'
+import { BASE_BODIES, EXTRA_BODIES, HEAD_KINDS, type BitmapSpec, type BodyKind, type BreedDef, type BreedId, type HeadKind, type SpeciesDef, type SpeciesId } from './types.js'
 
 export * from './types.js'
+export { CAT } from './cat.js'
 export { DOG } from './dog.js'
 
-export const SPECIES: Readonly<Record<SpeciesId, SpeciesDef>> = { dog: DOG }
+export const SPECIES: Readonly<Record<SpeciesId, SpeciesDef>> = { dog: DOG, cat: CAT }
 
-// 모든 품종(지금은 강아지 품종뿐). 첫 번째가 기본
-export const BREEDS: readonly BreedDef[] = DOG.breeds
+// 모든 품종(강아지 품종 다음 고양이 품종). 첫 번째가 기본
+export const BREEDS: readonly BreedDef[] = [...DOG.breeds, ...CAT.breeds]
 export const DEFAULT_BREED: BreedId = BREEDS[0]!.id
 
 export function breedOf(id: BreedId): BreedDef {
@@ -39,36 +41,54 @@ function spotAt(x: number, y: number, salt: number): number {
 
 const SPOT = 'P'
 
-function spotted(spec: BitmapSpec, density: number, salt: number): BitmapSpec {
-  return { ...spec, rows: spec.rows.map((row, y) => row.replace(/w/g, (ch, x: number) => spotAt(x - spec.ax, y - spec.ay, salt) < density ? SPOT : ch)) }
+// 그림마다 점 자리를 고르는 소금. 같은 모습의 그림(웅크린 잠 두 장, 정면 몸, 옆머리)은 같은 값이라 점이 같은 자리에 남는다
+const SALT: Readonly<Record<BodyKind | HeadKind, number>> = {
+  stand: 1, sit: 2, lie: 3, curlA: 4, curlB: 4, frontSit: 5, frontStand: 5, bellyA: 8, bellyB: 8, frontBeg: 5,
+  face: 6, back: 7, alert: 6, droop: 6, tilt: 5,
+}
+
+// 몸 털 칸(w)을 무늬 역할로 바꾼다. 점박이는 칸 해시 비율, 줄무늬는 x 가 간격의 배수인 세로 줄(바닥 점 기준 좌표)
+function patterned(spec: BitmapSpec, breed: BreedDef, salt: number): BitmapSpec {
+  const hit = (x: number, y: number): boolean => breed.spots !== undefined
+    ? spotAt(x, y, salt) < breed.spots
+    : ((x % breed.stripes!) + breed.stripes!) % breed.stripes! === 0
+  return { ...spec, rows: spec.rows.map((row, y) => row.replace(/w/g, (ch, x: number) => hit(x - spec.ax, y - spec.ay) ? SPOT : ch)) }
+}
+
+// 품종의 종
+export function speciesOf(id: BreedId): SpeciesDef {
+  return SPECIES[breedOf(id).species]
 }
 
 const looks = new Map<BreedId, SpeciesDef>()
 
-// 품종의 모습: 무늬가 있는 품종은 몸 털 칸 일부를 무늬 역할로 바꾼 비트맵을 가진 종 정의 사본. 품종마다 한 번만 만든다
+// 품종의 모습: 그 종의 정의. 무늬가 있는 품종은 몸 털 칸 일부를 무늬 역할로 바꾼 비트맵을 가진 사본. 품종마다 한 번만 만든다
 export function lookOf(id: BreedId): SpeciesDef {
   const done = looks.get(id)
   if (done) return done
   const breed = breedOf(id)
-  let look = DOG
-  if (breed.spots !== undefined) {
-    const d = breed.spots
-    const s = DOG.sprite
-    const b = s.bodies
+  const species = SPECIES[breed.species]
+  let look = species
+  if (breed.spots !== undefined || breed.stripes !== undefined) {
+    const s = species.sprite
+    const src: Readonly<Partial<Record<BodyKind, BitmapSpec>>> = s.bodies
+    const bodies: Partial<Record<BodyKind, BitmapSpec>> = {}
+    for (const kind of [...BASE_BODIES, ...EXTRA_BODIES]) {
+      const spec = src[kind]
+      if (spec) bodies[kind] = patterned(spec, breed, SALT[kind])
+    }
+    const heads: Partial<Record<HeadKind, BitmapSpec>> = {}
+    for (const kind of HEAD_KINDS) {
+      const spec = s.heads[kind]
+      if (spec) heads[kind] = patterned(spec, breed, SALT[kind])
+    }
     look = {
-      ...DOG,
+      ...species,
       sprite: {
         ...s,
         codes: { ...s.codes, [SPOT]: 'pattern' },
-        bodies: {
-          stand: spotted(b.stand, d, 1), sit: spotted(b.sit, d, 2), lie: spotted(b.lie, d, 3), curlA: spotted(b.curlA, d, 4),
-          curlB: spotted(b.curlB, d, 4), frontSit: spotted(b.frontSit, d, 5), frontStand: spotted(b.frontStand, d, 5),
-          bellyA: spotted(b.bellyA, d, 8), bellyB: spotted(b.bellyB, d, 8), frontBeg: spotted(b.frontBeg, d, 5),
-        },
-        heads: {
-          face: spotted(s.heads.face, d, 6), back: spotted(s.heads.back, d, 7), alert: spotted(s.heads.alert, d, 6),
-          droop: spotted(s.heads.droop, d, 6), tilt: spotted(s.heads.tilt, d, 5),
-        },
+        bodies: bodies as SpeciesDef['sprite']['bodies'],
+        heads: heads as SpeciesDef['sprite']['heads'],
       },
     }
   }

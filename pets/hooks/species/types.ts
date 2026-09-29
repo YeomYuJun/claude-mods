@@ -4,10 +4,18 @@
 import type { ActName, Gait, PoseName } from '../pet/state.js'
 import type { BankColors, RoleName } from '../pixel/palette.js'
 
-export type SpeciesId = 'dog'
+export type SpeciesId = 'dog' | 'cat'
 
-// bellyA·bellyB: 배를 보이며 누운 모습(뒹굴기, 두 장 번갈아). frontBeg: 정면으로 앉아 앞발을 든 모습(조르기)
-export type BodyKind = 'stand' | 'sit' | 'lie' | 'curlA' | 'curlB' | 'frontSit' | 'frontStand' | 'bellyA' | 'bellyB' | 'frontBeg'
+// 모든 종이 그리는 몸
+export type BaseBody = 'stand' | 'sit' | 'lie' | 'curlA' | 'curlB' | 'frontSit' | 'frontStand'
+// 그리는 종만 있는 몸. bellyA·bellyB: 배를 보이며 누운 모습(뒹굴기, 두 장 번갈아). frontBeg: 정면으로 앉아 앞발을 든 모습(조르기).
+// 없는 종은 이 몸을 쓰는 자세를 behavior.poseMap 으로 다른 자세로 바꾼다
+export type ExtraBody = 'bellyA' | 'bellyB' | 'frontBeg'
+export type BodyKind = BaseBody | ExtraBody
+export const BASE_BODIES: readonly BaseBody[] = ['stand', 'sit', 'lie', 'curlA', 'curlB', 'frontSit', 'frontStand']
+export const EXTRA_BODIES: readonly ExtraBody[] = ['bellyA', 'bellyB', 'frontBeg']
+export type HeadKind = 'face' | 'back' | 'alert' | 'droop' | 'tilt'
+export const HEAD_KINDS: readonly HeadKind[] = ['face', 'back', 'alert', 'droop', 'tilt']
 
 // 비트맵: 글자 한 줄이 픽셀 한 줄. '.' 은 투명이고 나머지 글자는 codes 로 역할을 찾는다.
 // 'E' 는 눈(자리를 기억해 감은 눈을 덧칠한다), 'M' 은 입(자리를 기억해 혀를 덧칠한다). ax, ay: (0, 0) 에 놓일 칸
@@ -32,10 +40,10 @@ export type GaitDef = {
 
 export type SpriteSet = {
   codes: Readonly<Record<string, RoleName>>
-  bodies: Readonly<Record<BodyKind, BitmapSpec>>
+  bodies: Readonly<Record<BaseBody, BitmapSpec>> & Readonly<Partial<Record<ExtraBody, BitmapSpec>>>
   // face·back: 옆모습 머리(오른쪽 보기)와 뒷모습 머리. alert: 귀 세운 옆머리, droop: 귀 처진 옆머리(뒷모습은 눈·코·입을 지워 만든다).
-  // tilt: 정면 몸의 위 줄들을 갈아 끼우는 갸웃한 정면 머리(줄 수만큼 몸의 위 줄을 덮는다)
-  heads: { face: BitmapSpec; back: BitmapSpec; alert: BitmapSpec; droop: BitmapSpec; tilt: BitmapSpec }
+  // tilt: 정면 몸의 위 줄들을 갈아 끼우는 갸웃한 정면 머리(줄 수만큼 몸의 위 줄을 덮는다). 셋은 그리는 종만 있다(없는 종은 poseMap 으로 바꾼다)
+  heads: { face: BitmapSpec; back: BitmapSpec; alert?: BitmapSpec; droop?: BitmapSpec; tilt?: BitmapSpec }
   // 몸 종류별 머리 기준점·꼬리 뿌리(몸 이동량을 더하기 전). sit 의 scratch 는 뒷다리로 귀 긁는 선의 시작점
   anchors: {
     stand: { head: Point; tail: Point }
@@ -73,20 +81,22 @@ export type BandSet = {
   weights: { busy: Readonly<Record<'walk' | 'idle' | 'sit' | 'sniff', number>>; calm: Readonly<Record<'walk' | 'idle' | 'sit' | 'sniff', number>> }
 }
 
-export type BreedId = 'dog' | 'shiba' | 'blackdog' | 'dalmatian' | 'brown'
+export type BreedId = 'dog' | 'shiba' | 'blackdog' | 'dalmatian' | 'brown' | 'cat' | 'cheese'
 
 // 띠 색 한 벌(띠 역할마다 RGB)
 export type BandColors = Readonly<Record<BandRole, number>>
 
-// 품종: 같은 비트맵에 색만 다르다. spots 가 있으면 몸 털 칸 중 그 비율만큼을 무늬 역할로 바꾼 비트맵을 쓴다.
-// 띠 색은 어두운 터미널용(dark)과 밝은 터미널용(light) 두 벌
+// 품종: 한 종 안에서 같은 비트맵에 색만 다르다. spots 가 있으면 몸 털 칸 중 그 비율만큼을, stripes 가 있으면 그 간격(px)마다 한 세로 줄의
+// 몸 털 칸을 무늬 역할로 바꾼 비트맵을 쓴다. 띠 색은 어두운 터미널용(dark)과 밝은 터미널용(light) 두 벌
 export type BreedDef = {
   id: BreedId
+  species: SpeciesId
   label: string
   aliases: readonly string[]
   bank: BankColors
   band: { dark: BandColors; light: BandColors }
   spots?: number
+  stripes?: number
 }
 
 export type SpeciesDef = {
@@ -97,8 +107,8 @@ export type SpeciesDef = {
   gaits: Readonly<Record<Gait, GaitDef>>
   // 꺾는 칸에서 미리 넘어가는 거리, 뛰기 전 웅크림·착지 눌림·돌아볼 때 정면 모습(ms), 단차를 이 거리 안에서 뛴다, 달릴 때 먼지 간격(ms)
   motion: { corner: number; crouchMs: number; landMs: number; turnMs: number; hopAt: number; runDustMs: number }
-  // 단차 뛰기: 오를 때·내릴 때 호 높이(px), 달리면 더하는 높이, 최소 속도, 길이 범위(ms). 폴짝: 높이·길이
-  jump: { upPx: number; downPx: number; runBonusPx: number; minSpeed: number; minMs: number; maxMs: number; pounce: { peakPx: number; ms: number } }
+  // 단차 뛰기: 오를 때·내릴 때 호 높이(px), 두 단을 오를 때 호 높이(오르기 2 인 종), 달리면 더하는 높이, 최소 속도, 길이 범위(ms). 폴짝: 높이·길이
+  jump: { upPx: number; downPx: number; up2Px?: number; runBonusPx: number; minSpeed: number; minMs: number; maxMs: number; pounce: { peakPx: number; ms: number } }
   sprite: SpriteSet
   band: BandSet
   // 한 걸음에 오르는 단 수, 깊은 물을 건너는지
@@ -111,5 +121,7 @@ export type SpeciesDef = {
     energyRate: Readonly<Partial<Record<PoseName, number>>>
     // 프롬프트·턴 끝에 오르는 들뜸
     exciteGain: { turnStart: number; turnEnd: number }
+    // 이 종이 그리지 않는(또는 다르게 하는) 자세 → 대신 쓰는 자세. 자세를 정할 때 바꾸므로 효과·기운·그림이 모두 바뀐 자세를 본다
+    poseMap: Readonly<Partial<Record<PoseName, PoseName>>>
   }
 }

@@ -202,10 +202,11 @@ export function setBiome(scene: Scene, biome: BiomeId, now: number): void {
   scene.prev = f
 }
 
-// 품종을 바꾼다. 색과 무늬만 바뀌고 강아지의 자리·행동은 그대로다
+// 품종을 바꾼다. 동물의 자리·행동은 그대로이고, 종이 바뀌면 걸음·그림·능력이 새 종의 것이 된다(지금 자세도 새 종이 하는 자세로)
 export function setBreed(scene: Scene, breed: BreedId): void {
   scene.breed = breed
   scene.pet.species = Species.lookOf(breed)
+  scene.pet.pose = Pet.poseFor(scene.pet.species, scene.pet.pose)
   scene.theme = Biome.themeOf(scene.biome, Species.breedOf(breed).bank)
 }
 

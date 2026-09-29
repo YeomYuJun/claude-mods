@@ -14,7 +14,7 @@ const R = Palette.Role
 const POSES: readonly PoseName[] = [
   'stand', 'look', 'pant', 'sniff', 'dig', 'bow', 'shake', 'scratch', 'yawn', 'stretch',
   'sit', 'frontSit', 'lie', 'lieRest', 'sleep', 'wake',
-  'roll', 'drink', 'chew', 'tilt', 'alert', 'beg', 'droop',
+  'roll', 'drink', 'chew', 'tilt', 'alert', 'beg', 'droop', 'groom',
 ]
 const GAITS: readonly Gait[] = ['walk', 'trot', 'run', 'sniff', 'creep']
 const DIRS: readonly Dir[] = ['SE', 'SW', 'NW', 'NE']

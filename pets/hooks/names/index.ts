@@ -1,22 +1,23 @@
 export const PLUGIN_NAME = 'pets'
 export const PANE_ID = 'pets'
 export const COMMAND_NAME = 'pets'
-export const COMMAND_DESCRIPTION = '강아지 패널을 열고 닫는다. zoom [in|out]: 원거리·1 배·2 배, world [세트|auto]: 맵 세트, pet [품종|auto]: 강아지 품종'
+export const COMMAND_DESCRIPTION = '동물 패널을 열고 닫는다. zoom [in|out]: 원거리·1 배·2 배, world [세트|auto]: 맵 세트, pet [품종|auto]: 동물(강아지·고양이 품종)'
 export const ARGUMENT_HINT = 'zoom [in|out] | world [세트|auto] | pet [품종|auto]'
-export const PANE_TITLE = '강아지'
-export const PANEL_SHOWN_TEXT = '강아지 패널을 열었다'
-export const PANEL_HIDDEN_TEXT = '강아지 패널을 닫았다'
+// 패널 제목은 여는 순간의 동물 종 이름(강아지, 고양이)
+export const PANE_TITLE = (speciesLabel: string) => speciesLabel
+export const PANEL_SHOWN_TEXT = '동물 패널을 열었다'
+export const PANEL_HIDDEN_TEXT = '동물 패널을 닫았다'
 export const ZOOM_TEXT = (zoom: 'far' | 1 | 2) => zoom === 'far' ? '원거리로 넓게 보게 바꿨다' : `도트 크기를 ${zoom} 배로 바꿨다`
 export const ZOOM_LIMIT_TEXT = (zoom: 'far' | 1 | 2) => zoom === 'far' ? '이미 가장 넓게(원거리) 보고 있다' : '이미 가장 크게(2 배) 보고 있다'
-export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets zoom (원거리 → 1 배 → 2 배 순환), /pets zoom in · out (한 단계씩), /pets world (맵 세트 보기·바꾸기), /pets pet (강아지 품종 보기·바꾸기)'
+export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets zoom (원거리 → 1 배 → 2 배 순환), /pets zoom in · out (한 단계씩), /pets world (맵 세트 보기·바꾸기), /pets pet (동물 보기·바꾸기)'
 // 세트 목록 글: "paper 모눈종이, meadow 초원, …, auto(세션마다 모눈종이 밖에서 고름)"
 export const WORLD_CHOICES = (sets: ReadonlyArray<{ id: string; label: string }>) => `${sets.map(s => `${s.id} ${s.label}`).join(', ')}, auto(세션마다 모눈종이 밖에서 고름)`
 export const WORLD_NOW_TEXT = (label: string, isAuto: boolean, choices: string) => `지금 맵 세트: ${label}${isAuto ? '(자동)' : ''}. 고를 수 있는 세트: ${choices}`
-export const WORLD_TEXT = (label: string, isAuto: boolean) => `맵 세트를 ${isAuto ? `자동으로 바꿨다(이 세션은 ${label} 세트)` : `${label} 세트로 바꿨다`}. 맵을 새로 만들고 강아지를 새 자리에 두었다`
+export const WORLD_TEXT = (label: string, isAuto: boolean) => `맵 세트를 ${isAuto ? `자동으로 바꿨다(이 세션은 ${label} 세트)` : `${label} 세트로 바꿨다`}. 맵을 새로 만들고 동물을 새 자리에 두었다`
 export const PET_CHOICES = (breeds: ReadonlyArray<{ id: string; label: string }>) => `${breeds.map(b => `${b.id} ${b.label}`).join(', ')}, auto(세션마다 흰 강아지 밖에서 고름)`
-export const PET_NOW_TEXT = (label: string, isAuto: boolean, choices: string) => `지금 강아지: ${label}${isAuto ? '(자동)' : ''}. 고를 수 있는 품종: ${choices}`
+export const PET_NOW_TEXT = (label: string, isAuto: boolean, choices: string) => `지금 동물: ${label}${isAuto ? '(자동)' : ''}. 고를 수 있는 품종: ${choices}`
 export const PET_TEXT = (label: string, isAuto: boolean, dropped: number) =>
-  `강아지를 ${isAuto ? `자동으로 바꿨다(이 세션은 ${label})` : `바꿨다: ${label}`}${dropped > 0 ? `. 지금은 한 마리만 두어 첫 번째만 썼다(${dropped} 개는 무시)` : ''}`
+  `동물을 ${isAuto ? `자동으로 바꿨다(이 세션은 ${label})` : `바꿨다: ${label}`}${dropped > 0 ? `. 지금은 한 마리만 두어 첫 번째만 썼다(${dropped} 개는 무시)` : ''}`
 export const PET_UNKNOWN_TEXT = (word: string, choices: string) => `'${word}' 라는 품종은 없다. 고를 수 있는 품종: ${choices}`
 export const WORLD_UNKNOWN_TEXT = (word: string, choices: string) => `'${word}' 라는 맵 세트는 없다. 고를 수 있는 세트: ${choices}`
 export const RASTER_KEY = 'map'
@@ -26,7 +27,7 @@ export const STORE_SCALE = 'scale'
 // 맵 세트: { v: 1, set: 세트 id | 'auto' }. 모르는 모양·버전·id 면 모눈종이로 보고 지우지 않는다
 export const STORE_WORLD = 'world'
 export const STORE_WORLD_VERSION = 1
-// 강아지 품종: { v: 1, list: [품종 id] | 'auto' }. 지금은 한 마리. 모르는 모양·버전·id 면 흰 강아지로 보고 지우지 않는다
+// 동물 품종: { v: 1, list: [품종 id] | 'auto' }. 지금은 한 마리. 모르는 모양·버전·id 면 흰 강아지로 보고 지우지 않는다
 export const STORE_PETS = 'pets'
 export const STORE_PETS_VERSION = 1
 // 강아지가 바꾼 칸(옮긴 나뭇가지, 구덩이 흔적): 'edits:<세트>:<세션 시드 16 진 8 자>' 키에 { v: 1, at, list }. 키는 가장 최근 것 EDITS_KEYS 개까지 남기고,
