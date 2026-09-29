@@ -10,7 +10,7 @@
 // 4. 블록 높이 = 발자국 높이 + 1 또는 + 2(발자국 높이가 모두 같을 때만 놓는다)
 // 5. 지표 종류: 순서대로 첫 참. 호수(물), 호수 테(물가 종류), 블록, 눈(온도 노이즈 - 0.06 × 높이 < 눈 문턱, 높이 하한 이상),
 //    돌(높이 문턱 이상), 얼룩(습도 노이즈 < 문턱 이고 잔무늬 노이즈 > 문턱), 나머지는 바탕 종류
-// 6. 걷는 꾸밈(꽃·풀포기·버섯·갈대·연잎): 장애물·블록이 아닌 칸에 칸 해시로 둔다. 장애물이 아니라 걸음을 막지 않는다
+// 6. 걷는 꾸밈(꽃·풀포기·버섯·갈대·연잎·나뭇가지): 장애물·블록이 아닌 칸에 칸 해시로 둔다. 장애물이 아니라 걸음을 막지 않는다
 // 7. 호수: LAKE_CELL 칸 격자 셀마다 확률로 하나. 모양·깊이·수면이 셀 좌표와 포락선 전 높이만의 함수라 어느 영역에서 불러도 같다.
 //    수면 L = 발자국을 hmax + 1 칸 넓힌 곳의 포락선 전 높이 최솟값, 바닥은 얕음 L - 1, 깊음 L - 2 로 고정하고 포락선을 돌린다.
 //    포락선은 한 칸마다 한 단까지만 오르므로 테(발자국과 8 방향으로 닿는 칸)는 L 보다 낮을 수 없다(떠 있는 물이 없다).
@@ -51,6 +51,8 @@ export type GenParams = {
   mushroomP?: number
   reedP?: number
   lilyP?: number
+  // 나뭇가지(강아지가 물어 옮길 수 있는 꾸밈) 확률(칸당). 풀·낙엽 칸에, 다른 꾸밈이 없을 때만
+  branchP?: number
   // 호수: 격자 셀마다 있을 확률과 반지름 범위(칸). shore 는 호수 테의 지표 종류. 없으면 호수가 없다
   lake?: { p: number; r: readonly [number, number] }
   shore?: number
@@ -88,6 +90,7 @@ export const DECO_TUFT = 2
 export const DECO_MUSHROOM = 3
 export const DECO_REED = 4
 export const DECO_LILY = 5
+export const DECO_BRANCH = 6
 
 // water 배열 값
 export const WATER_NONE = 0
@@ -110,6 +113,10 @@ export type GenOptions = {
   raw?: (x: number, y: number) => number
   // 이 칸 범위 밖으로(둘레 1 칸 포함) 걸치는 장애물 후보는 버린다(경계 있는 맵)
   inside?: { x0: number; y0: number; x1: number; y1: number }
+  // 호수 셀 결과를 담아 두는 표(키 lakeKeyOf). 같은 시드·매개변수·raw·inside 로만 나눠 쓴다(경계 없는 월드의 청크들)
+  lakeCache?: Map<number, Lake | null>
+  // 포락선 여유(칸). 없으면 반경 reachOf. 여유를 줄이면 이음매가 어긋나는지 보는 시험용
+  margin?: number
 }
 
 // water: 칸마다 WATER_*. 물 칸의 height 는 바닥 높이다
@@ -203,6 +210,14 @@ function turnOf(dx: number, dy: number): number {
 // 상자 테두리에서 닿지 않는 칸(구멍)은 채운다. 깊음: 반지름 4 이상이고 수면 2 이상일 때, 8 이웃이 모두 발자국이고 가운데에서 0.6 r0 안인 칸.
 // 중심은 셀 가장자리에서 inset 안쪽이라 이웃 셀 호수와 hmax + 4 칸 넘게 떨어진다. lim 이 있으면 발자국과 테가 그 안에 들 때만 둔다
 export function lakeOf(seed: number, p: GenParams, gx: number, gy: number, opts: GenOptions = {}): Lake | undefined {
+  const shape = lakeShapeOf(seed, p, gx, gy, opts)
+  return shape && lakeFinish(seed, p, shape, opts)
+}
+
+// 호수 모양(발자국, 수면 전). 포락선 전 높이를 읽지 않는다. near: 수면을 찾는 칸 범위(발자국을 hmax + 1 칸 넓힌 상자, 양 끝 포함)
+export type LakeShape = { x0: number; y0: number; s: number; R: number; r0: number; cells: Uint8Array; near: { x0: number; y0: number; x1: number; y1: number } }
+
+export function lakeShapeOf(seed: number, p: GenParams, gx: number, gy: number, opts: GenOptions = {}): LakeShape | undefined {
   const spec = p.lake
   if (!spec || unit(hash(seed, gx, gy, 501)) >= spec.p) return undefined
   const [rLo, rHi] = spec.r
@@ -247,6 +262,14 @@ export function lakeOf(seed: number, p: GenParams, gx: number, gy: number, opts:
   const y0 = cy - R
   const lim = opts.inside
   if (lim && (x0 + bx0 - 1 < lim.x0 || y0 + by0 - 1 < lim.y0 || x0 + bx1 + 1 > lim.x1 || y0 + by1 + 1 > lim.y1)) return undefined
+  const k = p.hmax + 1
+  return { x0, y0, s, R, r0, cells, near: { x0: x0 - k, y0: y0 - k, x1: x0 + s - 1 + k, y1: y0 + s - 1 + k } }
+}
+
+// 모양에 수면과 깊은 물을 더해 호수를 만든다. 수면이 1 보다 낮으면 호수가 없다
+export function lakeFinish(seed: number, p: GenParams, shape: LakeShape, opts: GenOptions = {}): Lake | undefined {
+  const { x0, y0, s, R, r0 } = shape
+  const cells = shape.cells.slice()
   // 수면: 발자국을 hmax + 1 칸(8 방향 거리) 넓힌 곳의 포락선 전 높이 최솟값
   const k = p.hmax + 1
   const S = s + 2 * k
@@ -320,13 +343,31 @@ function floodOf(m: Uint8Array, s: number, starts: readonly number[], want: numb
   return seen
 }
 
+// 호수 셀 좌표를 한 수로(|셀 좌표| < 32768)
+export function lakeKeyOf(gx: number, gy: number): number {
+  return (gx & 0xffff) | (gy << 16)
+}
+
+// [x0, x1] × [y0, y1] 와 겹치는 호수 셀 범위(양 끝 포함)
+export function lakeCellsIn(x0: number, y0: number, x1: number, y1: number): { gx0: number; gy0: number; gx1: number; gy1: number } {
+  return { gx0: Math.floor(x0 / LAKE_CELL), gy0: Math.floor(y0 / LAKE_CELL), gx1: Math.floor(x1 / LAKE_CELL), gy1: Math.floor(y1 / LAKE_CELL) }
+}
+
 // [x0, x1] × [y0, y1] 와 겹치는 호수들. 호수는 제 셀 안에 들어 있어 겹치는 셀만 본다
 export function lakesIn(seed: number, p: GenParams, x0: number, y0: number, x1: number, y1: number, opts: GenOptions = {}): Lake[] {
   const out: Lake[] = []
   if (!p.lake) return out
-  for (let gy = Math.floor(y0 / LAKE_CELL); gy <= Math.floor(y1 / LAKE_CELL); gy++) {
-    for (let gx = Math.floor(x0 / LAKE_CELL); gx <= Math.floor(x1 / LAKE_CELL); gx++) {
-      const lake = lakeOf(seed, p, gx, gy, opts)
+  const cache = opts.lakeCache
+  const g = lakeCellsIn(x0, y0, x1, y1)
+  for (let gy = g.gy0; gy <= g.gy1; gy++) {
+    for (let gx = g.gx0; gx <= g.gx1; gx++) {
+      let lake: Lake | undefined
+      if (cache) {
+        const key = lakeKeyOf(gx, gy)
+        let v = cache.get(key)
+        if (v === undefined) { v = lakeOf(seed, p, gx, gy, opts) ?? null; cache.set(key, v) }
+        lake = v ?? undefined
+      } else lake = lakeOf(seed, p, gx, gy, opts)
       if (lake && lake.x0 <= x1 && lake.y0 <= y1 && lake.x0 + lake.s > x0 && lake.y0 + lake.s > y0) out.push(lake)
     }
   }
@@ -447,11 +488,22 @@ export function decoOf(seed: number, p: GenParams, x: number, y: number, kind: n
     if (u < flower + (p.tuftP ?? 0)) return DECO_TUFT
   }
   if ((kind === KIND_GRASS || kind === KIND_LITTER) && unit(hash(seed, x, y, 302)) < (p.mushroomP ?? 0)) return DECO_MUSHROOM
+  if ((kind === KIND_GRASS || kind === KIND_LITTER) && unit(hash(seed, x, y, 305)) < (p.branchP ?? 0)) return DECO_BRANCH
   return DECO_NONE
 }
 
 // 영역 [x0, x0 + w) × [y0, y0 + h) 를 만든다: 높이, 소품 번호(나무·바위), 블록 표시, 지표 종류, 걷는 꾸밈, 물
 export function region(seed: number, p: GenParams, x0: number, y0: number, w: number, h: number, opts: GenOptions = {}): Region {
+  const work = regionStart(seed, p, x0, y0, w, h, opts)
+  regionRows(work, h)
+  const { height, prop, block, kind, deco, water } = work
+  return { x0, y0, w, h, height, prop, block, kind, deco, water }
+}
+
+// 나눠 만드는 영역. regionStart 가 높이·소품·블록까지 만들고, regionRows 가 지표 종류·꾸밈·물을 행 단위로 채운다(rows 는 채운 행 수)
+export type RegionWork = Region & { seed: number; p: GenParams; lakes: Lake[]; rows: number }
+
+export function regionStart(seed: number, p: GenParams, x0: number, y0: number, w: number, h: number, opts: GenOptions = {}): RegionWork {
   const cell = opts.cell ?? OBS_CELL
   const ring = opts.ring ?? true
   // 둘레 PAD 칸까지 정확한 높이. 포락선이 읽는 칸(여유 margin 포함)에 걸친 호수를 모두 찍는다
@@ -459,7 +511,7 @@ export function region(seed: number, p: GenParams, x0: number, y0: number, w: nu
   const eh = h + 2 * PAD
   const ex0 = x0 - PAD
   const ey0 = y0 - PAD
-  const margin = reachOf(p)
+  const margin = opts.margin ?? reachOf(p)
   const lakes = lakesIn(seed, p, ex0 - margin, ey0 - margin, ex0 + ew - 1 + margin, ey0 + eh - 1 + margin, opts)
   const H = envelope(seed, p, ex0, ey0, ew, eh, opts, margin, lakes)
   const at = (x: number, y: number) => H[(y - ey0) * ew + (x - ex0)]!
@@ -508,10 +560,13 @@ export function region(seed: number, p: GenParams, x0: number, y0: number, w: nu
       }
     }
   }
-  const kind = new Uint8Array(w * h)
-  const deco = new Uint8Array(w * h)
-  const water = new Uint8Array(w * h)
-  for (let j = 0; j < h; j++) {
+  return { x0, y0, w, h, height, prop, block, kind: new Uint8Array(w * h), deco: new Uint8Array(w * h), water: new Uint8Array(w * h), seed, p, lakes, rows: 0 }
+}
+
+// 지표 종류·꾸밈·물을 upTo 행까지 채운다
+export function regionRows(work: RegionWork, upTo: number): void {
+  const { seed, p, lakes, x0, y0, w, height, prop, block, kind, deco, water } = work
+  for (let j = work.rows; j < Math.min(upTo, work.h); j++) {
     for (let i = 0; i < w; i++) {
       const o = j * w + i
       const x = x0 + i
@@ -527,5 +582,5 @@ export function region(seed: number, p: GenParams, x0: number, y0: number, w: nu
       if (!block[o] && !prop[o]) deco[o] = decoOf(seed, p, x, y, kind[o]!)
     }
   }
-  return { x0, y0, w, h, height, prop, block, kind, deco, water }
+  work.rows = Math.max(work.rows, Math.min(upTo, work.h))
 }

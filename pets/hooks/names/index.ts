@@ -29,6 +29,12 @@ export const STORE_WORLD_VERSION = 1
 // 강아지 품종: { v: 1, list: [품종 id] | 'auto' }. 지금은 한 마리. 모르는 모양·버전·id 면 흰 강아지로 보고 지우지 않는다
 export const STORE_PETS = 'pets'
 export const STORE_PETS_VERSION = 1
+// 강아지가 바꾼 칸(옮긴 나뭇가지, 구덩이 흔적): 'edits:<세트>:<세션 시드 16 진 8 자>' 키에 { v: 1, at, list }. 키는 가장 최근 것 EDITS_KEYS 개까지 남기고,
+// 바뀌었으면 EDITS_SAVE_MS 에 한 번과 세션 끝에 쓴다. 모르는 모양·버전이면 빈 표로 보고 그 키에는 쓰지도 지우지도 않는다
+export const STORE_EDITS_PREFIX = 'edits:'
+export const STORE_EDITS_KEY = (set: string, seed: number) => `${STORE_EDITS_PREFIX}${set}:${(seed >>> 0).toString(16).padStart(8, '0')}`
+export const EDITS_KEYS = 8
+export const EDITS_SAVE_MS = 60_000
 
 // 패널: 요청 폭과 최소 크기(셀). 사람이 끈 폭이 이긴다
 export const COLS = 40

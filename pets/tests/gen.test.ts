@@ -134,7 +134,7 @@ describe('generator', () => {
   })
 
   test('the generator uses no trigonometric, exponential or power functions', async () => {
-    for (const fn of [Gen.hash, Gen.unit, Gen.smooth, Gen.vnoise, Gen.rawHeight, Gen.floorOf, Gen.reachOf, Gen.envelope, Gen.candidateOf, Gen.lakeOf, Gen.lakesIn, Gen.lakeCellAt, Gen.kindOf, Gen.decoOf, Gen.waterDecoOf, Gen.region, World.create]) {
+    for (const fn of [Gen.hash, Gen.unit, Gen.smooth, Gen.vnoise, Gen.rawHeight, Gen.floorOf, Gen.reachOf, Gen.envelope, Gen.candidateOf, Gen.lakeOf, Gen.lakeShapeOf, Gen.lakeFinish, Gen.lakesIn, Gen.lakeCellAt, Gen.kindOf, Gen.decoOf, Gen.waterDecoOf, Gen.region, Gen.regionStart, Gen.regionRows, World.create, World.createOpen, World.Chunks.nextUnit, World.Chunks.rawAt]) {
       const src = String(fn)
       expect(src.length > 20).toBe(true)
       expect(/Math\.(sin|cos|tan|asin|acos|atan|atan2|hypot|exp|expm1|pow|log|log2|log10|cbrt)\b|\*\*/.test(src)).toBe(false)
@@ -191,7 +191,7 @@ describe('generator', () => {
         else expect(`${at} ${k === (p.ground ?? Gen.KIND_PAPER) || k === p.patch?.kind}`).toBe(`${at} true`)
         if (d === Gen.DECO_NONE) continue
         expect(`${at} deco on open ground ${!r.block[i] && !r.prop[i]}`).toBe(`${at} deco on open ground true`)
-        if (d === Gen.DECO_MUSHROOM) expect(`${at} ${k === Gen.KIND_GRASS || k === Gen.KIND_LITTER}`).toBe(`${at} true`)
+        if (d === Gen.DECO_MUSHROOM || d === Gen.DECO_BRANCH) expect(`${at} ${k === Gen.KIND_GRASS || k === Gen.KIND_LITTER}`).toBe(`${at} true`)
         else expect(`${at} ${k}`).toBe(`${at} ${Gen.KIND_GRASS}`)
       }
       // 모눈종이는 종이 하나, 다른 세트는 바탕(풀)과 돌(블록)이 적어도 나온다
@@ -200,12 +200,17 @@ describe('generator', () => {
     }
   })
 
-  test('the wider sets make a 64 × 64 map whose top reaches above the graph-paper range', async () => {
-    for (const b of Biome.BIOMES.filter(x => x.size !== undefined)) {
-      const w = World.create(5, b.gen, { size: b.size })
-      expect(`${b.id} ${w.w} ${w.h}`).toBe(`${b.id} 64 64`)
-      expect(Math.max(...w.height) > 4).toBe(true)
-      expect(World.isWalkable(w, w.spawn.x, w.spawn.y)).toBe(true)
+  test('the sets other than graph paper are worlds without edges whose top reaches above the graph-paper range, with the start on dry walkable ground', async () => {
+    const open = Biome.BIOMES.filter(x => x.open === true)
+    expect(open.map(b => b.id)).toEqual(['meadow', 'mountain', 'forest', 'lake'])
+    for (const b of open) {
+      const w = World.create(5, b.gen, { open: true })
+      expect(`${b.id} ${World.isOpen(w)} ${World.inside(w, -5000, 7000)}`).toBe(`${b.id} true true`)
+      let top = 0
+      for (let y = -40; y < 40; y++) for (let x = -40; x < 40; x++) top = Math.max(top, World.heightAt(w, x, y))
+      expect(`${b.id} ${top > 4}`).toBe(`${b.id} true`)
+      const f = World.flagsAt(w, w.spawn.x, w.spawn.y)
+      expect(`${b.id} ${(f & World.WALK) !== 0 && (f & (World.WATER | World.BLOCK)) === 0}`).toBe(`${b.id} true`)
     }
   })
 })

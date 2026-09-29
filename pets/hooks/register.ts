@@ -8,6 +8,7 @@ import Rng from './rng'
 import Scene, { type Zoom } from './scene'
 import Species, { type BreedId } from './species'
 import View from './view'
+import World from './world'
 
 type Host = {
   now: () => Promise<number>
@@ -65,6 +66,11 @@ export function register(on: On) {
   let petChoice: BreedId | 'auto' = Species.DEFAULT_BREED
   let isLight = false
   let sessionSeed = 0x5eed
+  // 마지막으로 저장한 편집 목록(JSON)과 저장을 마지막으로 살핀 시각. 목록이 같으면 다시 쓰지 않는다.
+  // 지금 키에 모르는 버전·모양의 값이 있으면 이 세트·세션 동안 그 키에 쓰지 않는다(다른 버전의 저장값을 덮지 않는다)
+  let editsSaved = ''
+  let editsAt = 0
+  let editsLocked = false
 
   function biomeOf(choice: BiomeId | 'auto'): BiomeId {
     return choice === 'auto' ? Biome.autoOf(sessionSeed) : choice
@@ -79,6 +85,54 @@ export function register(on: On) {
     const breed = Species.breedOf(scene.breed)
     Band.setLook(band, Species.lookOf(breed.id), isLight ? breed.band.light : breed.band.dark)
     if (strip) strip.lastCells = ''
+  }
+
+  function editsKey(): string {
+    return Names.STORE_EDITS_KEY(scene.biome, sessionSeed)
+  }
+
+  // 지금 세트·시드의 편집(옮긴 나뭇가지, 구덩이 흔적)을 읽는다. 모르는 버전·모양이면 빈 표로 두고 저장값은 지우지 않는다
+  async function loadEdits(get: (key: string) => Promise<unknown>, now: number): Promise<void> {
+    editsSaved = ''
+    editsLocked = false
+    try {
+      const value = await get(editsKey())
+      const edits = World.editsFromSave(value)
+      if (!edits) {
+        editsLocked = value !== undefined
+        return
+      }
+      scene.world.edits = edits
+      World.expireEdits(scene.world, now)
+      editsSaved = JSON.stringify(World.editsToSave(scene.world, now).list)
+    } catch { /* 못 읽으면 빈 표 */ }
+  }
+
+  // 편집이 바뀌었으면 저장한다
+  async function saveEdits(h: Host, now: number): Promise<void> {
+    if (editsLocked) return
+    const value = World.editsToSave(scene.world, now)
+    const text = JSON.stringify(value.list)
+    if (text === editsSaved) return
+    editsSaved = text
+    await h.store(editsKey(), value)
+  }
+
+  // 편집 키는 지금 것 말고 가장 최근 것 EDITS_KEYS - 1 개까지만 남긴다(저장값의 at 이 오래된 것부터 지운다).
+  // 모르는 버전·모양의 값은 세지도 지우지도 않는다
+  async function pruneEdits(store: { keys: () => Promise<string[]>; get: (key: string) => Promise<unknown>; delete: (key: string) => Promise<void> }): Promise<void> {
+    const mine = editsKey()
+    const others = (await store.keys()).filter(k => k.startsWith(Names.STORE_EDITS_PREFIX) && k !== mine)
+    if (others.length < Names.EDITS_KEYS) return
+    const dated: Array<[string, number]> = []
+    for (const k of others) {
+      const v = await store.get(k)
+      if (!World.editsFromSave(v)) continue
+      const at = (v as { at?: unknown }).at
+      dated.push([k, typeof at === 'number' ? at : 0])
+    }
+    dated.sort((a, b) => b[1] - a[1])
+    for (const [k] of dated.slice(Names.EDITS_KEYS - 1)) await store.delete(k)
   }
 
   // 패널이 열려 있으면 강아지가 반응하고, 닫혀 있으면 신호 시각만 적는다(시뮬레이션도 멈춰 있다)
@@ -107,7 +161,12 @@ export function register(on: On) {
     const p = pane
     if (isOpen && p) {
       Scene.step(scene, dt, now)
+      Scene.prefetch(scene, p.cols, p.rows, zoom)
       if (now - p.lastAt >= Scene.renderEveryMs(scene) - 1) await paint(h, p, Names.RASTER_KEY, Scene.compose(scene, p.cols, p.rows, zoom), now)
+      if (now - editsAt >= Names.EDITS_SAVE_MS) {
+        editsAt = now
+        try { await saveEdits(h, now) } catch { /* 다음에 다시 */ }
+      }
     }
     const s = strip
     if (isBandOn && s) {
@@ -146,6 +205,9 @@ export function register(on: On) {
     } catch { /* 저장한 값이 없으면 기본값 */ }
     try { isLight = isLightTheme((await $.config.list()).find(row => row.key === 'theme')?.value) } catch { /* 모르면 어두운 터미널로 본다 */ }
     scene = Scene.create(seed, now, biomeOf(worldChoice), breedOf(petChoice))
+    editsAt = now
+    await loadEdits(key => $.store.get(key), now)
+    try { await pruneEdits({ keys: () => $.store.keys(), get: key => $.store.get(key), delete: key => $.store.delete(key) }) } catch { /* 지우지 못하면 다음 세션에 */ }
     band = Band.create(seed, now)
     lookBand()
     await $.command.register({ name: Names.COMMAND_NAME, description: Names.COMMAND_DESCRIPTION, argumentHint: Names.ARGUMENT_HINT })
@@ -160,7 +222,10 @@ export function register(on: On) {
       if (next === zoom) return { text: Names.ZOOM_LIMIT_TEXT(zoom) }
       zoom = next
       await host?.store(Names.STORE_SCALE, zoom)
-      if (pane) pane.lastCells = ''
+      if (pane) {
+        Scene.ensureVisible(scene, pane.cols, pane.rows, zoom)
+        pane.lastCells = ''
+      }
       $.ui.invalidate('ui.render')
       return { text: Names.ZOOM_TEXT(zoom) }
     }
@@ -171,9 +236,17 @@ export function register(on: On) {
       const picked = sub === 'auto' ? 'auto' : Biome.find(sub)?.id
       if (picked === undefined) return { text: Names.WORLD_UNKNOWN_TEXT(sub, choices) }
       worldChoice = picked
-      Scene.setBiome(scene, biomeOf(picked), await $.clock.now())
+      const now = await $.clock.now()
+      if (host) {
+        try { await saveEdits(host, now) } catch { /* 옛 세트 편집을 못 쓰면 버린다 */ }
+      }
+      Scene.setBiome(scene, biomeOf(picked), now)
+      await loadEdits(key => $.store.get(key), now)
       await host?.store(Names.STORE_WORLD, { v: Names.STORE_WORLD_VERSION, set: picked })
-      if (pane) pane.lastCells = ''
+      if (pane) {
+        Scene.ensureVisible(scene, pane.cols, pane.rows, zoom)
+        pane.lastCells = ''
+      }
       $.ui.invalidate('ui.render')
       return { text: Names.WORLD_TEXT(Biome.byId(scene.biome).label, picked === 'auto') }
     }
@@ -244,6 +317,7 @@ export function register(on: On) {
       return View.noticeView(kit, View.tooSmallLines(cols, rows))
     }
     const now = await $.clock.now()
+    Scene.ensureVisible(scene, cols, rows, zoom)
     const cells = Scene.compose(scene, cols, rows, zoom)
     pane = { requestId: e.requestId, cols, rows, lastCells: cells, lastAt: now }
     if (isOpen) syncTimer()
@@ -266,6 +340,14 @@ export function register(on: On) {
     strip = { requestId: e.requestId, cols, rows: Names.BAND_ROWS, lastCells: cells, lastAt: now }
     syncTimer()
     return View.rasterView(kit.Raster, Names.BAND_KEY, cols, Names.BAND_ROWS, cells)
+  })
+
+  // 세션이 끝날 때 바뀐 편집을 저장한다
+  on('session.end', async ($, e, next) => {
+    try {
+      if (host) await saveEdits(host, await $.clock.now())
+    } catch { /* 못 쓰면 버린다 */ }
+    return next(e)
   })
 
   on('turn.start', async ($, e, next) => {

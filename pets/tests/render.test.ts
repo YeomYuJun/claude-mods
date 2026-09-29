@@ -116,10 +116,10 @@ const PROJS: ReadonlyArray<readonly [string, Proj]> = [['near', Iso.NEAR], ['far
 // 시작 칸 둘레 ±24 칸이 모두 들어가는 버퍼와 그 원점
 const fullOf = (world: WorldState, proj: Proj) => Fixtures.drawAround(world, proj)
 
-// 세트마다 시드 7 맵 하나. 맵 만들기가 무거워(64 × 64 는 엔진에서 15~20 ms) 이 파일에서 한 번만 만든다
+// 세트마다 시드 7 맵 하나(패널과 같은 맵). 맵 만들기가 무거워 이 파일에서 한 번만 만든다
 let sets: Array<readonly [string, WorldState]> | undefined
 function setWorlds(): ReadonlyArray<readonly [string, WorldState]> {
-  sets ??= Biome.BIOMES.map(b => [b.id, World.create(7, b.gen, { size: b.size, props: true })] as const)
+  sets ??= Biome.BIOMES.map(b => [b.id, Biome.worldOf(b.id, 7)] as const)
   return sets
 }
 
@@ -186,13 +186,20 @@ describe('iso projections', () => {
     for (const [id, world] of setWorlds()) {
       for (const [name, proj] of PROJS) {
         // 120 열 × 60 행 패널 = 120 × 120 픽셀, 시작 칸이 가운데
+        // 경계 없는 월드는 시작 칸 ±48 칸을 훑는다(원거리 120 × 120 픽셀 화면은 대각선 ±30 칸 안). 그 안의 청크를 먼저 만든다
+        Fixtures.loadAround(world, 48)
         const b = Pixel.bufferOf(120, 60, 1)
         Pixel.clear(b)
         const s = Iso.screenOf(world.spawn.x, world.spawn.y, 0, proj)
         const view = { ox: Math.round(s.sx) - 60, oy: Math.round(s.sy) - 60 }
         const drawn = Iso.drawWorld(b, world, view, proj)
         let meets = 0
-        const { x0, y0, x1, y1 } = World.bounds(world)
+        const r = 48
+        const all = World.bounds(world)
+        const x0 = Math.max(all.x0, world.spawn.x - r)
+        const x1 = Math.min(all.x1, world.spawn.x + r)
+        const y0 = Math.max(all.y0, world.spawn.y - r)
+        const y1 = Math.min(all.y1, world.spawn.y + r)
         for (let y = y0; y <= y1; y++) {
           for (let x = x0; x <= x1; x++) {
             const z = Iso.topZ(world, x, y, proj)

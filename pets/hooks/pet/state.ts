@@ -50,10 +50,15 @@ export type Step =
   // 공을 입에 문다(가까이 있을 때), 내려놓는다
   | { k: 'grab' }
   | { k: 'drop' }
+  // 선 칸의 나뭇가지를 문다(없으면 행동을 끝낸다), 문 나뭇가지를 내려놓는다
+  | { k: 'take' }
+  | { k: 'put' }
+  // 선 칸에 구덩이 흔적을 남긴다
+  | { k: 'pit' }
 
 export type ActName =
   | 'idle' | 'walk' | 'run' | 'sniff' | 'play' | 'sit' | 'lie'
-  | 'explore' | 'patrol' | 'perch' | 'rollOver' | 'watch' | 'nap' | 'drink' | 'splash'
+  | 'explore' | 'patrol' | 'perch' | 'rollOver' | 'watch' | 'nap' | 'drink' | 'splash' | 'chew' | 'digSpot'
   | 'greet' | 'dig' | 'settle' | 'bedtime'
   | 'attend' | 'ponder' | 'seeOff' | 'shakeOff' | 'nose' | 'alert' | 'bark' | 'wait' | 'beg' | 'sulk' | 'startle' | 'puzzled'
 
@@ -145,6 +150,8 @@ export type Pet = {
   skipZ: boolean
   // 공을 입에 물고 있다
   carrying: boolean
+  // 나뭇가지를 물고 있다. from 은 집어 든 칸(내려놓을 곳이 없으면 그리로 되돌린다)
+  holding?: { from: Tile }
   pose: PoseName
   // 0~1. 뛰고 놀면 줄고 쉬고 자면 찬다. 낮으면 앉고 눕는 쪽을 고른다
   energy: number

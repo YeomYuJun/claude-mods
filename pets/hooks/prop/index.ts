@@ -2,6 +2,7 @@
 //
 // 모든 타일을 그린 뒤 뒤에서 앞으로(x + y 순) 픽셀마다 깊이를 비교해 그리고 깊이를 쓴다.
 // 깊이: 장애물 소품 = 칸 x + y + 0.45(같은 칸 동물 0.4 보다 조금 앞), 걷는 꾸밈 = x + y + 0.6(같은 칸 동물의 발을 조금 가린다).
+// 버퍼에는 타일과 같이 view.dz 를 뺀 값을 담는다(비우기 범위의 동물 깊이도 뺀 값으로 받는다).
 // 그래서 뒤 칸의 동물은 소품에 가리고 앞 칸의 동물은 소품을 가린다. 줄기 위로 솟은 잎은 뒤 칸 타일 위에 그려진다.
 // 비우기: 나무(1 배에서 키 8 픽셀 넘는 소품)가 동물 화면 상자 안에서 동물보다 앞이면 (X + Y) 홀수 칸을 칠하지 않는다.
 // 원거리 나무는 6~9 픽셀이지만 동물은 원래 크기로 그려 가려지므로 원거리에서도 비운다.
@@ -26,7 +27,7 @@ const G = World.Gen
 const PROP_IDS: ReadonlyArray<readonly [number, PropArtId]> = [
   [G.PROP_ROCK, 'rock'], [G.PROP_BROADLEAF, 'broadleaf'], [G.PROP_PINE, 'pine'], [G.PROP_OAK, 'oak'], [G.PROP_WILLOW, 'willow'], [G.PROP_PAPER_TREE, 'paperTree'],
 ]
-const DECO_IDS: ReadonlyArray<readonly [number, PropArtId]> = [[G.DECO_FLOWER, 'flower'], [G.DECO_TUFT, 'tuft'], [G.DECO_MUSHROOM, 'mushroom'], [G.DECO_REED, 'reed'], [G.DECO_LILY, 'lily']]
+const DECO_IDS: ReadonlyArray<readonly [number, PropArtId]> = [[G.DECO_FLOWER, 'flower'], [G.DECO_TUFT, 'tuft'], [G.DECO_MUSHROOM, 'mushroom'], [G.DECO_REED, 'reed'], [G.DECO_LILY, 'lily'], [G.DECO_BRANCH, 'branch']]
 
 // 팔레트 번호로 바꾼 그림. 투명은 255
 type Compiled = { w: number; h: number; ax: number; ay: number; px: Uint8Array; isTall: boolean }
@@ -80,8 +81,12 @@ function stamp(b: Buffer, c: Compiled, sx: number, sy: number, depth: number, ho
   }
 }
 
-// 버퍼에 보이는 소품을 뒤에서 앞으로 그리고 그린 소품 수를 돌려준다. drawWorld 다음에 부른다
+// 버퍼에 보이는 소품을 뒤에서 앞으로 그리고 그린 소품 수를 돌려준다. drawWorld 다음에 부른다. 없는 청크의 칸은 건너뛴다
 export function drawProps(b: Buffer, world: WorldState, view: View, proj: Proj = Iso.NEAR, hollow?: Hollow): number {
+  return World.peek(world, () => stampAll(b, world, view, proj, hollow))
+}
+
+function stampAll(b: Buffer, world: WorldState, view: View, proj: Proj, hollow: Hollow | undefined): number {
   const hw = proj.hw
   const hh = proj.hh
   const isFar = proj !== Iso.NEAR
@@ -90,12 +95,14 @@ export function drawProps(b: Buffer, world: WorldState, view: View, proj: Proj =
   // 그림 바닥 점은 칸 가운데(d × hh + hh - z). 위로 MAX_H 까지 솟는다
   const dMin = Math.max(x0 + y0, Math.floor((view.oy - hh) / hh))
   const dMax = Math.min(x1 + y1, Math.ceil((view.oy + b.h + maxZ + MAX_H) / hh))
+  const dz = view.dz ?? 0
   let drawn = 0
   for (let d = dMin; d <= dMax; d++) {
     const xLo = Math.max(x0, d - y1, Math.ceil(((view.ox - hw) / hw + d) / 2))
     const xHi = Math.min(x1, d - y0, Math.floor(((view.ox + b.w + hw) / hw + d) / 2))
     for (let x = xLo; x <= xHi; x++) {
       const y = d - x
+      if (!World.isLoaded(world, x, y)) continue
       const prop = World.propAt(world, x, y)
       const deco = prop ? 0 : World.decoAt(world, x, y)
       const pair = prop ? byProp.get(prop) : deco ? byDeco.get(deco) : undefined
@@ -104,11 +111,17 @@ export function drawProps(b: Buffer, world: WorldState, view: View, proj: Proj =
       // 물 위 꾸밈(갈대·연잎)은 수면에 놓는다. 수면은 물가 윗면보다 1 픽셀 낮다
       const s = Iso.screenOf(x, y, World.walkHeightAt(world, x, y) * Names.STEP_PX, proj)
       const sink = World.isWater(world, x, y) ? 1 : 0
-      stamp(b, c, Math.round(s.sx) - view.ox, Math.round(s.sy) - view.oy + sink, d + (prop ? PROP_DEPTH : DECO_DEPTH), hollow)
+      stamp(b, c, Math.round(s.sx) - view.ox, Math.round(s.sy) - view.oy + sink, d - dz + (prop ? PROP_DEPTH : DECO_DEPTH), hollow)
       drawn++
     }
   }
   return drawn
+}
+
+// 문 나뭇가지: 입 자리(버퍼 좌표)에 나뭇가지 그림을 깊이 depth 로 찍는다
+export function drawHeldBranch(b: Buffer, sx: number, sy: number, depth: number): void {
+  const c = byDeco.get(G.DECO_BRANCH)![0]
+  stamp(b, c, sx, sy, depth, undefined)
 }
 
 // 그림 크기(테스트가 상한을 본다)

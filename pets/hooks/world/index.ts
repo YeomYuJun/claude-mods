@@ -1,31 +1,33 @@
-// 시드와 세트 생성 매개변수로 경계 있는 맵을 만들고, 칸 값을 묻는 함수를 둔다(순수 모듈).
+// 시드와 세트 생성 매개변수로 맵을 만들고, 칸 값을 묻는 함수를 둔다(순수 모듈). 맵은 두 가지다.
+// 경계 있는 섬(모눈종이 세트, 합성·테스트 맵): w × h 배열
 // 1. 좌표 해시 생성기(gen.ts)로 높이·장애물(나무·바위·블록)·지표 종류·걷는 꾸밈·호수를 만든다. 맵 가장자리로 갈수록 지형이 낮아져 섬 모양이 된다
 // 2. 나무·바위는 켤 때만 두고(패널의 맵은 켠다), 켜지 않으면 빈 땅으로 둔다(블록 자리는 켜든 끄든 같다)
 // 3. 걸을 수 있는 칸(이웃과 걷는 높이 차 ≤ 1, 장애물 소품·깊은 물이 아닌 칸)을 BFS 로 묶어 가장 큰 덩어리만 걷는 칸으로 둔다.
 //    걷는 높이는 땅이면 높이, 물이면 수면이다. 생성기가 장애물 덩어리를 서로 떨어뜨려 두므로 지형 칸과 얕은 물은 모두 이 덩어리에 들고,
 //    빠지는 것은 오를 수 없는 블록과 깊은 물뿐이다
+// 경계 없는 월드(모눈종이 밖의 세트): 32 × 32 청크를 만들어 캐시에 둔다(chunks.ts). 좌표는 음수도 된다. 걷는 칸은 청크마다 칸 단위로 정한다
 //
+// 강아지가 바꾼 칸(옮긴 나뭇가지, 구덩이 흔적)은 맵이 아니라 편집 표에 둔다. 청크를 버렸다 다시 만들어도 편집은 남고, 질의 함수가 편집을 먼저 본다.
 // 다른 모듈은 World 의 배열을 직접 읽지 않고 아래 질의 함수(heightAt, flagsAt, isWalkable, canStep 등)만 쓴다.
 // 칸 플래그는 물리 사실(물, 깊은 물, 장애물 소품, 블록)만 담고, 종마다 다른 통과 여부는 이동 규칙(Rules)으로 계산한다.
 
 import Names from '../names'
+import * as Chunks from './chunks.js'
+import { BLOCK, DEEP, OBSTACLE, WALK, WATER } from './flags.js'
 import * as Gen from './gen.js'
 
-export { Gen }
-
-// 칸 플래그. WALK 는 기본 이동 규칙으로 계산해 둔 값이다
-export const WALK = 1
-export const WATER = 2
-export const DEEP = 4
-// 나무·바위처럼 어느 종도 들어가지 못하고 공도 튕겨 나오는 소품
-export const OBSTACLE = 8
-export const BLOCK = 16
+export { Chunks, Gen }
+export { BLOCK, DEEP, OBSTACLE, WALK, WATER }
 
 // 이동 규칙: 한 걸음에 오르내릴 수 있는 단 수, 깊은 물을 건널 수 있는지
 export type Rules = { climb: number; swim: boolean }
 export const DEFAULT_RULES: Rules = { climb: 1, swim: false }
 
+// 강아지가 바꾼 칸 하나. deco: 그 칸의 걷는 꾸밈을 이 값으로 덮는다(0 이면 치움). pit: 구덩이 흔적이 사라지는 실제 시각(ms)
+export type Edit = { deco?: number; pit?: number }
+
 export type World = {
+  // 경계 있는 섬의 크기. 경계 없는 월드는 0 이고 칸 값은 chunks 에 있다
   w: number
   h: number
   // 칸마다 높이(단)와 플래그
@@ -40,6 +42,10 @@ export type World = {
   seed: number
   // 맵에서 가장 높은 칸의 높이. 그릴 때 화면 밖 타일을 거르는 여유로 쓴다
   maxHeight: number
+  // 경계 없는 월드의 청크 저장소. 없으면 경계 있는 섬
+  chunks?: Chunks.Store
+  // 칸 키(cellKeyOf)마다 편집. 넣은 순서가 오래된 순서다
+  edits: Map<number, Edit>
 }
 
 // 칸 좌표 범위(양 끝 포함)
@@ -49,37 +55,185 @@ export const MAX_HEIGHT = Gen.MAX_HEIGHT
 // 단차를 오르내리는 걸음의 추가 비용. 한 칸 돌아가는 것보다 싸다
 export const CLIMB_COST = 0.4
 
+// 경계 없는 월드는 어느 칸이든 안이다
 export function inside(world: World, x: number, y: number): boolean {
-  return x >= 0 && y >= 0 && x < world.w && y < world.h
+  return world.chunks !== undefined || (x >= 0 && y >= 0 && x < world.w && y < world.h)
 }
 
+export function isOpen(world: World): boolean {
+  return world.chunks !== undefined
+}
+
+// 칸 범위. 경계 없는 월드는 끝이 없다
 export function bounds(world: World): Bounds {
+  if (world.chunks) return { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity }
   return { x0: 0, y0: 0, x1: world.w - 1, y1: world.h - 1 }
 }
 
-// 맵 전체의 가장 높은 칸 높이(단)
+// 가장 높은 칸 높이(단). 경계 없는 월드는 지금까지 만든 청크에서
 export function maxHeightOf(world: World): number {
-  return world.maxHeight
+  return world.chunks ? world.chunks.maxHeight : world.maxHeight
+}
+
+// 칸의 청크가 캐시에 있는지(경계 있는 섬은 늘 참). 그리기는 없는 청크의 타일을 그리지 않는다
+export function isLoaded(world: World, x: number, y: number): boolean {
+  const s = world.chunks
+  return !s || Chunks.has(s, Chunks.chunkOf(x), Chunks.chunkOf(y))
+}
+
+// 그리는 동안은 없는 청크를 만들지 않는다(빈 청크로 읽고, 다음 틱에 미리 만들기가 만든다)
+export function peek<T>(world: World, draw: () => T): T {
+  const s = world.chunks
+  if (!s) return draw()
+  s.peek = true
+  try {
+    return draw()
+  } finally {
+    s.peek = false
+  }
 }
 
 export function heightAt(world: World, x: number, y: number): number {
+  const s = world.chunks
+  if (s) return Chunks.at(s, x, y).height[Chunks.idx(x, y)]!
   return inside(world, x, y) ? world.height[y * world.w + x]! : 0
 }
 
 export function flagsAt(world: World, x: number, y: number): number {
+  const s = world.chunks
+  if (s) return Chunks.at(s, x, y).flags[Chunks.idx(x, y)]!
   return inside(world, x, y) ? world.flags[y * world.w + x]! : 0
 }
 
 export function propAt(world: World, x: number, y: number): number {
+  const s = world.chunks
+  if (s) return Chunks.at(s, x, y).prop[Chunks.idx(x, y)]!
   return inside(world, x, y) ? world.prop[y * world.w + x]! : 0
 }
 
 export function kindAt(world: World, x: number, y: number): number {
+  const s = world.chunks
+  if (s) return Chunks.at(s, x, y).kind[Chunks.idx(x, y)]!
   return inside(world, x, y) ? world.kind[y * world.w + x]! : 0
 }
 
+// 걷는 꾸밈. 편집이 덮었으면 그 값
 export function decoAt(world: World, x: number, y: number): number {
+  if (world.edits.size > 0) {
+    const e = world.edits.get(cellKeyOf(x, y))
+    if (e?.deco !== undefined) return e.deco
+  }
+  return madeDecoAt(world, x, y)
+}
+
+// 생성기가 둔 꾸밈(편집 전)
+function madeDecoAt(world: World, x: number, y: number): number {
+  const s = world.chunks
+  if (s) return Chunks.at(s, x, y).deco[Chunks.idx(x, y)]!
   return inside(world, x, y) ? world.deco[y * world.w + x]! : 0
+}
+
+// 칸 좌표를 한 수로. |좌표| < 32768 에서 겹치지 않는다
+export function cellKeyOf(x: number, y: number): number {
+  return (x & 0xffff) | (y << 16)
+}
+
+export function cellOfKey(key: number): { x: number; y: number } {
+  return { x: (key << 16) >> 16, y: key >> 16 }
+}
+
+// 편집 표 크기 상한. 꽉 차면 구덩이 흔적만 있는 칸을 오래된 것부터 버린다
+export const EDITS_MAX = 256
+// 구덩이 흔적이 남는 시간(실제 ms)
+export const PIT_MS = 30 * 60_000
+
+export function hasPit(world: World, x: number, y: number): boolean {
+  return world.edits.size > 0 && world.edits.get(cellKeyOf(x, y))?.pit !== undefined
+}
+
+// 새 칸을 넣을 자리를 만든다. 구덩이만 있는 칸을 오래된 것부터 버리고, 그래도 없으면 false
+function roomFor(world: World, key: number): boolean {
+  if (world.edits.has(key) || world.edits.size < EDITS_MAX) return true
+  for (const [k, e] of world.edits) {
+    if (e.deco === undefined) {
+      world.edits.delete(k)
+      return true
+    }
+  }
+  return false
+}
+
+// 편집을 새것으로 넣는다(넣은 순서가 오래된 순서라 지웠다 다시 넣는다)
+function put(world: World, key: number, e: Edit): void {
+  world.edits.delete(key)
+  if (e.deco !== undefined || e.pit !== undefined) world.edits.set(key, e)
+}
+
+// 칸의 꾸밈을 덮는다. 생성기가 둔 값과 같으면 덮개를 뺀다. 표가 꽉 차 넣지 못하면 false
+export function setDeco(world: World, x: number, y: number, deco: number): boolean {
+  const key = cellKeyOf(x, y)
+  const e = { ...world.edits.get(key) }
+  if (madeDecoAt(world, x, y) === deco) delete e.deco
+  else if (!roomFor(world, key)) return false
+  else e.deco = deco
+  put(world, key, e)
+  return true
+}
+
+// 구덩이 흔적을 남긴다. now 는 실제 시각(ms)
+export function addPit(world: World, x: number, y: number, now: number): boolean {
+  const key = cellKeyOf(x, y)
+  if (!roomFor(world, key)) return false
+  put(world, key, { ...world.edits.get(key), pit: now + PIT_MS })
+  return true
+}
+
+// 사라질 때가 지난 구덩이 흔적을 뺀다. 바뀐 게 있으면 true
+export function expireEdits(world: World, now: number): boolean {
+  let changed = false
+  for (const [k, e] of [...world.edits]) {
+    if (e.pit === undefined || e.pit > now) continue
+    const rest = { ...e }
+    delete rest.pit
+    if (rest.deco === undefined) world.edits.delete(k)
+    else world.edits.set(k, rest)
+    changed = true
+  }
+  return changed
+}
+
+// 저장 모양: { v: 1, at, list: [x, y, 종류, 값][] }. 종류 1 = 꾸밈 덮기(값: 꾸밈 번호), 2 = 구덩이(값: 사라지는 실제 시각)
+export const EDITS_VERSION = 1
+export type EditsSave = { v: number; at: number; list: Array<[number, number, number, number]> }
+
+export function editsToSave(world: World, now: number): EditsSave {
+  const list: Array<[number, number, number, number]> = []
+  for (const [k, e] of world.edits) {
+    const { x, y } = cellOfKey(k)
+    if (e.deco !== undefined) list.push([x, y, 1, e.deco])
+    if (e.pit !== undefined) list.push([x, y, 2, e.pit])
+  }
+  return { v: EDITS_VERSION, at: now, list }
+}
+
+// 저장값을 편집 표로. 모르는 버전·모양이면 undefined(부르는 쪽은 빈 표로 쓰고 저장값을 지우지 않는다). 모르는 항목은 건너뛴다
+export function editsFromSave(value: unknown): Map<number, Edit> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const v = value as { v?: unknown; list?: unknown }
+  if (v.v !== EDITS_VERSION || !Array.isArray(v.list)) return undefined
+  const out = new Map<number, Edit>()
+  for (const item of v.list as unknown[]) {
+    if (!Array.isArray(item) || item.length !== 4 || !item.every(n => Number.isInteger(n))) continue
+    const [x, y, kind, val] = item as [number, number, number, number]
+    if (Math.abs(x) >= 32768 || Math.abs(y) >= 32768 || (kind !== 1 && kind !== 2)) continue
+    const key = cellKeyOf(x, y)
+    if (!out.has(key) && out.size >= EDITS_MAX) continue
+    const e = out.get(key) ?? {}
+    if (kind === 1) e.deco = val
+    else e.pit = val
+    out.set(key, e)
+  }
+  return out
 }
 
 // 걸을 때 발이 닿는 높이. 물 칸은 수면(바닥 + 1, 깊으면 + 2)
@@ -249,7 +403,7 @@ export function build(spec: Spec): World {
   }
   let maxHeight = 0
   for (let i = 0; i < w * h; i++) maxHeight = Math.max(maxHeight, height[i]!)
-  return { w, h, height, flags, prop: spec.prop ?? new Uint8Array(w * h), kind: spec.kind ?? new Uint8Array(w * h), deco: spec.deco ?? new Uint8Array(w * h), spawn, seed: spec.seed ?? 0, maxHeight }
+  return { w, h, height, flags, prop: spec.prop ?? new Uint8Array(w * h), kind: spec.kind ?? new Uint8Array(w * h), deco: spec.deco ?? new Uint8Array(w * h), spawn, seed: spec.seed ?? 0, maxHeight, edits: new Map() }
 }
 
 // 모눈종이 기본 세트의 생성 매개변수: 지형 0~2 단, 블록 +1·+2(최대 4 단), 나무는 드물게
@@ -259,10 +413,12 @@ export const PAPER_GEN: Gen.GenParams = {
 }
 
 // size: 한 변 칸 수. 없으면 시드로 MAP_MIN~MAP_MAX 에서 가로·세로를 따로 고른다.
-// props: 나무·바위를 둘지(패널의 맵은 켠다. 합성·행동 테스트 맵은 기본값 끔)
-export type CreateOptions = { size?: number; props?: boolean }
+// props: 나무·바위를 둘지(패널의 맵은 켠다. 합성·행동 테스트 맵은 기본값 끔).
+// open: 경계 없는 월드(size 는 쓰지 않는다)
+export type CreateOptions = { size?: number; props?: boolean; open?: boolean }
 
 export function create(seed: number, gen: Gen.GenParams = PAPER_GEN, opts: CreateOptions = {}): World {
+  if (opts.open) return createOpen(seed, gen, opts.props === true)
   const span = Names.MAP_MAX - Names.MAP_MIN + 1
   const w = opts.size ?? Names.MAP_MIN + (Gen.hash(seed, 0, 0, 1) % span)
   const h = opts.size ?? Names.MAP_MIN + (Gen.hash(seed, 0, 0, 2) % span)
@@ -276,6 +432,37 @@ export function create(seed: number, gen: Gen.GenParams = PAPER_GEN, opts: Creat
   const prop = new Uint8Array(w * h)
   if (opts.props) for (let i = 0; i < w * h; i++) if (r.prop[i]) { obstacle[i] = 1; prop[i] = r.prop[i]! }
   return build({ w, h, height: r.height, block: r.block, obstacle, prop, kind: r.kind, deco: r.deco, water: r.water, seed })
+}
+
+// 시작 칸을 찾을 나선의 최대 반지름(칸)
+const SPAWN_REACH = 96
+
+// 경계 없는 월드. 시작 칸은 (0, 0) 에서 나선으로 돌며 찾은 첫 땅 걷는 칸(물·블록이 아닌 칸). 나선은 지나간 칸의 청크만 만든다
+export function createOpen(seed: number, gen: Gen.GenParams, props: boolean): World {
+  const store = Chunks.create(seed, gen, props)
+  const empty = new Uint8Array(0)
+  const world: World = { w: 0, h: 0, height: empty, flags: empty, prop: empty, kind: empty, deco: empty, spawn: { x: 0, y: 0 }, seed, maxHeight: 0, chunks: store, edits: new Map() }
+  world.spawn = spiralSpawn(world)
+  store.syncMade = 0
+  return world
+}
+
+function spiralSpawn(world: World): { x: number; y: number } {
+  const isGround = (x: number, y: number) => {
+    const f = flagsAt(world, x, y)
+    return (f & WALK) !== 0 && (f & (WATER | BLOCK)) === 0
+  }
+  for (let r = 0; r <= SPAWN_REACH; r++) {
+    if (r === 0) {
+      if (isGround(0, 0)) return { x: 0, y: 0 }
+      continue
+    }
+    for (let x = -r; x <= r; x++) if (isGround(x, -r)) return { x, y: -r }
+    for (let y = -r + 1; y <= r; y++) if (isGround(r, y)) return { x: r, y }
+    for (let x = r - 1; x >= -r; x--) if (isGround(x, r)) return { x, y: r }
+    for (let y = r - 1; y >= -r + 1; y--) if (isGround(-r, y)) return { x: -r, y }
+  }
+  return { x: 0, y: 0 }
 }
 
 // 칸 (x, y) 앞쪽(화면 아래) reach 대각선 안, 좌우로 한 칸 폭 안에 나무가 있는지.

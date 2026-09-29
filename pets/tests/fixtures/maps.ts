@@ -51,12 +51,26 @@ export function tilesAround(world: WorldState, r = 24): Tile[] {
   return out
 }
 
+// 경계 없는 월드면 시작 칸 둘레 ±(r + 16) 칸에 걸친 청크를 만든다. 그리기는 없는 청크를 만들지 않으므로 그리기 전에 부른다
+// (16 칸은 화면 위로 솟는 높이·소품과 버퍼 여유)
+export function loadAround(world: WorldState, r = 24): void {
+  const s = world.chunks
+  if (!s) return
+  const m = r + 16
+  const { x, y } = world.spawn
+  const C = World.Chunks
+  // 만드는 청크가 캐시에서 밀려나지 않게 상한을 늘린다
+  s.cap = Math.max(s.cap, s.chunks.size + (C.chunkOf(y + m) - C.chunkOf(y - m) + 1) * (C.chunkOf(x + m) - C.chunkOf(x - m) + 1))
+  for (let cy = C.chunkOf(y - m); cy <= C.chunkOf(y + m); cy++) for (let cx = C.chunkOf(x - m); cx <= C.chunkOf(x + m); cx++) C.make(s, cx, cy)
+}
+
 // 시작 칸 둘레 ±r 칸이 모두 들어가는 버퍼에 지형과 소품을 그린다
 export function drawAround(world: WorldState, proj: Proj, r = 24): { b: Buffer; view: { ox: number; oy: number } } {
   const maxZ = World.MAX_HEIGHT * proj.step
   const { x, y } = world.spawn
   const cols = 4 * r * proj.hw + 2 * proj.hw + 8
   const rows = Math.ceil((4 * r * proj.hh + 2 * proj.hh + maxZ + proj.base + 8) / 2)
+  loadAround(world, r)
   const b = Pixel.bufferOf(cols, rows, 1)
   Pixel.clear(b)
   const view = { ox: (x - y - 2 * r) * proj.hw - proj.hw - 4, oy: (x + y - 2 * r) * proj.hh - maxZ - 4 }

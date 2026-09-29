@@ -5,6 +5,7 @@
 // 화면 sx = (fx - fy) × hw, sy = (fx + fy) × hh + hh - z × step / STEP_PX. 타일의 위 꼭짓점은 (x - y) × hw, (x + y) × hh - 높이.
 // 시뮬레이션(공, 움직임, 효과, 카메라)은 NEAR(12 × 6, 한 단 4) 픽셀로 돈다. 원거리 줌은 그릴 때만 FAR 로 옮긴다.
 // 깊이: 같은 화면 픽셀에 겹치는 두 점은 시선 방향 (1, 1, 2hh × STEP_PX / step) 만큼만 다르므로 어느 투영이든 fx + fy 가 클수록 앞이다.
+// 깊이 버퍼는 Float32 라 fx + fy 를 그대로 담으면 좌표가 커질 때 작은 차이(동물 0.4, 소품 0.45)가 사라진다. 그래서 카메라 쪽 대각선 dz 를 뺀 값을 담는다.
 // 타일은 x + y 대각선 순서로(뒤에서 앞으로) 덮어 그리며 픽셀마다 깊이를 남기고,
 // 강아지·공은 그 깊이와 비교해 그린다. 그래서 앞쪽 블록이 강아지를 픽셀 단위로 가린다.
 
@@ -83,6 +84,24 @@ export type View = {
   // 버퍼 픽셀 (0, 0) 에 놓이는 세계 픽셀
   ox: number
   oy: number
+  // 깊이 기준 대각선(정수). 버퍼에는 x + y - dz 를 담는다. 없으면 0
+  dz?: number
+}
+
+// 구덩이 흔적 픽셀(윗면 표 순번). 1 배는 가운데 4 × 2, 원거리는 2 × 1
+const PIT_DOTS: ReadonlyArray<readonly [number, number]> = [[-2, 2], [-1, 2], [0, 2], [1, 2], [-2, 3], [-1, 3], [0, 3], [1, 3]]
+const PIT_DOTS_FAR: ReadonlyArray<readonly [number, number]> = [[-1, 2], [0, 2]]
+const pitMasks = new Map<Proj, Uint8Array>()
+
+function pitMaskOf(proj: Proj): Uint8Array {
+  let m = pitMasks.get(proj)
+  if (!m) {
+    const dots = proj === NEAR ? PIT_DOTS : PIT_DOTS_FAR
+    m = new Uint8Array(proj.tops.length)
+    proj.tops.forEach((p, j) => { if (dots.some(([dx, dy]) => dx === p.dx && dy === p.dy)) m![j] = 1 })
+    pitMasks.set(proj, m)
+  }
+  return m
 }
 
 // 칸의 지표 종류는 세트의 색 표(kindSlot)가 번호 묶음으로, 옆면은 materialOf 가 재질 묶음으로 바꾼다.
@@ -133,7 +152,7 @@ export function topZ(world: WorldState, x: number, y: number, proj: Proj): numbe
 
 // 물 칸: 수면 한 장만 그리고(바닥·옆면 없음) 모눈선을 긋지 않는다. 땅과 닿은 변의 픽셀은 거품, 1 배에서는 반짝임 두 픽셀.
 // 물가는 늘 수면과 같은 높이라 물 칸 옆에 벽이 생기지 않는다
-function drawWater(b: Buffer, world: WorldState, x: number, y: number, tx: number, ty: number, proj: Proj, glint: number | undefined): void {
+function drawWater(b: Buffer, world: WorldState, x: number, y: number, tx: number, ty: number, proj: Proj, glint: number | undefined, dz: number): void {
   const fill = World.isDeep(world, x, y) ? Palette.DEEP_WATER : Palette.SHALLOW
   const dryNW = !World.isWater(world, x - 1, y)
   const dryNE = !World.isWater(world, x, y - 1)
@@ -146,7 +165,7 @@ function drawWater(b: Buffer, world: WorldState, x: number, y: number, tx: numbe
     spark1 = list[(World.Gen.hash(world.seed, x, y, 402) + glint * 7) % list.length]!
     spark2 = list[(World.Gen.hash(world.seed, x, y, 403) + glint * 13) % list.length]!
   }
-  const base = x + y
+  const base = x + y - dz
   const level = World.walkHeightAt(world, x, y) + 1
   const tops = proj.tops
   const w = b.w
@@ -171,7 +190,8 @@ const CAST_MAX = 1
 const CONTACT_PX = 1.5
 
 // 한 타일. 옆면은 앞 이웃 윗면보다 높은 만큼만(맵 가장자리면 밑판까지) 그린다. 앞 이웃이 물이면 수면까지라 물가에는 1 픽셀 턱만 생긴다.
-// 화면 상자가 버퍼 밖이면 그리지 않고 false
+// 경계 없는 월드에서 아직 없는 청크의 타일은 그리지 않고, 앞 이웃이 없는 청크면 그쪽 옆면을 그리지 않는다.
+// 화면 상자가 버퍼 밖이거나 청크가 없으면 그리지 않고 false
 function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View, proj: Proj, theme: Palette.Theme, glint: number | undefined): boolean {
   const hgt = World.heightAt(world, x, y)
   const z = topZ(world, x, y, proj)
@@ -180,8 +200,10 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   // 화면 상자: 가로 tx ± hw, 세로 윗면 위 꼭짓점 ty 부터 옆면 아래 끝까지. 옆면은 윗면 아래 2hh 안에서 시작하고
   // 길이가 z + 밑판 이하라 아래 끝은 ty + 2hh + z + base 를 넘지 않는다(땅 높이 + 밑판)
   if (ty >= b.h || ty + 2 * proj.hh + z + proj.base <= 0 || tx + proj.hw <= 0 || tx - proj.hw >= b.w) return false
+  if (!World.isLoaded(world, x, y)) return false
+  const dz = view.dz ?? 0
   if (World.isWater(world, x, y)) {
-    drawWater(b, world, x, y, tx, ty, proj, glint)
+    drawWater(b, world, x, y, tx, ty, proj, glint, dz)
     return true
   }
   const shadowOf = theme.shadowOf
@@ -190,11 +212,11 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   const mat = theme.materialOf[id] ?? 0
   const side = Palette.material(mat)
   const brick = theme.brick[mat] === true
-  const base = x + y
+  const base = x + y - dz
   const isEdgeLeft = !World.inside(world, x, y + 1)
   const isEdgeRight = !World.inside(world, x + 1, y)
-  const frontLeft = isEdgeLeft ? z + proj.base : z - topZ(world, x, y + 1, proj)
-  const frontRight = isEdgeRight ? z + proj.base : z - topZ(world, x + 1, y, proj)
+  const frontLeft = isEdgeLeft ? z + proj.base : World.isLoaded(world, x, y + 1) ? z - topZ(world, x, y + 1, proj) : 0
+  const frontRight = isEdgeRight ? z + proj.base : World.isLoaded(world, x + 1, y) ? z - topZ(world, x + 1, y, proj) : 0
   const w = b.w
   if (frontLeft > 0) face(b, proj.left, tx, ty, frontLeft, base, side + Palette.Side.SIDE_L, side + Palette.Side.L_STEP, isEdgeLeft, brick, proj, w)
   if (frontRight > 0) face(b, proj.right, tx, ty, frontRight, base, side + Palette.Side.SIDE_R, side + Palette.Side.R_STEP, isEdgeRight, brick, proj, w)
@@ -211,8 +233,9 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   // 빛은 왼쪽 앞(+y 쪽)에서 온다(왼쪽 면이 밝고 오른쪽 면이 어둡다). 그래서 NW 이웃(x - 1)의 그늘은 +x 로 이 칸에 떨어지고,
   // NE 이웃(y - 1)의 밝은 벽 밑에는 좁은 접촉 그늘만 진다
   // 이웃 높이는 걷는 높이(물이면 수면)로 잰다. 물가는 수면과 같은 높이라 물 쪽으로 그늘이 지지 않는다
-  const upNW = x > 0 ? World.walkHeightAt(world, x - 1, y) - hgt : 0
-  const upNE = y > 0 ? World.walkHeightAt(world, x, y - 1) - hgt : 0
+  const upNW = World.inside(world, x - 1, y) ? World.walkHeightAt(world, x - 1, y) - hgt : 0
+  const upNE = World.inside(world, x, y - 1) ? World.walkHeightAt(world, x, y - 1) - hgt : 0
+  const pit = World.hasPit(world, x, y) ? pitMaskOf(proj) : undefined
   const castNW = upNW > 0 ? Math.min(CAST_MAX, upNW * CAST_PER_STEP) * 2 * proj.hh : 0
   const castNE = upNE > 0 ? CONTACT_PX : 0
   const level = hgt + 1
@@ -227,6 +250,7 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
     if (p.edge === 1) c = lineNW || top
     else if (p.edge === 2) c = lineNE || top
     else if ((p.front === 1 && frontLeft > 0) || (p.front === 2 && frontRight > 0)) c = hi
+    else if (pit?.[j]) c = Palette.PIT
     // 무늬는 그늘 밖에서만 칠한다(그늘 속에서는 윗면 그늘 색)
     else if (mask?.[j] && !isShaded) c = accent
     if (isShaded) c = shadowOf[c]!
@@ -264,10 +288,15 @@ function face(b: Buffer, cols: readonly FaceColumn[], tx: number, ty: number, he
 }
 
 // 버퍼에 보이는 타일만 뒤에서 앞으로 그리고 그린 타일 수를 돌려준다. 이웃이 드리우는 그늘은 theme 의 그림자 사슬로 칠한다.
+// 경계 없는 월드는 끝이 없어 화면 상자만으로 범위를 잡고, 그리는 동안 없는 청크를 만들지 않는다(World.peek).
 // glint: 물 반짝임 위상(없으면 반짝임을 그리지 않는다. 1 배에서만 그린다).
 // 대각선 d 타일의 윗면 위 꼭짓점은 d × hh - z 이고 아래 끝은 높이와 상관없이 d × hh + 2hh + base 이하다(drawTile 의 화면 상자).
 // 그래서 위쪽 여유는 높이와 상관없고, 아래쪽 여유만 맵에서 가장 높은 칸의 높이만큼 둔다
 export function drawWorld(b: Buffer, world: WorldState, view: View, proj: Proj = NEAR, theme: Palette.Theme = Palette.PAPER_THEME, glint?: number): number {
+  return World.peek(world, () => drawTiles(b, world, view, proj, theme, glint))
+}
+
+function drawTiles(b: Buffer, world: WorldState, view: View, proj: Proj, theme: Palette.Theme, glint: number | undefined): number {
   const hw = proj.hw
   const hh = proj.hh
   const maxZ = World.maxHeightOf(world) * proj.step
@@ -282,6 +311,30 @@ export function drawWorld(b: Buffer, world: WorldState, view: View, proj: Proj =
     for (let x = xLo; x <= xHi; x++) if (drawTile(b, world, x, d - x, view, proj, theme, glint)) drawn++
   }
   return drawn
+}
+
+// 화면에 보이는 청크(가까운 순 아님, 대각선 행 순). drawWorld 와 같은 범위 식이고, 각 대각선 행에서 청크 경계를 넘는 칸만 짚는다.
+// maxHeight: 아래쪽 여유로 둘 가장 높은 칸 높이(단)
+export function visibleChunks(bw: number, bh: number, view: View, proj: Proj, maxHeight: number, size: number): Array<[number, number]> {
+  const hw = proj.hw
+  const hh = proj.hh
+  const dMin = Math.floor((view.oy - 2 * hh - proj.base) / hh)
+  const dMax = Math.ceil((view.oy + bh + maxHeight * proj.step) / hh)
+  const seen = new Set<string>()
+  const out: Array<[number, number]> = []
+  for (let d = dMin; d <= dMax; d++) {
+    const xLo = Math.ceil(((view.ox - hw) / hw + d) / 2)
+    const xHi = Math.floor(((view.ox + bw + hw) / hw + d) / 2)
+    for (let x = xLo; x <= xHi;) {
+      const cx = Math.floor(x / size)
+      const cy = Math.floor((d - x) / size)
+      const key = `${cx},${cy}`
+      if (!seen.has(key)) { seen.add(key); out.push([cx, cy]) }
+      // 다음 청크 경계: x 가 다음 청크로 넘어가거나 y(= d - x)가 이전 청크로 넘어가는 칸
+      x = Math.min((cx + 1) * size, d - cy * size + 1)
+    }
+  }
+  return out
 }
 
 // 발밑 윗면에 타원 그림자를 떨어뜨린다. 같은 높이의 윗면 픽셀만 어둡게 한다
@@ -322,9 +375,10 @@ export function follow(cam: Camera, tx: number, ty: number, dtMs: number): void 
   cam.isSettled = Math.abs(wantX) < 0.5 && Math.abs(wantY) < 0.5
 }
 
-export function viewOf(cam: Camera, b: Buffer, proj: Proj = NEAR): View {
+// 깊이 기준 dz 는 카메라가 보는 곳의 대각선(높이는 무시한 근사). 어느 정수든 깊이 순서는 같고, 화면 안 값이 작게 남는다
+export function viewOf(cam: Camera, b: { w: number; h: number }, proj: Proj = NEAR): View {
   const c = mapOf(cam.x, cam.y, proj)
-  return { ox: Math.round(c.sx) - Math.floor(b.w / 2), oy: Math.round(c.sy) - Math.floor(b.h / 2) }
+  return { ox: Math.round(c.sx) - Math.floor(b.w / 2), oy: Math.round(c.sy) - Math.floor(b.h / 2), dz: Math.round((cam.y - NEAR.hh) / NEAR.hh) }
 }
 
 export * as default from '.'

@@ -242,7 +242,10 @@ describe('water', () => {
       if (i % 30 !== 0) continue
       for (const zoom of ['far', 1, 2] as Zoom[]) {
         for (const [cols, rows] of [[40, 30], [120, 60], [200, 80]] as const) {
+          Scene.ensureVisible(scene, cols, rows, zoom)
+          const blank = scene.world.chunks?.blank ?? 0
           const words = Fixtures.wordsOf(Scene.compose(scene, cols, rows, zoom))
+          expect(`${id} blank ${(scene.world.chunks?.blank ?? 0) - blank}`).toBe(`${id} blank 0`)
           const pairs = new Set<string>()
           for (let j = 0; j + 2 < words.length; j += 3) pairs.add(`${words[j + 1]},${words[j + 2]}`)
           most = Math.max(most, pairs.size)
@@ -273,6 +276,7 @@ describe('water', () => {
         if (scene.pet.isAsleep) asleepMs += 33
         if (now - last < Scene.renderEveryMs(scene) - 1) continue
         last = now
+        Scene.ensureVisible(scene, 60, 30, 1)
         const next = Scene.compose(scene, 60, 30, 1)
         if (!scene.pet.isAsleep) { cells = next; continue }
         wet = Math.max(wet, waterPixels(scene))

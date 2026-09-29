@@ -22,20 +22,24 @@ const T0 = 1_000_000
 const COLS = 40
 const ROWS = 30
 
+// 초마다 쓰는 버퍼 두 장(새로 만들지 않고 비워 쓴다)
+const ground = Pixel.bufferOf(COLS, ROWS, 1)
+const alone = Pixel.bufferOf(COLS, ROWS, 1)
+
 function hiddenOf(scene: SceneState, props: boolean): { center: number; max: number; hidden: number; total: number } {
   const p = scene.pet
   const proj = Iso.NEAR
-  const ground = Pixel.bufferOf(COLS, ROWS, 1)
-  const alone = Pixel.bufferOf(COLS, ROWS, 1)
   Pixel.clear(ground)
   Pixel.clear(alone)
+  // 경계 없는 월드: 패널처럼 보이는 청크를 먼저 만든다(그리기는 없는 청크를 만들지 않는다)
+  Scene.ensureVisible(scene, COLS, ROWS, 1)
   const view = Iso.viewOf(scene.cam, ground, proj)
   if (props) Scene.drawGround(ground, scene, view, proj)
   else Iso.drawWorld(ground, scene.world, view, proj, scene.theme)
   const s = Iso.screenOf(p.x, p.y, p.z, proj)
   const x = Math.round(s.sx) - view.ox
   const y = Math.round(s.sy) - view.oy
-  const depth = p.x + p.y + 0.4
+  const depth = p.x + p.y + 0.4 - (view.dz ?? 0)
   Sprite.drawPet(alone, p.species, Pet.poseOf(p), x, y, depth)
   const perCol = new Map<number, number>()
   let hidden = 0

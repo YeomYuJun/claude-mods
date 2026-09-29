@@ -9,6 +9,9 @@ export type Tile = { x: number; y: number }
 
 export const WINDOW = 16
 
+// A* 를 돈 횟수. 장면이 A* 가 돈 틱에는 청크를 미리 만들지 않으려고 본다
+export const stats = { searches: 0 }
+
 // 출발 칸에서 창 안 칸까지의 걸음 수. dist 는 창(2r + 1 칸 정사각형)을 행 우선으로 편 것이고, 못 가는 칸은 -1
 export type Reach = { from: Tile; r: number; dist: Int16Array }
 
@@ -78,11 +81,13 @@ class Heap {
   }
 }
 
-// from 에서 to 까지 지나갈 칸들(from 은 빼고 to 는 넣는다). 못 가거나 창 밖이면 null
+// from 에서 to 까지 지나갈 칸들(from 은 빼고 to 는 넣는다). 못 가거나 창 밖이면 null.
+// 창 밖인지 먼저 본다(창 밖 칸을 읽으면 경계 없는 월드에서 캐시에 없는 청크를 만들게 된다)
 export function find(world: WorldState, from: Tile, to: Tile, rules: Rules = DEFAULT_RULES, window: number = WINDOW): Tile[] | null {
+  if (Math.abs(to.x - from.x) > window || Math.abs(to.y - from.y) > window) return null
   if (!World.isWalkable(world, to.x, to.y, rules)) return null
   if (from.x === to.x && from.y === to.y) return []
-  if (Math.abs(to.x - from.x) > window || Math.abs(to.y - from.y) > window) return null
+  stats.searches++
   const side = 2 * window + 1
   const x0 = from.x - window
   const y0 = from.y - window

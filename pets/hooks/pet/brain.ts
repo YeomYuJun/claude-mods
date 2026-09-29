@@ -1,6 +1,6 @@
 // 행동 고르기와 세션 신호 반응(순수 모듈).
 //
-// 행동(Activity)은 단계(Step) 목록이다: 어디로 가기, 자세 몇 ms, 제자리 돌기, 폴짝, 공 차기·쫓기·물기·놓기.
+// 행동(Activity)은 단계(Step) 목록이다: 어디로 가기, 자세 몇 ms, 제자리 돌기, 폴짝, 공 차기·쫓기·물기·놓기, 나뭇가지 물기·놓기, 구덩이 흔적 남기기.
 // 행동마다 정의(ActDef)가 하나씩 있다: 부류, 기본 가중치, 욕구 계수, 대기 시간, 가중치 배율, 할 수 있는지, 단계 만들기.
 //
 // 평소 행동은 점수에 비례해 난수로 뽑는다(가장 높은 점수를 고르지 않아 같은 욕구 상태에서도 행동이 갈린다).
@@ -83,7 +83,7 @@ const CHASE_REPATH_MS = 300
 const CHASE_GIVEUP_MS = 8000
 const EXCITE_TAU_S = 40
 // 공을 물었을 때 입 자리: 보는 쪽으로 이만큼(타일), 발에서 이만큼 위(px)
-const MOUTH_TILES = 0.45
+export const MOUTH_TILES = 0.45
 const MOUTH_PX = 4
 // 목마름: 물가가 처음 가까워졌을 때의 값, 늘 오르는 빠르기, 속보·달리기 중 더 오르는 빠르기, 마시는 동안 내리는 빠르기(초당)
 const THIRST_START = 0.1
@@ -94,6 +94,8 @@ const THIRST_DRINK = 0.15
 const THIRST_URGENT = 0.85
 // 물보라 뒤에 물에서 이만큼(맨해튼 거리) 떨어진 땅으로 나온다
 const SPLASH_OUT = 2
+// 씹을 나뭇가지를 찾는 걸음 수
+const CHEW_REACH = 12
 
 function act(name: ActName, steps: Step[]): Activity {
   return { name, steps, i: 0, t: 0, started: -1 }
@@ -293,9 +295,51 @@ function judgeWater(p: Pet, world: WorldState, s: Survey): void {
   p.waterNear = near
 }
 
+// 12 걸음 안에서 갈 수 있는 나뭇가지 칸(행 우선)
+function branchesOf(world: WorldState, s: Survey): Tile[] {
+  return memo(s, 'branches', () => {
+    const { dist, r, from } = s.reach
+    const side = 2 * r + 1
+    const out: Tile[] = []
+    for (let i = 0; i < dist.length; i++) {
+      const d = dist[i]!
+      if (d < 0 || d > CHEW_REACH) continue
+      const t = { x: (i % side) + from.x - r, y: Math.floor(i / side) + from.y - r }
+      if (World.decoAt(world, t.x, t.y) === World.Gen.DECO_BRANCH) out.push(t)
+    }
+    return out
+  })
+}
+
+// 나뭇가지를 내려놓을 수 있는 칸: 걷는 땅(물·블록이 아님)이고 소품·꾸밈이 없는 칸
+function canLay(world: WorldState, x: number, y: number): boolean {
+  const f = World.flagsAt(world, x, y)
+  return (f & World.WALK) !== 0 && (f & (World.WATER | World.BLOCK | World.OBSTACLE)) === 0 && World.propAt(world, x, y) === 0 && World.decoAt(world, x, y) === 0
+}
+
+// 문 나뭇가지를 선 칸(안 되면 네 이웃)에 내려놓는다. 둘 곳이 없거나 편집 표가 꽉 찼으면 집어 든 칸에 되돌린다
+function putBranch(p: Pet, world: WorldState): void {
+  const hold = p.holding
+  if (!hold) return
+  p.holding = undefined
+  const t = tileOf(p)
+  const spots = [t, ...World.NEIGHBORS.map(([dx, dy]) => ({ x: t.x + dx, y: t.y + dy }))]
+  for (const c of spots) if (canLay(world, c.x, c.y) && World.setDeco(world, c.x, c.y, World.Gen.DECO_BRANCH)) return
+  World.setDeco(world, hold.from.x, hold.from.y, World.Gen.DECO_BRANCH)
+}
+
+// 구덩이를 팔 칸: 2~5 걸음 안의 걷는 땅(물·블록이 아님) 중 구덩이·나뭇가지가 없는 칸
+function digSpotsOf(p: Pet, world: WorldState, s: Survey): Tile[] {
+  return memo(s, 'digSpots', () => tilesAt(p, world, s, 2, 5).filter(t =>
+    (World.flagsAt(world, t.x, t.y) & (World.WATER | World.BLOCK)) === 0 && !World.hasPit(world, t.x, t.y) && World.decoAt(world, t.x, t.y) !== World.Gen.DECO_BRANCH))
+}
+
+// 공이 길 찾기 창 밖이면 칸을 읽지 않고 false(멀리 두고 온 공의 청크를 다시 만들지 않는다)
 function ballReachable(p: Pet, world: WorldState): boolean {
   if (p.carrying) return false
   const t = Ball.tileOf(p.ball)
+  const at = tileOf(p)
+  if (Math.abs(t.x - at.x) > Path.WINDOW || Math.abs(t.y - at.y) > Path.WINDOW) return false
   return World.isWalkable(world, t.x, t.y, p.species.abilities) && Path.find(world, tileOf(p), t, p.species.abilities) !== null
 }
 
@@ -510,6 +554,34 @@ export const ACTS: Record<ActName, ActDef> = {
       ])
     },
   },
+  // 12 걸음 안의 나뭇가지로 가서 물고 몇 걸음 옮긴 뒤 엎드려 씹고, 그 자리에 내려놓는다. 옮긴 자리는 편집 표에 남는다.
+  // 씹는 그림이 생기기 전까지는 엎드린 모습에 입 자리의 나뭇가지로 대신한다
+  chew: {
+    name: 'chew', cls: 'N', base: 3, drive: { play: 0.6, rest: 0.4 }, cooldownMs: 120_000,
+    feasible: (p, world, s) => branchesOf(world, s).length > 0,
+    adjust: FLAT,
+    build: (p, world, s) => {
+      const list = branchesOf(world, s)
+      const near = Math.min(...list.map(t => Path.stepsAt(s.reach, t.x, t.y)))
+      const to = Rng.pick(p.rng, list.filter(t => Path.stepsAt(s.reach, t.x, t.y) === near))
+      return act('chew', [
+        { k: 'go', to, gait: 'walk', must: true },
+        pose('sniff', 400), { k: 'take' },
+        { k: 'go', pick: { lo: 3, hi: 6 }, gait: 'walk' },
+        pose('lie', 400), pose('lie', ms(p, 5000, 10_000)), { k: 'put' }, pose('stand', 300),
+      ])
+    },
+  },
+  // 2~5 걸음 가서 땅을 파고 킁킁댄다. 판 자리에 구덩이 흔적이 남는다(PIT_MS 동안)
+  digSpot: {
+    name: 'digSpot', cls: 'N', base: 3, drive: { curiosity: 0.4, play: 0.3 }, cooldownMs: 90_000,
+    feasible: (p, world, s) => p.energy > 0.3 && digSpotsOf(p, world, s).length > 0,
+    adjust: FLAT,
+    build: (p, world, s) => act('digSpot', [
+      { k: 'go', to: Rng.pick(p.rng, digSpotsOf(p, world, s)), gait: 'walk', must: true },
+      pose('dig', ms(p, 2000, 3200)), { k: 'pit' }, pose('sniff', 600),
+    ]),
+  },
   greet: {
     name: 'greet', cls: 'G', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
     build: (p, world, s) => greetOf(p, world, s),
@@ -670,6 +742,7 @@ function release(p: Pet): void {
   b.vx = 0
   b.vy = 0
   b.vz = 0
+  b.settled = false
 }
 
 // 걷던 길은 버리되 공중에 뜬 홉은 마저 내려온다. 그 홉은 이제 길의 한 칸이 아니라서 착지해도 새 길을 줄이지 않는다
@@ -988,8 +1061,8 @@ function nearestTo(p: Pet, dx: number, dy: number): Dir {
   return best
 }
 
-// 단계 하나를 돌린다. 끝났으면 true
-function runStep(p: Pet, world: WorldState, step: Step, a: Activity, dtMs: number, isStart: boolean): boolean {
+// 단계 하나를 돌린다. 끝났으면 true. now 는 실제 시각(구덩이 흔적이 사라질 때를 잰다)
+function runStep(p: Pet, world: WorldState, step: Step, a: Activity, dtMs: number, isStart: boolean, now: number): boolean {
   switch (step.k) {
     case 'go': {
       if (isStart) {
@@ -1057,6 +1130,21 @@ function runStep(p: Pet, world: WorldState, step: Step, a: Activity, dtMs: numbe
       release(p)
       return true
     }
+    case 'take': {
+      const t = tileOf(p)
+      if (World.decoAt(world, t.x, t.y) === World.Gen.DECO_BRANCH && World.setDeco(world, t.x, t.y, 0)) p.holding = { from: t }
+      else end(p)
+      return true
+    }
+    case 'put': {
+      putBranch(p, world)
+      return true
+    }
+    case 'pit': {
+      const t = tileOf(p)
+      if ((World.flagsAt(world, t.x, t.y) & (World.WATER | World.BLOCK)) === 0) World.addPit(world, t.x, t.y, now)
+      return true
+    }
     case 'chase': {
       if (isStart) a.t = 0
       a.t += dtMs
@@ -1096,7 +1184,7 @@ function updateNeeds(p: Pet, dtMs: number, now: number): void {
   const moving = isMoving(p)
   const sniffing = moving ? p.gait === 'sniff' : p.pose === 'sniff'
   n.curiosity = clamp01(n.curiosity + (0.005 - (sniffing ? 0.01 : 0)) * dt)
-  const playing = p.act.name === 'play' || p.act.name === 'run' || p.act.name === 'rollOver' || p.act.name === 'splash'
+  const playing = p.act.name === 'play' || p.act.name === 'run' || p.act.name === 'rollOver' || p.act.name === 'splash' || p.act.name === 'chew'
   n.play = clamp01(n.play + (0.003 + 0.006 * p.excite - (playing ? 0.015 : 0)) * dt)
   const alone = now - p.lastHumanAt > SOCIAL_QUIET_MS
   const facing = !moving && p.pose === 'frontSit' && p.act.name === 'watch'
@@ -1154,6 +1242,7 @@ function holdBall(p: Pet): void {
   b.vx = 0
   b.vy = 0
   b.vz = 0
+  b.settled = false
 }
 
 // 고정 스텝 한 번. now 는 실제 시각(잠들기 판정에 쓴다)
@@ -1179,9 +1268,11 @@ export function update(p: Pet, world: WorldState, dtMs: number, now: number): vo
     const isStart = a.started !== a.i
     a.started = a.i
     if (isStart) a.t = 0
-    if (!runStep(p, world, step, a, isStart ? 0 : dtMs, isStart)) break
+    if (!runStep(p, world, step, a, isStart ? 0 : dtMs, isStart, now)) break
     a.i++
   }
+  // 씹기가 끊겼으면 문 나뭇가지를 그 자리에 내려놓는다
+  if (p.holding && p.act.name !== 'chew') putBranch(p, world)
   settleGlance(p, dtMs)
   Motion.step(p, world, dtMs)
   if (isMoving(p)) p.pose = 'stand'

@@ -60,6 +60,7 @@ describe('palette', () => {
           if (i === 90) Scene.onTurnEnd(scene, now)
           Scene.step(scene, 33, now)
           if (i % 20 !== 0) continue
+          Scene.ensureVisible(scene, 60, 30, zoom)
           const words = Fixtures.wordsOf(Scene.compose(scene, 60, 30, zoom))
           for (let j = 0; j + 2 < words.length; j += 3) {
             if (words[j + 1] === Palette.UNSET || words[j + 2] === Palette.UNSET) expect(`${b.id} ${zoom} ${i} unset`).toBe('')
@@ -83,7 +84,13 @@ describe('palette', () => {
           Scene.step(scene, 33, now)
           if (i % 30 !== 0) continue
           for (const zoom of ['far', 1, 2] as Zoom[]) {
-            for (const [cols, rows] of [[40, 30], [120, 60], [200, 80]] as const) most = Math.max(most, pairsOf(Scene.compose(scene, cols, rows, zoom)))
+            for (const [cols, rows] of [[40, 30], [120, 60], [200, 80]] as const) {
+              // 경계 없는 월드: 패널처럼 보이는 청크를 다 만든 뒤 센다. 비워 그린 칸이 있으면 온 프레임이 아니다
+              Scene.ensureVisible(scene, cols, rows, zoom)
+              const blank = scene.world.chunks?.blank ?? 0
+              most = Math.max(most, pairsOf(Scene.compose(scene, cols, rows, zoom)))
+              expect(`${b.id} ${seed} blank ${(scene.world.chunks?.blank ?? 0) - blank}`).toBe(`${b.id} ${seed} blank 0`)
+            }
           }
         }
         expect(`${b.id} ${seed} ${most <= 512}`).toBe(`${b.id} ${seed} true`)
@@ -98,7 +105,7 @@ describe('palette', () => {
       const { rgb, shadowOf } = Biome.themeOf(b.id)
       const tops = new Set<number>()
       for (const seed of [3, 11]) {
-        const world = World.create(seed, b.gen, { size: b.size, props: true })
+        const world = Biome.worldOf(b.id, seed)
         for (const proj of [Iso.NEAR, Iso.FAR]) {
           const { b: buf } = Fixtures.drawAround(world, proj)
           for (let i = 0; i < buf.px.length; i++) if (buf.surf[i] === SURF_TOP) tops.add(buf.px[i]!)
@@ -150,7 +157,7 @@ describe('palette', () => {
     const paperWorld = scene.world
     Scene.setBiome(scene, 'forest', 0)
     expect(scene.world === paperWorld).toBe(false)
-    expect(scene.world.w).toBe(64)
+    expect(World.isOpen(scene.world)).toBe(true)
     expect(Scene.compose(scene, 40, 30, 1) === before).toBe(false)
     Scene.setBiome(scene, 'paper', 0)
     expect(Scene.compose(scene, 40, 30, 1)).toBe(before)

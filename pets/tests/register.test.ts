@@ -86,6 +86,21 @@ describe('register', () => {
     expect(world.store.get('band')).toBe(true)
   })
 
+  test('at session start only the newest seven edit keys of other sessions stay, and edit values of an unknown version or shape are neither counted nor deleted', async ($, on) => {
+    const saved: Record<string, unknown> = {}
+    for (let i = 0; i < 10; i++) saved[`edits:meadow:0000000${i}`] = { v: 1, at: 1000 + i, list: [] }
+    saved['edits:forest:ffffffff'] = { v: 9, other: true }
+    saved['edits:lake:eeeeeeee'] = 'not an edit table'
+    const world = Fixtures.worldOf(on, saved)
+    await $.session.start(Fixtures.START)
+    const keys = [...world.store.keys()].filter(k => k.startsWith('edits:'))
+    expect(world.store.get('edits:forest:ffffffff')).toEqual({ v: 9, other: true })
+    expect(world.store.get('edits:lake:eeeeeeee')).toBe('not an edit table')
+    for (let i = 0; i < 3; i++) expect(keys.includes(`edits:meadow:0000000${i}`)).toBe(false)
+    for (let i = 3; i < 10; i++) expect(keys.includes(`edits:meadow:0000000${i}`)).toBe(true)
+    expect(keys.length).toBe(9)
+  })
+
   test('/pets zoom switches to two-column dots and keeps the Raster size', async ($, on) => {
     Fixtures.worldOf(on)
     await $.session.start(Fixtures.START)

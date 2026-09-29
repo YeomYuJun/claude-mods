@@ -1,8 +1,8 @@
-// 소품 그림(순수 데이터): 세트마다 한 종의 나무, 바위, 꽃, 풀 포기, 버섯, 물가의 갈대와 연잎. 가까운 배율(near)과 먼 배율(far) 두 벌이다.
+// 소품 그림(순수 데이터): 세트마다 한 종의 나무, 바위, 꽃, 풀 포기, 버섯, 물가의 갈대와 연잎, 강아지가 물어 옮기는 나뭇가지. 가까운 배율(near)과 먼 배율(far) 두 벌이다.
 // 빛은 왼쪽 위에서 온다. 잎은 왼쪽 위가 밝고, 오른쪽 아래와 바깥 윤곽은 어두운 잎색이다. 어두운 잎색은 풀밭 윗면과 명도 차가 커서 윤곽이 보인다.
 //
 // 비트맵 좌표: (ax, ay) 는 rows 안의 기준 픽셀이고 타일 윗면 마름모의 가운데 점에 놓인다.
-// 나무는 줄기 맨 아래, 바위는 밑동, 꽃·풀·버섯·갈대·연잎은 맨 아래 줄 가운데 픽셀이 기준이다. 글자:
+// 나무는 줄기 맨 아래, 바위는 밑동, 꽃·풀·버섯·갈대·연잎·나뭇가지는 맨 아래 줄 가운데 픽셀이 기준이다. 글자:
 //   . 투명  H 밝은 잎  L 잎  D 어두운 잎(윤곽)  T 줄기  K 줄기 그늘
 //   r 바위 밝은 면  R 바위  k 바위 그늘  a 꽃잎 1  b 꽃잎 2  c 꽃잎 3(가운데 송이)  g 풀 포기  m 버섯 갓  s 버섯 대·갓 점
 //   e 갈대 줄기  f 갈대 이삭  p 연잎  q 연꽃
@@ -10,7 +10,7 @@
 import type { BiomeId } from '../biome'
 
 export type PropRole = 'leafHi' | 'leaf' | 'leafDark' | 'trunk' | 'trunkDark' | 'rockHi' | 'rock' | 'rockDark' | 'petalA' | 'petalB' | 'petalMid' | 'tuft' | 'cap' | 'stem' | 'reed' | 'reedTip' | 'pad' | 'padFlower'
-export type PropArtId = 'broadleaf' | 'pine' | 'oak' | 'willow' | 'paperTree' | 'rock' | 'flower' | 'tuft' | 'mushroom' | 'reed' | 'lily'
+export type PropArtId = 'broadleaf' | 'pine' | 'oak' | 'willow' | 'paperTree' | 'rock' | 'flower' | 'tuft' | 'mushroom' | 'reed' | 'lily' | 'branch'
 export type PropBitmap = { ax: number; ay: number; rows: readonly string[] }
 // far 가 없으면 먼 배율에서 그리지 않는다
 export type PropArt = { near: PropBitmap; far?: PropBitmap }
@@ -210,6 +210,13 @@ export const PROP_ART: Readonly<Record<PropArtId, PropArt>> = {
     ] },
     far: { ax: 0, ay: 0, rows: [
       'p',
+    ] },
+  },
+  // 땅에 누운 나뭇가지: 나무 줄기 색 두 칸, 곁가지 하나. 원거리에서는 그리지 않는다
+  branch: {
+    near: { ax: 2, ay: 1, rows: [
+      'T....',
+      '.TTTK',
     ] },
   },
 }

@@ -75,6 +75,9 @@ export const EMOTE_INK = 104
 export const HEART = 105
 export const BALL = 106
 export const BALL_HI = 107
+// 구덩이 흔적(윗면에 칠한다): 흙 × 0.7, 그 그림자 흙 × 0.55
+export const PIT = 108
+export const PIT_SH = 109
 
 // 동물 뱅크 묶음 안의 역할
 export const BANK_SIZE = 12
@@ -237,6 +240,9 @@ export function themeOf(set: SetColors, banks: readonly BankColors[]): Theme {
   rgb[DUST] = set.dust
   rgb[DIRT] = set.dirt
   rgb[SPLASH] = set.splash
+  rgb[PIT] = scale(set.dirt, 0.7)
+  rgb[PIT_SH] = scale(set.dirt, 0.55)
+  shadowOf[PIT] = PIT_SH
   for (const [i, v] of FIXED) rgb[i] = v
   banks.slice(0, BANK_COUNT).forEach((c, k) => {
     for (const role of Object.keys(Role) as RoleName[]) rgb[bank(k) + Role[role]] = c[role]

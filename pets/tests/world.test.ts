@@ -34,8 +34,8 @@ describe('world', () => {
       for (const t of Fixtures.tilesAround(w)) expect(World.heightAt(w, t.x, t.y) <= 4).toBe(true)
     }
     for (const b of Biome.BIOMES) {
-      const w = World.create(3, b.gen, { size: b.size })
-      for (let i = 0; i < w.w * w.h; i++) expect(w.height[i]! <= World.MAX_HEIGHT).toBe(true)
+      const w = Biome.worldOf(b.id, 3)
+      for (const t of Fixtures.tilesAround(w)) expect(World.heightAt(w, t.x, t.y) <= World.MAX_HEIGHT).toBe(true)
     }
   })
 
@@ -57,14 +57,12 @@ describe('world', () => {
   test('with trees in place every tile that is not a tree or a block is walkable and reachable from the spawn', async () => {
     for (const b of Biome.BIOMES) {
       for (const seed of [1, 2]) {
-        const w = World.create(seed, b.gen, { size: b.size, props: true })
+        const w = Biome.worldOf(b.id, seed)
         expect(World.isWalkable(w, w.spawn.x, w.spawn.y)).toBe(true)
         let missed = 0
-        for (let y = 0; y < w.h; y++) {
-          for (let x = 0; x < w.w; x++) {
-            if (World.isBlock(w, x, y) || World.isObstacle(w, x, y)) continue
-            if (!World.isWalkable(w, x, y)) missed++
-          }
+        for (const { x, y } of Fixtures.tilesAround(w)) {
+          if (!World.inside(w, x, y) || World.isBlock(w, x, y) || World.isObstacle(w, x, y) || World.isDeep(w, x, y)) continue
+          if (!World.isWalkable(w, x, y)) missed++
         }
         expect(`${b.id} ${seed} ${missed}`).toBe(`${b.id} ${seed} 0`)
         const reach = Path.distancesFrom(w, w.spawn, World.DEFAULT_RULES, WIDE)

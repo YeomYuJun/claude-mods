@@ -14,6 +14,8 @@ export type Ball = {
   vz: number
   // 굴러간 거리. 공 무늬를 돌리는 데 쓴다
   roll: number
+  // 땅에 멈춰 있다. 멈춘 공은 스텝을 건너뛴다(값이 바뀌지 않는다). 강아지가 멀리 가 공의 청크가 캐시에서 빠져도 공 때문에 청크를 다시 만들지 않는다
+  settled?: boolean
 }
 
 // 굴러가는 마찰 감속(타일/s²), 튕길 때 남는 속도 비율, 중력(px/s²)
@@ -50,9 +52,11 @@ export function kick(b: Ball, dirX: number, dirY: number, speed: number, side: n
   b.vx = dirX * speed + dirY * side
   b.vy = dirY * speed + dirX * side
   b.vz = 40
+  b.settled = false
 }
 
 export function step(b: Ball, world: WorldState, dtMs: number): void {
+  if (b.settled && b.vx === 0 && b.vy === 0 && b.vz === 0) return
   const dt = dtMs / 1000
   const speed = Math.hypot(b.vx, b.vy)
   if (speed > 0) {
@@ -78,4 +82,5 @@ export function step(b: Ball, world: WorldState, dtMs: number): void {
       b.vz = Math.abs(b.vz) > 30 ? -b.vz * 0.4 : 0
     }
   }
+  b.settled = b.vx === 0 && b.vy === 0 && b.vz === 0 && b.z === ground
 }
