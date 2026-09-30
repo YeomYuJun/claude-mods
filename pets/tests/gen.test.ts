@@ -134,7 +134,7 @@ describe('generator', () => {
   })
 
   test('the generator uses no trigonometric, exponential or power functions', async () => {
-    for (const fn of [Gen.hash, Gen.unit, Gen.smooth, Gen.vnoise, Gen.rawHeight, Gen.floorOf, Gen.reachOf, Gen.envelope, Gen.candidateOf, Gen.lakeOf, Gen.lakeShapeOf, Gen.lakeFinish, Gen.lakesIn, Gen.lakeCellAt, Gen.kindOf, Gen.decoOf, Gen.waterDecoOf, Gen.region, Gen.regionStart, Gen.regionRows, World.create, World.createOpen, World.Chunks.nextUnit, World.Chunks.rawAt]) {
+    for (const fn of [Gen.hash, Gen.unit, Gen.smooth, Gen.vnoise, Gen.landformAt, Gen.ridgeAt, Gen.crestAt, Gen.landAt, Gen.basinAt, Gen.lakeCenterOf, Gen.riverAt, Gen.rawHeight, Gen.floorOf, Gen.reachOf, Gen.envelope, Gen.candidateOf, Gen.lakeOf, Gen.lakeShapeOf, Gen.lakeFinish, Gen.lakesIn, Gen.lakeCellAt, Gen.kindOf, Gen.decoOf, Gen.waterDecoOf, Gen.region, Gen.regionStart, Gen.regionRows, World.create, World.createOpen, World.Chunks.nextUnit, World.Chunks.rawAt]) {
       const src = String(fn)
       expect(src.length > 20).toBe(true)
       expect(/Math\.(sin|cos|tan|asin|acos|atan|atan2|hypot|exp|expm1|pow|log|log2|log10|cbrt)\b|\*\*/.test(src)).toBe(false)
@@ -172,10 +172,11 @@ describe('generator', () => {
         const at = `${b.id} ${i}`
         const x = i % r.w
         const y = (i - x) / r.w
-        // 영역 끝 칸은 밖의 호수를 볼 수 없어 테 판정에서 뺀다
-        const isEdge = x === 0 || y === 0 || x === r.w - 1 || y === r.h - 1
+        // 테는 발자국과 8 방향 거리 shoreWidth 안. 영역 끝 shoreWidth 칸은 밖의 호수를 볼 수 없어 테 판정에서 뺀다
+        const sw = p.shoreWidth ?? 1
+        const isEdge = x < sw || y < sw || x >= r.w - sw || y >= r.h - sw
         let isShore = false
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!isEdge && r.water[(y + dy) * r.w + x + dx]) isShore = true
+        for (let dy = -sw; dy <= sw; dy++) for (let dx = -sw; dx <= sw; dx++) if (!isEdge && r.water[(y + dy) * r.w + x + dx]) isShore = true
         const d = r.deco[i]!
         if (r.water[i]) {
           seen.add(k)
@@ -229,6 +230,107 @@ describe('generator', () => {
     }
   })
 
+  // 192² 는 맵 보기 200 × 80 한 화면(약 130 × 130 칸)의 1.5 배. 128² 에서는 큰 덩어리가 하나뿐인 시드가 있다(시드 2·4)
+  test('mountains are long ridges between valleys: in a 192 × 192 window around the start at least two high blocks of 30 tiles or more at 5 steps and up, and at least 60 % of the land at 1 or 2 steps', async () => {
+    const N = 192
+    for (const seed of [1, 2, 3]) {
+      const r = Gen.region(seed, Biome.byId('mountain').gen, -N / 2, -N / 2, N, N)
+      let low = 0
+      for (let i = 0; i < N * N; i++) if (!r.block[i] && r.height[i]! <= 2) low++
+      const high = (i: number) => !r.block[i] && r.height[i]! >= 5
+      const seen = new Uint8Array(N * N)
+      let big = 0
+      for (let s = 0; s < N * N; s++) {
+        if (seen[s] || !high(s)) continue
+        const q = [s]
+        seen[s] = 1
+        for (let head = 0; head < q.length; head++) {
+          const t = q[head]!
+          const x = t % N
+          const y = (t - x) / N
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const nx = x + dx
+            const ny = y + dy
+            const u = ny * N + nx
+            if (nx < 0 || ny < 0 || nx >= N || ny >= N || seen[u] || !high(u)) continue
+            seen[u] = 1
+            q.push(u)
+          }
+        }
+        if (q.length >= 30) big++
+      }
+      expect(`${seed} ridges ${big >= 2} valleys ${low / (N * N) >= 0.6}`).toBe(`${seed} ridges true valleys true`)
+    }
+  })
+
+  test('meadow, forest and snow are wide flats with scattered hills: over 256 × 256 tiles at least 75 % of tiles are level with all four neighbours, and at least five blocks reach 5 steps', async () => {
+    const N = 256
+    for (const id of ['meadow', 'forest', 'snow'] as const) {
+      const r = Gen.region(1, Biome.byId(id).gen, -N / 2, -N / 2, N, N)
+      const h = (i: number) => r.height[i]! + r.water[i]!
+      let flat = 0
+      for (let y = 1; y < N - 1; y++) {
+        for (let x = 1; x < N - 1; x++) {
+          const i = y * N + x
+          if (h(i - 1) === h(i) && h(i + 1) === h(i) && h(i - N) === h(i) && h(i + N) === h(i)) flat++
+        }
+      }
+      const high = (i: number) => !r.block[i] && r.height[i]! >= 5
+      const seen = new Uint8Array(N * N)
+      let hills = 0
+      for (let s = 0; s < N * N; s++) {
+        if (seen[s] || !high(s)) continue
+        hills++
+        const q = [s]
+        seen[s] = 1
+        for (let head = 0; head < q.length; head++) {
+          const t = q[head]!
+          const x = t % N
+          const y = (t - x) / N
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const nx = x + dx
+            const ny = y + dy
+            const u = ny * N + nx
+            if (nx < 0 || ny < 0 || nx >= N || ny >= N || seen[u] || !high(u)) continue
+            seen[u] = 1
+            q.push(u)
+          }
+        }
+      }
+      expect(`${id} flat ${flat / ((N - 2) * (N - 2)) >= 0.75} hills ${hills >= 5}`).toBe(`${id} flat true hills true`)
+    }
+  })
+
+  test('the desert is low sand with mesas: over 256 × 256 tiles at least 75 % of the land at 1 or 2 steps and at least three separate red-rock tops at 4 steps or more', async () => {
+    const N = 256
+    const r = Gen.region(1, Biome.byId('desert').gen, -N / 2, -N / 2, N, N)
+    const top = (i: number) => !r.block[i] && r.height[i]! >= 4 && r.kind[i] === Gen.KIND_STONE
+    let low = 0
+    for (let i = 0; i < N * N; i++) if (!r.block[i] && r.height[i]! + r.water[i]! <= 2) low++
+    const seen = new Uint8Array(N * N)
+    let mesas = 0
+    for (let s = 0; s < N * N; s++) {
+      if (seen[s] || !top(s)) continue
+      mesas++
+      const q = [s]
+      seen[s] = 1
+      for (let head = 0; head < q.length; head++) {
+        const t = q[head]!
+        const x = t % N
+        const y = (t - x) / N
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = x + dx
+          const ny = y + dy
+          const u = ny * N + nx
+          if (nx < 0 || ny < 0 || nx >= N || ny >= N || seen[u] || !top(u)) continue
+          seen[u] = 1
+          q.push(u)
+        }
+      }
+    }
+    expect(`low ${low / (N * N) >= 0.75} mesas ${mesas >= 3}`).toBe('low true mesas true')
+  })
+
   test('the sets other than graph paper are worlds without edges whose top reaches within a step of the height limit of the set, above the graph-paper range, with the start on dry walkable ground', async () => {
     const open = Biome.BIOMES.filter(x => x.open === true)
     expect(open.map(b => b.id)).toEqual(['meadow', 'mountain', 'forest', 'lake', 'beach', 'snow', 'desert'])
@@ -236,7 +338,7 @@ describe('generator', () => {
       const w = World.create(5, b.gen, { open: true })
       expect(`${b.id} ${World.isOpen(w)} ${World.inside(w, -5000, 7000)}`).toBe(`${b.id} true true`)
       let top = 0
-      for (let y = -40; y < 40; y++) for (let x = -40; x < 40; x++) top = Math.max(top, World.heightAt(w, x, y))
+      for (let y = -64; y < 64; y++) for (let x = -64; x < 64; x++) top = Math.max(top, World.heightAt(w, x, y))
       expect(`${b.id} ${top >= b.gen.hmax - 1 && top > 2}`).toBe(`${b.id} true`)
       const f = World.flagsAt(w, w.spawn.x, w.spawn.y)
       expect(`${b.id} ${(f & World.WALK) !== 0 && (f & (World.WATER | World.BLOCK)) === 0}`).toBe(`${b.id} true`)

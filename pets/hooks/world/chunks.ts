@@ -30,8 +30,9 @@ export type Chunk = { cx: number; cy: number; height: Uint8Array; flags: Uint8Ar
 // mask[j] 의 비트 i: 칸 (i, j) 를 채웠다
 type RawBlock = { v: Uint8Array; mask: Uint32Array }
 
-// 일 단위의 무게(점, 엔진 테스트 하네스에서 잰 가운데 값 0.1 ms 를 1 점으로 잡았다). 한 틱에 BUDGET 점까지 한다
-export const COST = { raw: 5, shape: 3, lake: 2, start: 8, rows: 4, flags: 3 } as const
+// 일 단위의 무게(점, 엔진 테스트 하네스에서 잰 가운데 값 0.1 ms 를 1 점으로 잡았다). 한 틱에 BUDGET 점까지 한다.
+// 호수 모양은 큰 호수(호숫가 반지름 9~16)의 p95 1.3 ms 에 맞췄다(작은 호수는 이보다 가볍다)
+export const COST = { raw: 5, shape: 13, lake: 2, start: 8, rows: 4, flags: 3 } as const
 export const BUDGET = 12
 
 export type Store = {
@@ -177,7 +178,7 @@ export function nextUnit(store: Store, cx: number, cy: number): Unit | undefined
   const y0 = cy << SHIFT
   const box: Box = { x0: x0 - pad, y0: y0 - pad, x1: x0 + SIZE - 1 + pad, y1: y0 + SIZE - 1 + pad }
   if (gen.lake) {
-    const g = Gen.lakeCellsIn(box.x0, box.y0, box.x1, box.y1)
+    const g = Gen.lakeCellsIn(box.x0, box.y0, box.x1, box.y1, Gen.lakeCellOf(gen))
     for (let gy = g.gy0; gy <= g.gy1; gy++) {
       for (let gx = g.gx0; gx <= g.gx1; gx++) {
         const key = Gen.lakeKeyOf(gx, gy)
@@ -294,9 +295,10 @@ function pruneCaches(store: Store): void {
   for (const key of store.raw.keys()) if (distOf(store, key) > lim) store.raw.delete(key)
   for (const key of store.works.keys()) if (distOf(store, key) > lim) store.works.delete(key)
   if (lastRaw && !store.raw.has(lastRawKey)) lastRaw = undefined
-  const cellLim = Math.ceil(((lim + 1) * SIZE) / Gen.LAKE_CELL) + 1
-  const gcx = Math.floor((store.center.cx * SIZE) / Gen.LAKE_CELL)
-  const gcy = Math.floor((store.center.cy * SIZE) / Gen.LAKE_CELL)
+  const lakeCell = Gen.lakeCellOf(store.gen)
+  const cellLim = Math.ceil(((lim + 1) * SIZE) / lakeCell) + 1
+  const gcx = Math.floor((store.center.cx * SIZE) / lakeCell)
+  const gcy = Math.floor((store.center.cy * SIZE) / lakeCell)
   for (const map of [store.lakes, store.shapes] as Array<Map<number, unknown>>) {
     for (const key of map.keys()) {
       const gx = (key << 16) >> 16

@@ -1,21 +1,26 @@
 // 좌표 해시 생성기(순수 모듈). 모든 값은 (시드, x, y) 의 함수라, 영역을 잘라 따로 만들어도 한 번에 만든 것과 바이트가 같다.
 //
-// 1. 높이 노이즈: 도메인 워핑 + value noise 여러 겹을 hmin~hmax 단으로 나눈다
+// 1. 높이 노이즈: 도메인 워핑 + value noise 여러 겹을 hmin~hmax 단으로 나눈다(세트가 levels 를 주면 baseMin 부터 levels 단).
+//    세트에 따라 그 위에 지형 스탬프(언덕·봉우리·메사·능선, 셀마다 하나)와 능선 노이즈 띠 중 큰 값, 잔기복 한 겹을 더하고 호수 분지를 뺀다.
+//    스탬프·분지는 제 셀 안에 들어 칸이 든 셀 하나만 본다. 결과는 hmin~hmax 로 자른다
 // 2. 포락선: h(p) = min_q(h0(q) + 맨해튼 거리). 이웃 칸끼리 높이 차 ≤ 1 이 된다.
 //    높이가 [바닥, hmax] 안이면(바닥은 hmin, 호수가 있으면 깊은 물 바닥 floorOf) 거리가 hmax − 바닥 이상인 칸은 최솟값이 될 수 없어,
 //    영역 둘레에 여유 hmax − 바닥 − 1 칸만 붙여 계산해도 결과가 전역 계산과 같다
-// 3. 장애물 후보: cell 칸 격자 셀마다 후보 하나(위치·종류·발자국·우선순위가 셀 해시).
+// 3. 장애물 후보: cell 칸 격자 셀마다 후보 하나(위치·종류·발자국·우선순위가 셀 해시. 있을 확률은 세트에 따라 셀 위치의 노이즈·호수 분지 안인지로 바뀐다).
 //    우선순위가 더 높은 이웃 "후보"와 겹치거나 8-인접하면 버린다. 채택된 점이 아니라 후보와 비교하므로
 //    결과가 반경 2 셀 안의 해시만으로 정해진다. 장애물 덩어리가 서로 8-인접하지 않고 구멍이 없어 걷는 칸이 끊기지 않는다
 // 4. 블록 높이 = 발자국 높이 + 1 또는 + 2(발자국 높이가 모두 같을 때만 놓는다)
 // 5. 지표 종류: 순서대로 첫 참. 호수(물), 호수 테(물가 종류), 블록, 눈(온도 노이즈 - 0.06 × 높이 < 눈 문턱, 높이 하한 이상),
-//    돌(높이 문턱 이상), 얼룩(습도 노이즈 < 문턱 이고 잔무늬 노이즈 > 문턱), 나머지는 바탕 종류
+//    돌(높이 문턱 이상), 얼룩(습도 노이즈 < 문턱 이고 잔무늬 노이즈 > 문턱, 높이 상한 이하), 나머지는 바탕 종류. 테 폭은 세트마다(기본 1 칸)
 // 6. 걷는 꾸밈(꽃·풀포기·버섯·갈대·연잎·나뭇가지·조개·마른 덤불): 장애물·블록이 아닌 칸에 칸 해시로 둔다. 장애물이 아니라 걸음을 막지 않는다
-// 7. 호수: LAKE_CELL 칸 격자 셀마다 확률로 하나. 모양·깊이·수면이 셀 좌표와 포락선 전 높이만의 함수라 어느 영역에서 불러도 같다.
+// 7. 호수: 호수 셀(기본 LAKE_CELL 칸) 격자 셀마다 확률로 하나(세트에 따라 중심의 분지 전 높이가 낮을 때만). 모양·깊이·수면이 셀 좌표와 포락선 전 높이만의 함수라 어느 영역에서 불러도 같다.
 //    수면 L = 발자국을 hmax + 1 칸 넓힌 곳의 포락선 전 높이 최솟값, 바닥은 얕음 L - 1, 깊음 L - 2 로 고정하고 포락선을 돌린다.
 //    포락선은 한 칸마다 한 단까지만 오르므로 테(발자국과 8 방향으로 닿는 칸)는 L 보다 낮을 수 없다(떠 있는 물이 없다).
 //    물과 4 방향으로 닿은 테는 얕은 바닥 바로 옆이라 L 보다 높을 수도 없어 수면과 같은 높이로 평평하고, 대각선으로만 닿은 테는 L + 1 일 수 있다.
 //    호수 발자국과 8 방향으로 닿는 장애물 후보는 버린다
+// 8. 강: 워핑 좌표의 노이즈 한 겹의 0.5 등고선 둘레 띠. 포락선 전 높이를 hmin − 1 로 박아 수면이 hmin 인 얕은 물이다.
+//    다른 땅은 모두 hmin 이상이라 포락선이 강 둘레를 정확히 hmin 으로 깎는다(떠 있는 물·폭포가 없고 물가가 평평하다).
+//    호수 수면을 찾는 상자 안에서는 강을 끊어 호수 수면이 바뀌지 않는다. 물가 종류·장애물 둘레·물 꾸밈은 호수와 같이 다룬다
 //
 // 결정성: 순차 난수를 쓰지 않고, 사칙연산·floor·imul 만 쓴다(삼각·지수 함수는 엔진마다 마지막 비트가 다를 수 있다).
 
@@ -44,7 +49,7 @@ export type GenParams = {
   blockKind?: number
   rockLine?: number
   snow?: { line: number; min: number }
-  patch?: { kind: number; wet: number; p: number }
+  patch?: { kind: number; wet: number; p: number; maxH?: number }
   // 걷는 꾸밈 확률(칸당). 꽃·풀포기는 풀 칸에만, 버섯은 풀·낙엽 칸에, 갈대는 땅과 닿은 얕은 물에, 연잎은 땅과 닿지 않은 얕은 물에
   flowerP?: number
   tuftP?: number
@@ -56,10 +61,37 @@ export type GenParams = {
   // 조개(모래·젖은 모래 칸), 마른 덤불(모래 칸) 확률(칸당)
   shellP?: number
   dryBushP?: number
-  // 호수: 격자 셀마다 있을 확률과 반지름 범위(칸). shore 는 호수 테의 지표 종류. 없으면 호수가 없다
-  lake?: { p: number; r: readonly [number, number] }
+  // 호수: 격자 셀마다 있을 확률과 반지름 범위(칸), 셀 한 변(없으면 LAKE_CELL). lowOnly 가 있으면 중심의 분지 전 높이가 hmin + lowOnly 이하일 때만 둔다.
+  // shore 는 호수 테의 지표 종류, shoreWidth 는 테 폭(발자국과 8 방향 거리, 없으면 1). 없으면 호수가 없다
+  lake?: { p: number; r: readonly [number, number]; cell?: number; lowOnly?: number }
   shore?: number
+  shoreWidth?: number
+  // 바탕: 높이 노이즈를 levels 단으로 나눠 baseMin(없으면 hmin)부터 쌓는다. 없으면 hmin~hmax 단 전부를 쓰고 고도가 고르게 쓰이게 편다
+  levels?: number
+  baseMin?: number
+  // 지형 스탬프: 종류마다 cell 칸 격자 셀에 확률 p 로 하나, 크기·높이(단)는 범위 안에서 셀 해시로 고른다. 스탬프끼리 겹치면 큰 값
+  forms?: readonly Landform[]
+  // 능선 노이즈 띠(사구·마루 선): 워핑 좌표를 45 도 돌려 한 축을 stretch 배 늘린 value noise n 의 r = 1 − |2n − 1| 가 cut 을 넘는 칸에
+  // h + ⌊(r − cut) × gain⌋ 단. 스탬프와 겹치면 큰 값
+  crest?: { salt: number; spacing: number; stretch: number; cut: number; gain: number; h: number }
+  // 잔기복: 워핑 좌표의 value noise 한 겹 × amp 단
+  detail?: { spacing: number; amp: number }
+  // 호수 분지: 칸이 든 호수 셀에 호수가 있으면 중심에서 Rb = ⌈1.25 r0⌉ + 1 + extra 안을 depth × (1 − d²/Rb²) 단 낮추고, floor 아래로는 내리지 않는다.
+  // 분지가 제 셀 안에 들도록 Rb 는 호수 중심의 셀 안쪽 여백 이하여야 한다(extra ≤ ⌊hmax/2⌋ + 1 이면 된다)
+  basin?: { extra: number; depth: number; floor?: number }
+  // 장애물 후보 확률에 곱하는 값: obsField 는 셀 위치의 노이즈로 lo~hi, obsNear 는 후보 칸이 호수 분지 안이면 hi, 밖이면 lo
+  obsField?: { spacing: number; lo: number; hi: number }
+  obsNear?: { hi: number; lo: number }
+  // 강: 워핑 좌표의 value noise(간격 spacing) n 의 |2n − 1| < width 인 칸이 얕은 물 띠. 바닥은 hmin − 1 이라 수면이 hmin 이고
+  // 포락선이 둘레를 hmin 으로 깎는다. 호수 수면을 찾는 상자(발자국을 hmax + 1 칸 넓힌 곳) 안에서는 끊긴다
+  river?: { spacing: number; width: number }
 }
+
+// dome: 둥근 언덕(가운데 h, 가장자리 0 으로 매끈하게), peak: 뾰족한 봉우리(가운데로 갈수록 가파르게), mesa: 평평한 꼭대기(반지름 안은 모두 h).
+// ridge: 길이 r, 마루 높이 h 의 능선. 8 방위 중 하나로 뻗고, 마루를 따라 봉우리(h)와 고개(h − 2)가 번갈아 나며, 옆으로 한 칸에 slope(없으면 1) 단씩 내려간다.
+//   shift 는 격자를 대각선으로 미는 칸 수(능선 두 벌의 셀 경계를 엇갈리게 둔다).
+// 포락선이 이웃 칸 높이 차를 1 로 깎으므로 봉우리·메사의 옆은 한 칸에 한 단씩 내려가는 계단이 된다
+export type Landform = { shape: 'dome' | 'peak' | 'mesa' | 'ridge'; cell: number; p: number; r: readonly [number, number]; h: readonly [number, number]; slope?: number; shift?: number }
 
 // 소품 번호(prop 배열 값). 0 은 없음
 export const PROP_NONE = 0
@@ -170,25 +202,213 @@ export function vnoise(seed: number, salt: number, x: number, y: number, spacing
   return top + (bottom - top) * ty
 }
 
-// 포락선 전 높이(hmin~hmax)
-export function rawHeight(seed: number, p: GenParams, x: number, y: number): number {
-  const wx = p.warp > 0 ? x + (vnoise(seed, 11, x, y, p.warpSpacing) - 0.5) * 2 * p.warp : x
-  const wy = p.warp > 0 ? y + (vnoise(seed, 12, x, y, p.warpSpacing) - 0.5) * 2 * p.warp : y
+// 능선 스탬프가 뻗는 8 방위의 단위 벡터(십진 리터럴이라 삼각 함수를 부르지 않고 어느 엔진에서든 같은 수다)
+const DIRS: ReadonlyArray<readonly [number, number]> = [[1, 0], [0.9239, 0.3827], [0.7071, 0.7071], [0.3827, 0.9239], [0, 1], [-0.3827, 0.9239], [-0.7071, 0.7071], [-0.9239, 0.3827]]
+
+// 칸 (x, y) 에 지형 스탬프가 더하는 높이(단, 소수). 스탬프끼리는 큰 값. 스탬프는 제 셀 안에 들어가게 가운데를 크기만큼 안쪽에 두어 칸이 든 셀 하나만 본다
+export function landformAt(seed: number, p: GenParams, x: number, y: number): number {
+  let top = 0
+  const forms = p.forms
+  if (!forms) return 0
+  for (let f = 0; f < forms.length; f++) {
+    const form = forms[f]!
+    const v = form.shape === 'ridge' ? ridgeAt(seed, form, f, x, y) : roundAt(seed, form, f, x, y)
+    if (v > top) top = v
+  }
+  return top
+}
+
+// 스탬프 하나의 셀 값: 있는지, 가운데, 크기(반지름·길이), 높이(마루), 능선 방향. 스탬프 순번 f 로 salt 가 정해진다(둥근 것 600 + 10f, 능선 700 + 10f)
+type Stamp = { seed: number; form: Landform | undefined; gx: number; gy: number; on: boolean; cx: number; cy: number; size: number; h: number; dx: number; dy: number }
+// 스탬프 순번마다 마지막으로 본 셀. 이웃 칸은 대개 같은 셀이라 셀 해시를 다시 계산하지 않는다((시드, 스탬프, 셀) 의 함수 값을 담아 둘 뿐이라 결과는 같다)
+const stamps: Stamp[] = []
+
+function stampOf(seed: number, form: Landform, f: number, gx: number, gy: number): Stamp {
+  const m = (stamps[f] ??= { seed: NaN, form: undefined, gx: NaN, gy: NaN, on: false, cx: 0, cy: 0, size: 0, h: 0, dx: 0, dy: 0 })
+  if (m.seed === seed && m.form === form && m.gx === gx && m.gy === gy) return m
+  m.seed = seed; m.form = form; m.gx = gx; m.gy = gy
+  const ridge = form.shape === 'ridge'
+  const salt = (ridge ? 700 : 600) + 10 * f
+  m.on = unit(hash(seed, gx, gy, salt)) < form.p
+  if (!m.on) return m
+  m.size = form.r[0] + unit(hash(seed, gx, gy, salt + 1)) * (form.r[1] - form.r[0])
+  m.h = form.h[0] + unit(hash(seed, gx, gy, salt + 4)) * (form.h[1] - form.h[0])
+  // 가운데를 셀 가장자리에서 둥근 것은 반지름 + 1, 능선은 길이/2 + 마루 높이 + 1 안쪽에 둔다
+  const inset = ridge ? Math.ceil(m.size / 2 + m.h) + 1 : Math.ceil(m.size) + 1
+  const room = Math.max(0, form.cell - 2 * inset)
+  m.cx = gx * form.cell + inset + Math.floor(unit(hash(seed, gx, gy, salt + 2)) * room)
+  m.cy = gy * form.cell + inset + Math.floor(unit(hash(seed, gx, gy, salt + 3)) * room)
+  if (ridge) [m.dx, m.dy] = DIRS[hash(seed, gx, gy, salt + 6) & 7]!
+  return m
+}
+
+// 둥근 스탬프(dome·peak·mesa) 하나의 높이. f 는 스탬프 순번
+function roundAt(seed: number, form: Landform, f: number, x: number, y: number): number {
+  const m = stampOf(seed, form, f, Math.floor(x / form.cell), Math.floor(y / form.cell))
+  if (!m.on) return 0
+  const r = m.size
+  const d2 = (x - m.cx) * (x - m.cx) + (y - m.cy) * (y - m.cy)
+  if (d2 >= r * r) return 0
+  const t = 1 - d2 / (r * r)
+  return form.shape === 'mesa' ? m.h : form.shape === 'peak' ? m.h * t * t : m.h * t
+}
+
+// 능선 스탬프 하나의 높이(f 는 스탬프 순번). t 는 마루 방향 좌표, s 는 마루에서 옆으로 떨어진 거리. 마루를 따라 1 차원 노이즈로 봉우리와 고개(마루 − 2)가 나고,
+// 양 끝 마루 높이 칸 안에서는 마루가 0 까지 내려간다
+export function ridgeAt(seed: number, form: Landform, f: number, x: number, y: number): number {
+  const sx = x + (form.shift ?? 0)
+  const sy = y + (form.shift ?? 0)
+  const gx = Math.floor(sx / form.cell)
+  const gy = Math.floor(sy / form.cell)
+  const m = stampOf(seed, form, f, gx, gy)
+  if (!m.on) return 0
+  const L = m.size
+  const peak = m.h
+  const px = sx - m.cx
+  const py = sy - m.cy
+  const t = px * m.dx + py * m.dy
+  const s = Math.abs(py * m.dx - px * m.dy)
+  if (Math.abs(t) > L / 2) return 0
+  let crest = peak - 2 * vnoise(seed, 705 + 10 * f, t + L / 2, gx * 4099 + gy, 9)
+  const end = (L / 2 - Math.abs(t)) / peak
+  if (end < 1) crest *= end
+  return Math.max(0, crest - (form.slope ?? 1) * s)
+}
+
+// 능선 노이즈 띠의 높이(단). wx, wy 는 워핑 좌표
+export function crestAt(seed: number, p: GenParams, wx: number, wy: number): number {
+  const c = p.crest
+  if (!c) return 0
+  const u = (wx + wy) * 0.7071
+  const v = (wx - wy) * 0.7071
+  const r = 1 - Math.abs(2 * vnoise(seed, c.salt, u / c.stretch, v, c.spacing) - 1)
+  return r > c.cut ? c.h + Math.floor((r - c.cut) * c.gain) : 0
+}
+
+// 분지를 빼기 전 높이(단, 소수, 자르기 전): 바탕 + 스탬프·능선 띠 중 큰 값 + 잔기복
+export function landAt(seed: number, p: GenParams, x: number, y: number): number {
+  return landOf(seed, p, x, y, warpXOf(seed, p, x, y), warpYOf(seed, p, x, y))
+}
+
+function warpXOf(seed: number, p: GenParams, x: number, y: number): number {
+  return p.warp > 0 ? x + (vnoise(seed, 11, x, y, p.warpSpacing) - 0.5) * 2 * p.warp : x
+}
+
+function warpYOf(seed: number, p: GenParams, x: number, y: number): number {
+  return p.warp > 0 ? y + (vnoise(seed, 12, x, y, p.warpSpacing) - 0.5) * 2 * p.warp : y
+}
+
+// landAt 과 같다. wx, wy 는 워핑 좌표
+function landOf(seed: number, p: GenParams, x: number, y: number, wx: number, wy: number): number {
   let s = 0
   let n = 0
   for (let o = 0; o < p.spacing.length; o++) {
     s += vnoise(seed, 20 + o, wx, wy, p.spacing[o]!) * p.amp[o]!
     n += p.amp[o]!
   }
-  // 가운데가 넓고 양 끝이 드문 분포라 조금 펴서 고도가 고르게 쓰이게 한다
-  let v = (s / n - 0.5) * p.gain + 0.5 + p.bias
-  v = Math.max(0, Math.min(0.9999, (v - 0.2) / 0.6))
-  return p.hmin + Math.floor(v * (p.hmax - p.hmin + 1))
+  const v = (s / n - 0.5) * p.gain + 0.5 + p.bias
+  // 가운데가 넓고 양 끝이 드문 분포라 조금 펴서 고도가 고르게 쓰이게 한다. levels 를 준 세트는 바탕을 가운데 단에 모으려고 펴지 않는다
+  let h: number
+  if (p.levels === undefined) h = p.hmin + Math.floor(Math.max(0, Math.min(0.9999, (v - 0.2) / 0.6)) * (p.hmax - p.hmin + 1))
+  else h = (p.baseMin ?? p.hmin) + Math.floor(Math.max(0, Math.min(0.9999, v)) * p.levels)
+  if (p.forms || p.crest) h += Math.max(landformAt(seed, p, x, y), crestAt(seed, p, wx, wy))
+  if (p.detail) h += p.detail.amp * vnoise(seed, 21, wx, wy, p.detail.spacing)
+  return h
 }
 
-// 가장 낮을 수 있는 높이. 호수가 있으면 깊은 물 바닥(수면 - 2, 수면은 지형 최저 이상)까지 내려가고 0 아래로는 가지 않는다
+// 포락선 전 높이(hmin~hmax, 강 칸은 hmin − 1)
+export function rawHeight(seed: number, p: GenParams, x: number, y: number): number {
+  const wx = warpXOf(seed, p, x, y)
+  const wy = warpYOf(seed, p, x, y)
+  if (p.river && isRiverOf(seed, p, x, y, wx, wy)) return p.hmin - 1
+  let h = landOf(seed, p, x, y, wx, wy)
+  if (p.basin) {
+    h = Math.floor(h - basinAt(seed, p, x, y))
+    if (p.basin.floor !== undefined) h = Math.max(p.basin.floor, h)
+  } else h = Math.floor(h)
+  return Math.max(p.hmin, Math.min(p.hmax, h))
+}
+
+// 칸 (x, y) 가 강인지
+export function riverAt(seed: number, p: GenParams, x: number, y: number): boolean {
+  return p.river !== undefined && isRiverOf(seed, p, x, y, warpXOf(seed, p, x, y), warpYOf(seed, p, x, y))
+}
+
+// n = 0.5 등고선 둘레 띠. 칸이 든 호수 셀과 둘레 8 셀의 호수(셀 해시로 있다고 나온 것, lowOnly·수면은 보지 않는다) 중
+// 수면을 찾는 상자(중심에서 ⌈1.25 r0⌉ + 1 + hmax + 1 칸) 안이면 강이 아니다. 호수 수면과 물가 높이가 강에 흔들리지 않는다
+function isRiverOf(seed: number, p: GenParams, x: number, y: number, wx: number, wy: number): boolean {
+  const r = p.river!
+  if (Math.abs(2 * vnoise(seed, 40, wx, wy, r.spacing) - 1) >= r.width) return false
+  if (!p.lake) return true
+  const cell = lakeCellOf(p)
+  const gx = Math.floor(x / cell)
+  const gy = Math.floor(y / cell)
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const c = lakeCenterOf(seed, p, gx + dx, gy + dy)
+      if (!c) continue
+      const k = Math.ceil(1.25 * c.r0) + 1 + p.hmax + 1
+      if (Math.abs(x - c.cx) <= k && Math.abs(y - c.cy) <= k) return false
+    }
+  }
+  return true
+}
+
+// 호수 격자 셀 한 변(칸)
+export function lakeCellOf(p: GenParams): number {
+  return p.lake?.cell ?? LAKE_CELL
+}
+
+// 호수 셀 (gx, gy) 의 호수 중심과 반지름. 셀 해시만 읽는다(lowOnly 는 보지 않는다). 없으면 undefined.
+// 중심은 셀 가장자리에서 inset 안쪽이라 이웃 셀 호수와 hmax + 4 칸 넘게 떨어진다
+export function lakeCenterOf(seed: number, p: GenParams, gx: number, gy: number): { cx: number; cy: number; r0: number } | undefined {
+  const spec = p.lake
+  if (!spec || unit(hash(seed, gx, gy, 501)) >= spec.p) return undefined
+  const [rLo, rHi] = spec.r
+  const r0 = rLo + Math.floor(unit(hash(seed, gx, gy, 502)) * (rHi - rLo + 1))
+  const cell = lakeCellOf(p)
+  const inset = Math.ceil(1.3 * rHi) + Math.floor(p.hmax / 2) + 2
+  const room = Math.max(1, cell - 2 * inset)
+  const cx = gx * cell + inset + Math.floor(unit(hash(seed, gx, gy, 503)) * room)
+  const cy = gy * cell + inset + Math.floor(unit(hash(seed, gx, gy, 504)) * room)
+  return { cx, cy, r0 }
+}
+
+// 중심 칸의 분지 전 높이가 lowOnly 조건을 넘어 호수를 두지 않는지. 칸 좌표의 함수라(raw 캐시·시험용 바꿔 끼우기를 거치지 않는다) 어느 영역에서 불러도 같다
+function tooHighOf(seed: number, p: GenParams, cx: number, cy: number): boolean {
+  const low = p.lake?.lowOnly
+  return low !== undefined && Math.max(p.hmin, Math.min(p.hmax, Math.floor(landAt(seed, p, cx, cy)))) > p.hmin + low
+}
+
+// 마지막으로 본 호수 셀의 분지(중심·반지름 Rb, 호수가 없거나 lowOnly 에 걸리면 Rb 0). 이웃 칸은 대개 같은 셀이라 셀 해시를 다시 계산하지 않는다.
+// (시드, 매개변수, 셀) 의 함수 값을 담아 둘 뿐이라 결과는 같다
+const lastBasin = { seed: NaN, p: undefined as GenParams | undefined, gx: NaN, gy: NaN, cx: 0, cy: 0, Rb: 0, high: -1 }
+
+// 칸 (x, y) 를 호수 분지가 낮추는 깊이(단, 소수). 칸이 든 호수 셀 하나만 본다
+export function basinAt(seed: number, p: GenParams, x: number, y: number): number {
+  const spec = p.basin
+  if (!spec) return 0
+  const cell = lakeCellOf(p)
+  const gx = Math.floor(x / cell)
+  const gy = Math.floor(y / cell)
+  const m = lastBasin
+  if (m.seed !== seed || m.p !== p || m.gx !== gx || m.gy !== gy) {
+    const c = lakeCenterOf(seed, p, gx, gy)
+    m.seed = seed; m.p = p; m.gx = gx; m.gy = gy
+    m.cx = c ? c.cx : 0; m.cy = c ? c.cy : 0; m.Rb = c ? Math.ceil(1.25 * c.r0) + 1 + spec.extra : 0
+    // 중심 높이(lowOnly)는 분지 안 칸을 처음 볼 때 한 번 계산한다
+    m.high = -1
+  }
+  if (m.Rb === 0) return 0
+  const d2 = (x - m.cx) * (x - m.cx) + (y - m.cy) * (y - m.cy)
+  if (d2 >= m.Rb * m.Rb) return 0
+  if (m.high < 0) m.high = tooHighOf(seed, p, m.cx, m.cy) ? 1 : 0
+  return m.high ? 0 : spec.depth * (1 - d2 / (m.Rb * m.Rb))
+}
+
+// 가장 낮을 수 있는 높이. 호수가 있으면 깊은 물 바닥(수면 - 2, 수면은 지형 최저 이상)까지 내려가고 0 아래로는 가지 않는다. 강만 있으면 강 바닥 hmin − 1
 export function floorOf(p: GenParams): number {
-  return p.lake ? Math.max(0, p.hmin - 2) : p.hmin
+  return p.lake ? Math.max(0, p.hmin - 2) : p.river ? p.hmin - 1 : p.hmin
 }
 
 // 포락선이 기대는 반경: 이보다 먼 칸은 높이를 바꾸지 못한다
@@ -224,18 +444,14 @@ export function lakeOf(seed: number, p: GenParams, gx: number, gy: number, opts:
   return shape && lakeFinish(seed, p, shape, opts)
 }
 
-// 호수 모양(발자국, 수면 전). 포락선 전 높이를 읽지 않는다. near: 수면을 찾는 칸 범위(발자국을 hmax + 1 칸 넓힌 상자, 양 끝 포함)
+// 호수 모양(발자국, 수면 전). raw 캐시를 읽지 않는다(lowOnly 가 있으면 중심 칸 하나의 분지 전 높이만 직접 계산한다).
+// near: 수면을 찾는 칸 범위(발자국을 hmax + 1 칸 넓힌 상자, 양 끝 포함)
 export type LakeShape = { x0: number; y0: number; s: number; R: number; r0: number; cells: Uint8Array; near: { x0: number; y0: number; x1: number; y1: number } }
 
 export function lakeShapeOf(seed: number, p: GenParams, gx: number, gy: number, opts: GenOptions = {}): LakeShape | undefined {
-  const spec = p.lake
-  if (!spec || unit(hash(seed, gx, gy, 501)) >= spec.p) return undefined
-  const [rLo, rHi] = spec.r
-  const r0 = rLo + Math.floor(unit(hash(seed, gx, gy, 502)) * (rHi - rLo + 1))
-  const inset = Math.ceil(1.3 * rHi) + Math.floor(p.hmax / 2) + 2
-  const room = Math.max(1, LAKE_CELL - 2 * inset)
-  const cx = gx * LAKE_CELL + inset + Math.floor(unit(hash(seed, gx, gy, 503)) * room)
-  const cy = gy * LAKE_CELL + inset + Math.floor(unit(hash(seed, gx, gy, 504)) * room)
+  const c = lakeCenterOf(seed, p, gx, gy)
+  if (!c || tooHighOf(seed, p, c.cx, c.cy)) return undefined
+  const { cx, cy, r0 } = c
   const R = Math.ceil(1.25 * r0) + 1
   const s = 2 * R + 1
   const v: number[] = []
@@ -358,9 +574,9 @@ export function lakeKeyOf(gx: number, gy: number): number {
   return (gx & 0xffff) | (gy << 16)
 }
 
-// [x0, x1] × [y0, y1] 와 겹치는 호수 셀 범위(양 끝 포함)
-export function lakeCellsIn(x0: number, y0: number, x1: number, y1: number): { gx0: number; gy0: number; gx1: number; gy1: number } {
-  return { gx0: Math.floor(x0 / LAKE_CELL), gy0: Math.floor(y0 / LAKE_CELL), gx1: Math.floor(x1 / LAKE_CELL), gy1: Math.floor(y1 / LAKE_CELL) }
+// [x0, x1] × [y0, y1] 와 겹치는 호수 셀 범위(양 끝 포함). cell 은 호수 셀 한 변
+export function lakeCellsIn(x0: number, y0: number, x1: number, y1: number, cell = LAKE_CELL): { gx0: number; gy0: number; gx1: number; gy1: number } {
+  return { gx0: Math.floor(x0 / cell), gy0: Math.floor(y0 / cell), gx1: Math.floor(x1 / cell), gy1: Math.floor(y1 / cell) }
 }
 
 // [x0, x1] × [y0, y1] 와 겹치는 호수들. 호수는 제 셀 안에 들어 있어 겹치는 셀만 본다
@@ -368,7 +584,7 @@ export function lakesIn(seed: number, p: GenParams, x0: number, y0: number, x1: 
   const out: Lake[] = []
   if (!p.lake) return out
   const cache = opts.lakeCache
-  const g = lakeCellsIn(x0, y0, x1, y1)
+  const g = lakeCellsIn(x0, y0, x1, y1, lakeCellOf(p))
   for (let gy = g.gy0; gy <= g.gy1; gy++) {
     for (let gx = g.gx0; gx <= g.gx1; gx++) {
       let lake: Lake | undefined
@@ -443,9 +659,18 @@ type Candidate = { x: number; y: number; w: number; h: number; prop: number; isB
 
 // 셀 (cx, cy) 의 장애물 후보. 없으면 undefined
 export function candidateOf(seed: number, p: GenParams, cx: number, cy: number, cell = OBS_CELL): Candidate | undefined {
-  if (unit(hash(seed, cx, cy, 201)) >= p.obsP * 2.2) return undefined
+  const u = unit(hash(seed, cx, cy, 201))
+  const plain = !p.obsField && !p.obsNear
+  if (plain && u >= p.obsP * 2.2) return undefined
   const x = cx * cell + Math.floor(unit(hash(seed, cx, cy, 202)) * cell)
   const y = cy * cell + Math.floor(unit(hash(seed, cx, cy, 203)) * cell)
+  if (!plain) {
+    let q = p.obsP * 2.2
+    const f = p.obsField
+    if (f) q *= f.lo + (f.hi - f.lo) * vnoise(seed, 210, cx * cell, cy * cell, f.spacing)
+    if (p.obsNear) q *= basinAt(seed, p, x, y) > 0 ? p.obsNear.hi : p.obsNear.lo
+    if (u >= q) return undefined
+  }
   const k = unit(hash(seed, cx, cy, 204)) * (p.treeW + p.rockW + p.blockW)
   const pri = hash(seed, cx, cy, 209)
   if (k < p.treeW) return { x, y, w: 1, h: 1, prop: p.tree, isBlock: false, up: 0, pri }
@@ -470,22 +695,23 @@ export function kindOf(seed: number, p: GenParams, x: number, y: number, height:
   if (isBlock) return p.blockKind ?? ground
   if (p.snow && height >= p.snow.min && vnoise(seed, 31, x, y, 36) - 0.06 * height < p.snow.line) return KIND_SNOW
   if (p.rockLine !== undefined && height >= p.rockLine) return KIND_STONE
-  if (p.patch && vnoise(seed, 32, x, y, 44) < p.patch.wet && vnoise(seed, 33, x, y, 7) > p.patch.p) return p.patch.kind
+  if (p.patch && (p.patch.maxH === undefined || height <= p.patch.maxH) && vnoise(seed, 32, x, y, 44) < p.patch.wet && vnoise(seed, 33, x, y, 7) > p.patch.p) return p.patch.kind
   return ground
 }
 
-// 호수 칸 하나의 걷는 꾸밈: 땅과 4 방향으로 닿은 얕은 물에 갈대, 땅과 닿지 않은 얕은 물에 연잎(깊은 물 색 위에서는 연잎이 잘 안 보인다)
-export function waterDecoOf(seed: number, p: GenParams, x: number, y: number, wet: number, lakes: readonly Lake[]): number {
+// 물 칸(호수·강) 하나의 걷는 꾸밈: 땅과 4 방향으로 닿은 얕은 물에 갈대, 땅과 닿지 않은 얕은 물에 연잎(깊은 물 색 위에서는 연잎이 잘 안 보인다).
+// wetAt 은 칸의 WATER_*
+export function waterDecoOf(seed: number, p: GenParams, x: number, y: number, wet: number, wetAt: (x: number, y: number) => number): number {
   let isShore = false
-  for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) if (!wetOf(lakes, x + dx, y + dy)) isShore = true
+  for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) if (!wetAt(x + dx, y + dy)) isShore = true
   if (wet === WATER_SHALLOW && isShore && unit(hash(seed, x, y, 303)) < (p.reedP ?? 0)) return DECO_REED
   if (wet === WATER_SHALLOW && !isShore && unit(hash(seed, x, y, 304)) < (p.lilyP ?? 0)) return DECO_LILY
   return DECO_NONE
 }
 
-// 호수 발자국과 8 방향으로 닿는 칸(발자국 밖)인지
-function isShoreOf(lakes: readonly Lake[], x: number, y: number): boolean {
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (wetOf(lakes, x + dx, y + dy)) return true
+// 물 칸(호수 발자국·강)과 8 방향 거리 w 안인 칸(물 밖)인지
+function isShoreOf(wetAt: (x: number, y: number) => number, x: number, y: number, w: number): boolean {
+  for (let dy = -w; dy <= w; dy++) for (let dx = -w; dx <= w; dx++) if (wetAt(x + dx, y + dy)) return true
   return false
 }
 
@@ -512,8 +738,9 @@ export function region(seed: number, p: GenParams, x0: number, y0: number, w: nu
   return { x0, y0, w, h, height, prop, block, kind, deco, water }
 }
 
-// 나눠 만드는 영역. regionStart 가 높이·소품·블록까지 만들고, regionRows 가 지표 종류·꾸밈·물을 행 단위로 채운다(rows 는 채운 행 수)
-export type RegionWork = Region & { seed: number; p: GenParams; lakes: Lake[]; rows: number }
+// 나눠 만드는 영역. regionStart 가 높이·소품·블록까지 만들고, regionRows 가 지표 종류·꾸밈·물을 행 단위로 채운다(rows 는 채운 행 수).
+// wet 은 둘레 PAD 칸까지의 WATER_*(호수 발자국과 강). 물가 띠 폭·장애물 둘레 검사가 이 안에서 끝나도록 shoreWidth ≤ PAD 다
+export type RegionWork = Region & { seed: number; p: GenParams; lakes: Lake[]; wet: Uint8Array; rows: number }
 
 export function regionStart(seed: number, p: GenParams, x0: number, y0: number, w: number, h: number, opts: GenOptions = {}): RegionWork {
   const cell = opts.cell ?? OBS_CELL
@@ -527,6 +754,16 @@ export function regionStart(seed: number, p: GenParams, x0: number, y0: number, 
   const lakes = lakesIn(seed, p, ex0 - margin, ey0 - margin, ex0 + ew - 1 + margin, ey0 + eh - 1 + margin, opts)
   const H = envelope(seed, p, ex0, ey0, ew, eh, opts, margin, lakes)
   const at = (x: number, y: number) => H[(y - ey0) * ew + (x - ex0)]!
+  // 물: 호수 발자국, 그리고 강(강 바닥 hmin − 1 보다 낮은 땅은 없어 포락선 높이가 hmin 미만인 호수 밖 칸이 강이다)
+  const wet = new Uint8Array(ew * eh)
+  for (let j = 0; j < eh; j++) {
+    for (let i = 0; i < ew; i++) {
+      const t = j * ew + i
+      wet[t] = wetOf(lakes, ex0 + i, ey0 + j)
+      if (!wet[t] && p.river && H[t]! < p.hmin) wet[t] = WATER_SHALLOW
+    }
+  }
+  const wetAt = (x: number, y: number) => wet[(y - ey0) * ew + (x - ex0)]!
   const height = new Uint8Array(w * h)
   const prop = new Uint8Array(w * h)
   const block = new Uint8Array(w * h)
@@ -547,7 +784,7 @@ export function regionStart(seed: number, p: GenParams, x0: number, y0: number, 
       if (c.x + c.w <= x0 || c.y + c.h <= y0 || c.x >= x0 + w || c.y >= y0 + h) continue
       if (lim && (c.x - 1 < lim.x0 || c.y - 1 < lim.y0 || c.x + c.w > lim.x1 || c.y + c.h > lim.y1)) continue
       let ok = true
-      for (let y = c.y - 1; y <= c.y + c.h && ok; y++) for (let x = c.x - 1; x <= c.x + c.w; x++) if (wetOf(lakes, x, y)) { ok = false; break }
+      for (let y = c.y - 1; y <= c.y + c.h && ok; y++) for (let x = c.x - 1; x <= c.x + c.w; x++) if (wetAt(x, y)) { ok = false; break }
       for (let dy = -2; dy <= 2 && ok; dy++) {
         for (let dx = -2; dx <= 2 && ok; dx++) {
           if (dx === 0 && dy === 0) continue
@@ -572,25 +809,27 @@ export function regionStart(seed: number, p: GenParams, x0: number, y0: number, 
       }
     }
   }
-  return { x0, y0, w, h, height, prop, block, kind: new Uint8Array(w * h), deco: new Uint8Array(w * h), water: new Uint8Array(w * h), seed, p, lakes, rows: 0 }
+  return { x0, y0, w, h, height, prop, block, kind: new Uint8Array(w * h), deco: new Uint8Array(w * h), water: new Uint8Array(w * h), seed, p, lakes, wet, rows: 0 }
 }
 
 // 지표 종류·꾸밈·물을 upTo 행까지 채운다
 export function regionRows(work: RegionWork, upTo: number): void {
-  const { seed, p, lakes, x0, y0, w, height, prop, block, kind, deco, water } = work
+  const { seed, p, x0, y0, w, height, prop, block, kind, deco, water } = work
+  const ew = w + 2 * PAD
+  const wetAt = (x: number, y: number) => work.wet[(y - y0 + PAD) * ew + (x - x0 + PAD)]!
   for (let j = work.rows; j < Math.min(upTo, work.h); j++) {
     for (let i = 0; i < w; i++) {
       const o = j * w + i
       const x = x0 + i
       const y = y0 + j
-      const wet = wetOf(lakes, x, y)
+      const wet = wetAt(x, y)
       if (wet) {
         water[o] = wet
         kind[o] = KIND_WATER
-        deco[o] = waterDecoOf(seed, p, x, y, wet, lakes)
+        deco[o] = waterDecoOf(seed, p, x, y, wet, wetAt)
         continue
       }
-      kind[o] = p.shore !== undefined && isShoreOf(lakes, x, y) ? p.shore : kindOf(seed, p, x, y, height[o]!, block[o] === 1)
+      kind[o] = p.shore !== undefined && isShoreOf(wetAt, x, y, p.shoreWidth ?? 1) ? p.shore : kindOf(seed, p, x, y, height[o]!, block[o] === 1)
       if (!block[o] && !prop[o]) deco[o] = decoOf(seed, p, x, y, kind[o]!)
     }
   }

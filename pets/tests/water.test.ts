@@ -85,6 +85,59 @@ describe('water', () => {
     expect(wet > 0).toBe(true)
   })
 
+  // 맵 보기 한 화면(120 × 60 패널에서 약 90 × 90 칸)보다 조금 넓은 창에 큰 호수가 하나는 든다
+  test('the lake shore and beach sets put a big lake of at least 250 tiles in every 128 × 128 window around the start', async () => {
+    const N = 128
+    for (const id of ['lake', 'beach'] as const) {
+      for (const seed of [1, 2, 3]) {
+        const r = Gen.region(seed, Biome.byId(id).gen, -N / 2, -N / 2, N, N)
+        const seen = new Uint8Array(N * N)
+        let biggest = 0
+        for (let s = 0; s < N * N; s++) {
+          if (seen[s] || !r.water[s]) continue
+          const q = [s]
+          seen[s] = 1
+          for (let head = 0; head < q.length; head++) {
+            const t = q[head]!
+            const x = t % N
+            const y = (t - x) / N
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+              const nx = x + dx
+              const ny = y + dy
+              const u = ny * N + nx
+              if (nx < 0 || ny < 0 || nx >= N || ny >= N || seen[u] || !r.water[u]) continue
+              seen[u] = 1
+              q.push(u)
+            }
+          }
+          biggest = Math.max(biggest, q.length)
+        }
+        expect(`${id} ${seed} ${biggest >= 250}`).toBe(`${id} ${seed} true`)
+      }
+    }
+  })
+
+  test('rivers are shallow water at the lowest step: every river tile is shallow with its surface at the set floor, the land beside it is at that surface too, and beach and desert have none', async () => {
+    const N = 192
+    for (const b of Biome.BIOMES.filter(x => x.open)) {
+      const p = b.gen
+      const r = Gen.region(1, p, -N / 2, -N / 2, N, N)
+      let river = 0
+      for (let y = 1; y < N - 1; y++) {
+        for (let x = 1; x < N - 1; x++) {
+          const i = y * N + x
+          if (!Gen.riverAt(1, p, x - N / 2, y - N / 2)) continue
+          river++
+          expect(`${b.id} ${x},${y} ${r.water[i]} ${r.height[i]! + r.water[i]!}`).toBe(`${b.id} ${x},${y} ${Gen.WATER_SHALLOW} ${p.hmin}`)
+          for (const j of [i - 1, i + 1, i - N, i + N]) {
+            if (!r.water[j] && !r.block[j]) expect(`${b.id} beside ${x},${y} ${r.height[j]}`).toBe(`${b.id} beside ${x},${y} ${p.hmin}`)
+          }
+        }
+      }
+      expect(`${b.id} ${river > 0}`).toBe(`${b.id} ${p.river !== undefined}`)
+    }
+  })
+
   test('the shore is flat: every walkable land tile next to shallow water is at its surface, so the pet wades in without a hop and its feet sink', async () => {
     const world = lakeWorld()
     let pairs = 0
