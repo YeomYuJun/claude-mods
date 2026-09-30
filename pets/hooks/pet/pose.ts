@@ -41,8 +41,17 @@ function base(p: Pet): PetPose {
   }
 }
 
+// 머리가 몸 그림에 든 종은 머리를 내리는 모습(킁킁·마시기·땅 파기, 머리를 3 px 넘게 내림)을 고개 숙인 몸으로 그린다
+const STOOP_DY = 3
+
 // t: 지금 단계가 시작한 뒤 흐른 시간(ms), now: 꼬리·숨 시계(ms)
 export function poseOf(p: Pet): PetPose {
+  const d = rawPose(p)
+  if (!p.species.sprite.heads && d.body === 'stand' && d.headDy >= STOOP_DY && p.species.sprite.bodies.stoop) d.body = 'stoop'
+  return d
+}
+
+function rawPose(p: Pet): PetPose {
   const d = base(p)
   const now = p.breath
   const t = p.act.t
@@ -61,6 +70,17 @@ export function poseOf(p: Pet): PetPose {
     d.tailAngle = 0.9
     return d
   }
+  if (p.swimming) {
+    // 물에서는 어떤 자세든 떠 있는 몸. 헤엄치면 젓는 박자로, 가만히 있으면 천천히 한 픽셀 오르내린다
+    const rest = poseFor(p.species, p.pose)
+    d.body = 'swim'
+    d.head = 'none'
+    d.legs = []
+    d.tailLen = 0
+    d.bodyDy = isMoving(p) ? Math.floor(p.stride * 2) % 2 : Math.floor(now / 700) % 2
+    if (!isMoving(p) && (rest === 'sleep' || rest === 'lieRest')) d.eyeClosed = true
+    return d
+  }
   if (p.turnMs > 0) {
     d.body = 'frontStand'
     d.tailAngle = wag(now, 0, 1, 3)
@@ -68,8 +88,18 @@ export function poseOf(p: Pet): PetPose {
   }
   if (isMoving(p)) {
     const g = p.gait
+    const def = p.species.gaits[g]
     d.legs = legsWalking(p, g, p.stride)
     const ph = p.stride - Math.floor(p.stride)
+    // 뒤뚱 걸음: 반 주기마다 몸을 앞으로 옮겼다 되돌린다
+    if (def.sway) d.bodyDx = ph < 0.5 ? def.sway : 0
+    // 걸음이 정한 몸(배 미끄럼)은 다리 없이 그 몸으로 미끄러진다
+    if (def.body) {
+      d.body = def.body
+      d.legs = []
+      d.tailAngle = 0.2
+      return d
+    }
     if (g === 'run') {
       // 네 발이 다 떠 있는 순간 몸이 한 픽셀 솟는다
       const flight = d.legs.every(l => l.lift)
@@ -81,17 +111,19 @@ export function poseOf(p: Pet): PetPose {
       d.headDy = 3
       d.tailAngle = wag(now, 1.1, 0.25, 5)
     } else if (g === 'creep') {
-      // 몸을 한 픽셀 낮추고 앞을 숙인 채 머리를 내밀고, 꼬리는 굳힌다(더 낮추면 폭이 16 을 넘는다)
-      d.bodyDy = 1
-      d.tilt = 1
+      // 몸을 한 픽셀 낮추고 앞을 숙인 채 머리를 내밀고, 꼬리는 굳힌다(더 낮추면 폭이 16 을 넘는다).
+      // 다리가 한 픽셀인 종은 낮추면 몸이 땅에 묻혀 머리만 내민다
+      const low = p.species.sprite.legs.len >= 2
+      d.bodyDy = low ? 1 : 0
+      d.tilt = low ? 1 : 0
       d.headDx = 1
       d.tailAngle = wag(now, 0.7, 0.05, 1)
     } else {
       d.headDy = g === 'walk' && ph % 0.5 >= 0.25 ? 1 : 0
       d.tailAngle = wag(now, 0.75, 0.3, g === 'trot' ? 3 : 2)
     }
-    // 살금 걸음은 이미 몸을 낮춰 착지 눌림을 더하면 바닥 아래로 내려간다
-    if (p.landMs > 0 && g !== 'creep') { d.bodyDy += 1; d.headDy += 1 }
+    // 살금 걸음은 이미 몸을 낮춰 착지 눌림을 더하면 바닥 아래로 내려간다. 다리가 한 픽셀인 종은 눌리면 몸이 땅에 묻힌다
+    if (p.landMs > 0 && g !== 'creep' && p.species.sprite.legs.len >= 2) { d.bodyDy += 1; d.headDy += 1 }
     return d
   }
   if (p.landMs > 0) { d.bodyDy = 1; d.headDy = 1 }

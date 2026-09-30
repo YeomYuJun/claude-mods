@@ -204,7 +204,7 @@ describe('register', () => {
     const paper = String(propsOf(await $.ui.render(Fixtures.paneOf(40, 30))).cells)
     const list = await $.command.run(WORLD(''))
     expect(list.text).toContain('지금 맵 세트: 모눈종이')
-    for (const id of ['paper', 'meadow', 'mountain', 'forest', 'lake', 'auto']) expect(list.text).toContain(id)
+    for (const id of ['paper', 'meadow', 'mountain', 'forest', 'lake', 'beach', 'snow', 'desert', 'auto']) expect(list.text).toContain(id)
     expect((await $.command.run(WORLD('forest'))).text).toBe('맵 세트를 숲 세트로 바꿨다. 맵을 새로 만들고 동물을 새 자리에 두었다')
     const forest = String(propsOf(await $.ui.render(Fixtures.paneOf(40, 30))).cells)
     expect(forest === paper).toBe(false)
@@ -278,6 +278,33 @@ describe('register', () => {
     expect((await $.command.run(PET(''))).text).toContain('지금 동물: 회색 줄무늬 고양이.')
     await $.command.run(Fixtures.PETS_DOCKED)
     expect(world.opened.at(-1)?.title).toBe('고양이')
+  })
+
+  test('/pets pet 거북이, 오리, 펭귄 turn the pet into that swimming species, stored, and the pane opens titled with it', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    const list = await $.command.run(PET(''))
+    for (const id of ['turtle', 'duck', 'penguin']) expect(list.text).toContain(id)
+    for (const [word, id, label] of [['거북이', 'turtle', '거북이'], ['오리', 'duck', '오리'], ['penguin', 'penguin', '펭귄']] as const) {
+      expect((await $.command.run(PET(word))).text).toBe(`동물을 바꿨다: ${label}`)
+      expect(world.store.get('pets')).toEqual({ v: 1, list: [id] })
+      await $.command.run(Fixtures.PETS_DOCKED)
+      expect(world.opened.at(-1)?.title).toBe(label)
+      expect((await $.command.run(Fixtures.PETS_DOCKED)).text).toBe('동물 패널을 닫았다')
+    }
+  })
+
+  test('/pets pet 클로드 and 마스코트 turn the pet into the Claude mascot, stored, and the pane opens titled with it', async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    expect((await $.command.run(PET(''))).text).toContain('claude')
+    for (const word of ['클로드', '마스코트', 'claude']) {
+      expect((await $.command.run(PET(word))).text).toBe('동물을 바꿨다: Claude 마스코트')
+      expect(world.store.get('pets')).toEqual({ v: 1, list: ['claude'] })
+      await $.command.run(Fixtures.PETS_DOCKED)
+      expect(world.opened.at(-1)?.title).toBe('Claude 마스코트')
+      expect((await $.command.run(Fixtures.PETS_DOCKED)).text).toBe('동물 패널을 닫았다')
+    }
   })
 
   test('a stored breed comes back next session; an unknown breed, version or shape falls back to the white dog and stays in the store', async ($, on) => {

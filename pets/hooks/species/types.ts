@@ -4,16 +4,18 @@
 import type { ActName, Gait, PoseName } from '../pet/state.js'
 import type { BankColors, RoleName } from '../pixel/palette.js'
 
-export type SpeciesId = 'dog' | 'cat'
+export type SpeciesId = 'dog' | 'cat' | 'turtle' | 'duck' | 'penguin' | 'claude'
 
 // 모든 종이 그리는 몸
 export type BaseBody = 'stand' | 'sit' | 'lie' | 'curlA' | 'curlB' | 'frontSit' | 'frontStand'
 // 그리는 종만 있는 몸. bellyA·bellyB: 배를 보이며 누운 모습(뒹굴기, 두 장 번갈아). frontBeg: 정면으로 앉아 앞발을 든 모습(조르기).
-// 없는 종은 이 몸을 쓰는 자세를 behavior.poseMap 으로 다른 자세로 바꾼다
-export type ExtraBody = 'bellyA' | 'bellyB' | 'frontBeg'
+// 없는 종은 이 몸을 쓰는 자세를 behavior.poseMap 으로 다른 자세로 바꾼다.
+// stoop: 머리가 몸 그림에 든 종(heads 가 없는 종)이 고개를 숙인 모습(킁킁·마시기·땅 파기처럼 머리를 내리는 자세). 없으면 서기로 그린다.
+// swim: 물에 뜬 모습(머리 포함, 다리 없음). 헤엄치는 종은 물 칸(얕은 물 포함)에서 어떤 자세든 이 몸으로 그린다
+export type ExtraBody = 'bellyA' | 'bellyB' | 'frontBeg' | 'stoop' | 'swim'
 export type BodyKind = BaseBody | ExtraBody
 export const BASE_BODIES: readonly BaseBody[] = ['stand', 'sit', 'lie', 'curlA', 'curlB', 'frontSit', 'frontStand']
-export const EXTRA_BODIES: readonly ExtraBody[] = ['bellyA', 'bellyB', 'frontBeg']
+export const EXTRA_BODIES: readonly ExtraBody[] = ['bellyA', 'bellyB', 'frontBeg', 'stoop', 'swim']
 export type HeadKind = 'face' | 'back' | 'alert' | 'droop' | 'tilt'
 export const HEAD_KINDS: readonly HeadKind[] = ['face', 'back', 'alert', 'droop', 'tilt']
 
@@ -36,14 +38,20 @@ export type GaitDef = {
   phase: readonly number[]
   // 이 걸음으로 움직이는 동안 초당 기운 변화
   energyPerS: number
+  // 뒤뚱 걸음: 발을 딛을 때마다 몸을 이만큼(px) 앞뒤로 번갈아 옮긴다
+  sway?: number
+  // 이 걸음으로 움직이는 동안 다리 없이 이 몸으로 그린다(펭귄 달리기의 배 미끄럼)
+  body?: BaseBody
 }
 
 export type SpriteSet = {
   codes: Readonly<Record<string, RoleName>>
   bodies: Readonly<Record<BaseBody, BitmapSpec>> & Readonly<Partial<Record<ExtraBody, BitmapSpec>>>
   // face·back: 옆모습 머리(오른쪽 보기)와 뒷모습 머리. alert: 귀 세운 옆머리, droop: 귀 처진 옆머리(뒷모습은 눈·코·입을 지워 만든다).
-  // tilt: 정면 몸의 위 줄들을 갈아 끼우는 갸웃한 정면 머리(줄 수만큼 몸의 위 줄을 덮는다). 셋은 그리는 종만 있다(없는 종은 poseMap 으로 바꾼다)
-  heads: { face: BitmapSpec; back: BitmapSpec; alert?: BitmapSpec; droop?: BitmapSpec; tilt?: BitmapSpec }
+  // tilt: 정면 몸의 위 줄들을 갈아 끼우는 갸웃한 정면 머리(줄 수만큼 몸의 위 줄을 덮는다). 셋은 그리는 종만 있다(없는 종은 poseMap 으로 바꾼다).
+  // heads 가 없는 종(오리·펭귄·마스코트)은 머리를 몸 그림에 그린다. 뒷모습은 몸 그림의 눈(E)을 backFill 글자로, 입(M)을 윤곽으로 바꿔 만든다
+  heads?: { face: BitmapSpec; back: BitmapSpec; alert?: BitmapSpec; droop?: BitmapSpec; tilt?: BitmapSpec }
+  backFill?: string
   // 몸 종류별 머리 기준점·꼬리 뿌리(몸 이동량을 더하기 전). sit 의 scratch 는 뒷다리로 귀 긁는 선의 시작점
   anchors: {
     stand: { head: Point; tail: Point }
@@ -54,8 +62,9 @@ export type SpriteSet = {
   }
   // 인사 자세에서 몸 앞쪽을 내릴 때: 몸통 왼끝 x0 에서 span 만큼 가면 tilt 픽셀 내려간다
   tilt: { x0: number; span: number }
-  // 다리: 엉덩이 x 와 먼 다리인지(가까운 뒷다리, 먼 뒷다리, 가까운 앞다리, 먼 앞다리 순), 길이, 윤곽·털 역할
-  legs: { hips: ReadonlyArray<readonly [number, boolean]>; len: number; near: readonly [RoleName, RoleName]; far: readonly [RoleName, RoleName] }
+  // 다리: 엉덩이 x 와 먼 다리인지(가까운 뒷다리, 먼 뒷다리, 가까운 앞다리, 먼 앞다리 순. 두 발 종은 가까운 발, 먼 발), 길이, 윤곽·털 역할.
+  // thin 이면 한 픽셀 폭(윤곽 역할만)
+  legs: { hips: ReadonlyArray<readonly [number, boolean]>; len: number; near: readonly [RoleName, RoleName]; far: readonly [RoleName, RoleName]; thin?: boolean }
   // 꼬리: 길이, 쉬는 각도(라디안), 선 역할, 끝 역할
   tail: { len: number; rest: number; role: RoleName; tipRole: RoleName }
   // 가려졌을 때 비쳐 보이는 진한 역할
@@ -81,7 +90,7 @@ export type BandSet = {
   weights: { busy: Readonly<Record<'walk' | 'idle' | 'sit' | 'sniff', number>>; calm: Readonly<Record<'walk' | 'idle' | 'sit' | 'sniff', number>> }
 }
 
-export type BreedId = 'dog' | 'shiba' | 'blackdog' | 'dalmatian' | 'brown' | 'cat' | 'cheese'
+export type BreedId = 'dog' | 'shiba' | 'blackdog' | 'dalmatian' | 'brown' | 'cat' | 'cheese' | 'turtle' | 'duck' | 'penguin' | 'claude'
 
 // 띠 색 한 벌(띠 역할마다 RGB)
 export type BandColors = Readonly<Record<BandRole, number>>
@@ -104,7 +113,8 @@ export type SpeciesDef = {
   label: string
   // 이 종의 품종. 첫 번째가 기본
   breeds: readonly BreedDef[]
-  gaits: Readonly<Record<Gait, GaitDef>>
+  // swim: 물 칸에서 쓰는 걸음(헤엄치는 종만). 행동이 고른 걸음과 상관없이 이 값으로 움직인다
+  gaits: Readonly<Record<Gait, GaitDef>> & { readonly swim?: GaitDef }
   // 꺾는 칸에서 미리 넘어가는 거리, 뛰기 전 웅크림·착지 눌림·돌아볼 때 정면 모습(ms), 단차를 이 거리 안에서 뛴다, 달릴 때 먼지 간격(ms)
   motion: { corner: number; crouchMs: number; landMs: number; turnMs: number; hopAt: number; runDustMs: number }
   // 단차 뛰기: 오를 때·내릴 때 호 높이(px), 두 단을 오를 때 호 높이(오르기 2 인 종), 달리면 더하는 높이, 최소 속도, 길이 범위(ms). 폴짝: 높이·길이

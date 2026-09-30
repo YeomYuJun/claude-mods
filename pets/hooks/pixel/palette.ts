@@ -62,8 +62,8 @@ export const DEEP_SH = 77
 export const WATER_END = 78
 export const PROP = 80
 export const PROP_COUNT = 20
-// 소품 묶음 안의 역할(나무 잎 밝음·보통·어둠, 줄기 둘, 바위 셋, 꽃잎 둘과 가운데, 풀포기, 버섯 갓·대, 갈대 줄기·이삭, 연잎과 그 꽃). 나머지 2 칸은 예비
-export const PropSlot = { leafHi: 0, leaf: 1, leafDark: 2, trunk: 3, trunkDark: 4, rockHi: 5, rock: 6, rockDark: 7, petalA: 8, petalB: 9, petalMid: 10, tuft: 11, cap: 12, stem: 13, reed: 14, reedTip: 15, pad: 16, padFlower: 17 } as const
+// 소품 묶음 안의 역할(나무 잎 밝음·보통·어둠, 줄기 둘, 바위 셋, 꽃잎 둘과 가운데, 풀포기, 버섯 갓·대, 갈대 줄기·이삭, 연잎과 그 꽃, 나무에 쌓인 눈). 나머지 1 칸은 예비
+export const PropSlot = { leafHi: 0, leaf: 1, leafDark: 2, trunk: 3, trunkDark: 4, rockHi: 5, rock: 6, rockDark: 7, petalA: 8, petalB: 9, petalMid: 10, tuft: 11, cap: 12, stem: 13, reed: 14, reedTip: 15, pad: 16, padFlower: 17, snow: 18 } as const
 export type PropSlotName = keyof typeof PropSlot
 
 // 효과. 흙·먼지·물방울은 세트가 칠하고 나머지는 고정 색이다

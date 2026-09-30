@@ -281,9 +281,10 @@ describe('iso projections', () => {
     }
   })
 
-  test('tree sprites stay within 9 × 14 (pine 7 × 15) at 1 × and 6 × 9 (pine 5 × 10) far, rocks within 7 × 5 and 5 × 3, and every tree is taller than 8 px', async () => {
+  test('tree sprites stay within 9 × 14 (pines 7 × 15) at 1 × and 6 × 9 (pines 5 × 10) far, rocks within 7 × 5 and 5 × 3, and every tree is taller than 8 px', async () => {
     const limits: ReadonlyArray<readonly [PropArtId, number, number, number, number]> = [
       ['broadleaf', 9, 14, 6, 9], ['oak', 9, 14, 6, 9], ['willow', 9, 14, 6, 9], ['paperTree', 9, 14, 6, 9], ['pine', 7, 15, 5, 10], ['rock', 7, 5, 5, 3],
+      ['palm', 9, 14, 6, 9], ['snowPine', 7, 15, 5, 10], ['cactus', 9, 14, 6, 9],
     ]
     for (const [art, nw, nh, fw, fh] of limits) {
       const near = Prop.sizeOf(art, false)!

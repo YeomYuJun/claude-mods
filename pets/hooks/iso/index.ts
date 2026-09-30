@@ -122,6 +122,7 @@ const PATTERNS: ReadonlyArray<readonly [number, readonly Dots[]]> = [
   [G.KIND_LITTER, [[[-2, 2], [1, 3]], [[0, 2], [-3, 3], [2, 3]], [[2, 2], [-1, 3]], [[-1, 2]]]],
   [G.KIND_STONE, [[[-2, 2], [-1, 3], [0, 3]], [[0, 2], [1, 2], [2, 3]], [], [[-3, 3], [-2, 3]]]],
   [G.KIND_SNOW, [[[-1, 2]], [[1, 3]], [[2, 2]], []]],
+  [G.KIND_ICE, [[[-2, 2], [-1, 3]], [[1, 2], [2, 3]], [], [[0, 3]]]],
 ]
 // 지표 종류 번호마다 변형 4 개의 윗면 픽셀 표시(NEAR.tops 순서). 처음 쓸 때 만든다
 let masks: Map<number, Uint8Array[]> | undefined

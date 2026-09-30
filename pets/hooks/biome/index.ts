@@ -14,22 +14,24 @@ import { Palette } from '../pixel'
 import { PROP_COLORS } from '../prop/art.js'
 import World, { type Gen, type World as WorldState } from '../world'
 
-export type BiomeId = 'paper' | 'meadow' | 'mountain' | 'forest' | 'lake'
+export type BiomeId = 'paper' | 'meadow' | 'mountain' | 'forest' | 'lake' | 'beach' | 'snow' | 'desert'
 
 // open: 경계 없는 월드(모눈종이 밖의 세트). 아니면 경계 있는 섬이고 size 는 한 변 칸 수(없으면 시드로 20~32)
 export type Biome = { id: BiomeId; label: string; aliases: readonly string[]; colors: Palette.SetColors; gen: Gen.GenParams; size?: number; open?: boolean }
 
 // 지형 1~6 단(0 은 호수 바닥). 격자 간격·워핑·높이 대비와 장애물 밀도·종류 비율이 세트마다 다르다.
-// 바탕은 풀, 블록은 돌, 호수 둘레는 모래. surface 는 지표 종류 규칙(돌·눈 높이, 얼룩), 걷는 꾸밈 확률, 호수(셀당 확률·반지름)
-type Surface = Pick<Gen.GenParams, 'rockLine' | 'snow' | 'patch' | 'flowerP' | 'tuftP' | 'mushroomP' | 'lake' | 'reedP' | 'lilyP' | 'branchP'>
+// 바탕은 풀, 블록은 돌, 호수 둘레는 모래(surface 가 바탕·물가 종류·높이 상한을 바꿀 수 있다).
+// surface 는 지표 종류 규칙(돌·눈 높이, 얼룩), 걷는 꾸밈 확률, 호수(셀당 확률·반지름)
+type Surface = Partial<Pick<Gen.GenParams, 'ground' | 'shore' | 'hmax'>> & Pick<Gen.GenParams, 'rockLine' | 'snow' | 'patch' | 'flowerP' | 'tuftP' | 'mushroomP' | 'lake' | 'reedP' | 'lilyP' | 'branchP' | 'shellP' | 'dryBushP'>
 const gen = (spacing: readonly number[], amp: readonly number[], warp: number, warpSpacing: number, gain: number, bias: number, obsP: number, treeW: number, rockW: number, blockW: number, tree: number, surface: Surface): Gen.GenParams =>
   ({ spacing, amp, warp, warpSpacing, gain, bias, hmin: 1, hmax: 6, obsP, treeW, rockW, blockW, tree, ground: World.Gen.KIND_GRASS, blockKind: World.Gen.KIND_STONE, shore: World.Gen.KIND_SAND, ...surface })
 
-// 지표 종류 하나: 맵 번호, 가장 낮은·높은 윗면 색, 옆면 재질 순번(0 흙, 1 돌, 2 눈)
+// 지표 종류 하나: 맵 번호, 가장 낮은·높은 윗면 색, 옆면 재질 순번(0 세트 옆면, 1 돌, 2 눈)
 type KindBase = { id: number; lo: number; hi: number; material: number }
 // heavy: 굵은 모눈선을 만들 종류 순번(없으면 첫 종류). 화면 대부분을 덮는 종류로 둔다
-// water: 호수 수면 색(얕음·깊음·반짝임·거품), sand: 호수 테 모래의 가장 낮은·높은 윗면 색. 물보라는 반짝임 색
-type Base = { kinds: readonly KindBase[]; heavy?: number; side: number; edge: number; dust: number; water: Palette.WaterColors; sand: readonly [number, number] }
+// water: 호수 수면 색(얕음·깊음·반짝임·거품), sand: 호수 테 모래의 가장 낮은·높은 윗면 색(물가 종류가 kinds 에 있으면 없다). 물보라는 반짝임 색
+// stoneSide: 돌 재질 옆면(없으면 회색)
+type Base = { kinds: readonly KindBase[]; heavy?: number; side: number; stoneSide?: number; edge: number; dust: number; water: Palette.WaterColors; sand?: readonly [number, number] }
 
 const K = World.Gen
 // 돌·눈 옆면(왼쪽 면 색). 돌은 세로 줄을 긋는다
@@ -47,7 +49,7 @@ function mix(a: number, b: number, t: number): number {
 }
 
 function accentOf(k: KindBase): number {
-  if (k.id === K.KIND_SNOW) return 0xffffff
+  if (k.id === K.KIND_SNOW || k.id === K.KIND_ICE) return 0xffffff
   if (k.id === K.KIND_LITTER) return 0xc0703a
   return Palette.scale(k.lo, 0.8)
 }
@@ -65,15 +67,15 @@ function materialOf(side: number, brick = false): Palette.MaterialColors {
 
 function colorsOf(base: Base, props: Palette.SetColors['props']): Palette.SetColors {
   const lineHeavy = Palette.scale(base.kinds[base.heavy ?? 0]!.lo, 0.7)
-  const sand: KindBase = { id: K.KIND_SAND, lo: base.sand[0], hi: base.sand[1], material: 0 }
+  const sand: KindBase[] = base.sand ? [{ id: K.KIND_SAND, lo: base.sand[0], hi: base.sand[1], material: 0 }] : []
   return {
-    kinds: [...base.kinds, sand].map(kindColorsOf),
+    kinds: [...base.kinds, ...sand].map(kindColorsOf),
     topBand: SIX_BAND,
     lineHeavy,
     lineHeavySh: Palette.scale(lineHeavy, 0.9),
     edge: base.edge,
     rim: base.edge,
-    materials: [materialOf(base.side), materialOf(STONE_SIDE, true), materialOf(SNOW_SIDE)],
+    materials: [materialOf(base.side), materialOf(base.stoneSide ?? STONE_SIDE, true), materialOf(SNOW_SIDE)],
     props,
     water: base.water,
     dust: base.dust,
@@ -105,6 +107,25 @@ export const BIOMES: readonly Biome[] = [
     id: 'lake', label: '호숫가', aliases: ['호숫가', '물가', '호수'], open: true,
     colors: colorsOf({ kinds: [{ id: K.KIND_GRASS, lo: 0x86b865, hi: 0xa4cf80, material: 0 }, stone()], side: 0x7a5c3e, edge: 0x90775e, dust: 0xd0c090, water: { shallow: 0x3f86c6, deep: 0x2c6aa4, shimmer: 0xcfeaff, foam: 0xa0c8e8 }, sand: [0xdccb94, 0xece0b4] }, PROP_COLORS.lake),
     gen: gen([30, 12, 5], [1, 0.4, 0.15], 7, 25, 0.9, -0.1, 0.18, 2, 1, 0.5, World.Gen.PROP_WILLOW, { flowerP: 0.04, tuftP: 0.06, branchP: 0.004, lake: { p: 0.8, r: [4, 8] }, reedP: 0.35, lilyP: 0.12 }),
+  },
+  // 바탕이 모래이고 높이가 낮다. 큰 호수(바다 대신, 끝이 있어 헤엄 못 하는 동물도 돌아간다)의 테는 젖은 모래. 블록이 없어 돌 종류를 두지 않는다.
+  // 밝은 바탕에서 만든 굵은 선은 그림자가 다른 선보다 밝아지므로 굵은 선은 젖은 모래(설원·사막은 돌)에서 만든다
+  {
+    id: 'beach', label: '해변', aliases: ['해변', '바다', '모래사장'], open: true,
+    colors: colorsOf({ kinds: [{ id: K.KIND_SAND, lo: 0xeadba8, hi: 0xf5ecc8, material: 0 }, { id: K.KIND_WET_SAND, lo: 0xcdb88a, hi: 0xdcc9a0, material: 0 }], heavy: 1, side: 0xcdb57c, edge: 0x8a7a54, dust: 0xe8dcb4, water: { shallow: 0x3a9ccc, deep: 0x2c7eae, shimmer: 0xf4fbff, foam: 0xa8dcf0 } }, PROP_COLORS.beach),
+    gen: gen([34, 13, 6], [1, 0.4, 0.15], 6, 25, 0.8, -0.1, 0.12, 3, 1, 0, World.Gen.PROP_PALM, { ground: K.KIND_SAND, shore: K.KIND_WET_SAND, hmax: 5, lake: { p: 0.9, r: [7, 11] }, reedP: 0.08, shellP: 0.03, branchP: 0.004 }),
+  },
+  // 바탕이 눈이고 얼음 얼룩이 걷는 지표로 깔린다. 작은 호수(열린 물)의 테도 얼음
+  {
+    id: 'snow', label: '설원', aliases: ['설원', '눈', '눈밭'], open: true,
+    colors: colorsOf({ kinds: [{ id: K.KIND_SNOW, lo: 0xe2e9ef, hi: 0xf7fafc, material: 0 }, { id: K.KIND_ICE, lo: 0xbfe0f0, hi: 0xd6ecf6, material: 0 }, stone()], heavy: 2, side: 0x9fb3c4, edge: 0x6f7d89, dust: 0xf4f8fb, water: { shallow: 0x5b90b8, deep: 0x467aa0, shimmer: 0xffffff, foam: 0xd8ecf6 } }, PROP_COLORS.snow),
+    gen: gen([32, 12, 5], [1, 0.45, 0.18], 7, 25, 1.1, 0, 0.26, 4, 2, 1, World.Gen.PROP_SNOW_PINE, { ground: K.KIND_SNOW, shore: K.KIND_ICE, patch: { kind: K.KIND_ICE, wet: 0.45, p: 0.55 }, lake: { p: 0.15, r: [3, 5] }, branchP: 0.004 }),
+  },
+  // 바탕이 모래, 5 단 이상은 붉은 바위. 드문 작은 호수(오아시스)의 테는 풀이고 풀포기·갈대가 난다
+  {
+    id: 'desert', label: '사막', aliases: ['사막'], open: true,
+    colors: colorsOf({ kinds: [{ id: K.KIND_SAND, lo: 0xe3c07e, hi: 0xefd89c, material: 0 }, { id: K.KIND_STONE, lo: 0xb07850, hi: 0xc89468, material: 1 }, { id: K.KIND_GRASS, lo: 0x7fa84a, hi: 0x9cc466, material: 0 }], heavy: 1, side: 0xc49a5a, stoneSide: 0x9a6a48, edge: 0x967645, dust: 0xe0c89a, water: { shallow: 0x2c7a94, deep: 0x236478, shimmer: 0xd8f4f8, foam: 0xa8dce4 } }, PROP_COLORS.desert),
+    gen: gen([36, 13, 6], [1, 0.5, 0.2], 8, 27, 1, -0.05, 0.14, 3, 3, 1, World.Gen.PROP_CACTUS, { ground: K.KIND_SAND, shore: K.KIND_GRASS, rockLine: 5, lake: { p: 0.12, r: [3, 4] }, reedP: 0.3, tuftP: 0.3, flowerP: 0.05, dryBushP: 0.02, branchP: 0.004 }),
   },
 ]
 

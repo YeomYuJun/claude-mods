@@ -66,7 +66,7 @@ export type Step =
 
 export type ActName =
   | 'idle' | 'walk' | 'run' | 'sniff' | 'play' | 'sit' | 'lie'
-  | 'explore' | 'patrol' | 'perch' | 'rollOver' | 'watch' | 'nap' | 'drink' | 'splash' | 'chew' | 'digSpot'
+  | 'explore' | 'patrol' | 'perch' | 'rollOver' | 'watch' | 'nap' | 'drink' | 'splash' | 'chew' | 'digSpot' | 'swim'
   | 'greet' | 'dig' | 'settle' | 'bedtime'
   | 'attend' | 'ponder' | 'seeOff' | 'shakeOff' | 'nose' | 'alert' | 'bark' | 'wait' | 'beg' | 'sulk' | 'startle' | 'puzzled'
 
@@ -123,6 +123,8 @@ export type Pet = {
   stride: number
   // 좌우가 뒤집힐 때 정면 모습을 잠깐 보인다
   turnMs: number
+  // 헤엄치는 종이 물 칸(얕은 물 포함)에 있다(이동 스텝마다 정한다). 헤엄 걸음으로 움직이고 헤엄 몸으로 그린다
+  swimming: boolean
   act: Activity
   // 이벤트가 만든 행동. 지금 이벤트 행동이 끝나면 차례로 한다
   queue: Activity[]
@@ -203,7 +205,7 @@ export function create(world: WorldState, seed: number, now: number, species: Sp
   }
   return {
     species, x, y, z: World.heightAt(world, x, y) * Names.STEP_PX,
-    dir: 'SE', speed: 0, gait: 'walk', path: [], crouchMs: 0, landMs: 0, stride: 0, turnMs: 0,
+    dir: 'SE', speed: 0, gait: 'walk', path: [], crouchMs: 0, landMs: 0, stride: 0, turnMs: 0, swimming: false,
     act: idleActivity(), queue: [], history: [], lastEndAt: {}, simMs: 0, blockedUntil: {}, aborts: 0,
     needs: { curiosity: 0.4, play: 0.3, social: 0.3, thirst: 0 }, waterNear: false, playHistory: [], visits: new Map(), tileKey: keyOf(x, y), lastHumanAt: now, carrying: false,
     pose: 'stand',

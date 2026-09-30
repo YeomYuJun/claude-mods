@@ -160,7 +160,7 @@ describe('generator', () => {
     expect(trees > 0).toBe(true)
   })
 
-  test('surface kinds follow the rules: lake tiles are water, the ring around a lake is the shore kind, blocks are the block kind, snow only at 5 steps or more, stone from the rock line, the rest ground or patch; decorations only on open ground of the right kind, reeds and lilies only on shallow water', async () => {
+  test('surface kinds follow the rules: lake tiles are water, the ring around a lake is the shore kind, blocks are the block kind, the rest ground or patch, other snow only at 5 steps or more and other stone from the rock line; decorations only on open ground of the right kind, reeds and lilies only on shallow water', async () => {
     for (const b of Biome.BIOMES) {
       const p = b.gen
       const r = Gen.region(3, p, -20, -20, 96, 96)
@@ -186,29 +186,58 @@ describe('generator', () => {
         if (isShore) { expect(`${at} shore ${k}`).toBe(`${at} shore ${p.shore}`); continue }
         if (isEdge && k === p.shore) continue
         if (r.block[i]) expect(`${at} ${k}`).toBe(`${at} ${p.blockKind ?? p.ground ?? Gen.KIND_PAPER}`)
+        else if (k === (p.ground ?? Gen.KIND_PAPER) || k === p.patch?.kind) { /* 바탕·얼룩 */ }
         else if (k === Gen.KIND_SNOW) expect(`${at} snow ${p.snow !== undefined && h >= p.snow.min}`).toBe(`${at} snow true`)
         else if (k === Gen.KIND_STONE) expect(`${at} stone ${p.rockLine !== undefined && h >= p.rockLine}`).toBe(`${at} stone true`)
-        else expect(`${at} ${k === (p.ground ?? Gen.KIND_PAPER) || k === p.patch?.kind}`).toBe(`${at} true`)
+        else expect(`${at} kind ${k}`).toBe(`${at} kind ground`)
         if (d === Gen.DECO_NONE) continue
         expect(`${at} deco on open ground ${!r.block[i] && !r.prop[i]}`).toBe(`${at} deco on open ground true`)
-        if (d === Gen.DECO_MUSHROOM || d === Gen.DECO_BRANCH) expect(`${at} ${k === Gen.KIND_GRASS || k === Gen.KIND_LITTER}`).toBe(`${at} true`)
+        if (d === Gen.DECO_MUSHROOM) expect(`${at} ${k === Gen.KIND_GRASS || k === Gen.KIND_LITTER}`).toBe(`${at} true`)
+        else if (d === Gen.DECO_BRANCH) expect(`${at} ${k === Gen.KIND_GRASS || k === Gen.KIND_LITTER || k === p.ground}`).toBe(`${at} true`)
+        else if (d === Gen.DECO_SHELL) expect(`${at} ${k === Gen.KIND_SAND || k === Gen.KIND_WET_SAND}`).toBe(`${at} true`)
+        else if (d === Gen.DECO_DRY_BUSH) expect(`${at} ${k}`).toBe(`${at} ${Gen.KIND_SAND}`)
         else expect(`${at} ${k}`).toBe(`${at} ${Gen.KIND_GRASS}`)
       }
-      // 모눈종이는 종이 하나, 다른 세트는 바탕(풀)과 돌(블록)이 적어도 나온다
+      // 모눈종이는 종이 하나, 다른 세트는 바탕과 (블록이 있는 세트는) 블록 종류가 적어도 나온다
       if (b.id === Biome.DEFAULT) expect([...seen]).toEqual([Gen.KIND_PAPER])
-      else expect(`${b.id} ${seen.has(Gen.KIND_GRASS) && seen.has(Gen.KIND_STONE)}`).toBe(`${b.id} true`)
+      else expect(`${b.id} ${seen.has(p.ground!) && (p.blockW === 0 || seen.has(p.blockKind!))}`).toBe(`${b.id} true`)
     }
   })
 
-  test('the sets other than graph paper are worlds without edges whose top reaches above the graph-paper range, with the start on dry walkable ground', async () => {
+  test('beach, snow and desert lay their own ground, second surface kind, tree and decoration', async () => {
+    const want = [
+      ['beach', Gen.KIND_SAND, Gen.KIND_WET_SAND, Gen.PROP_PALM, Gen.DECO_SHELL],
+      ['snow', Gen.KIND_SNOW, Gen.KIND_ICE, Gen.PROP_SNOW_PINE, Gen.DECO_BRANCH],
+      ['desert', Gen.KIND_SAND, Gen.KIND_GRASS, Gen.PROP_CACTUS, Gen.DECO_DRY_BUSH],
+    ] as const
+    for (const [id, ground, second, tree, deco] of want) {
+      const count = new Map<string, number>()
+      const add = (k: string) => count.set(k, (count.get(k) ?? 0) + 1)
+      for (const seed of [1, 2, 3]) {
+        const r = Gen.region(seed, Biome.byId(id).gen, -96, -96, 192, 192)
+        for (let i = 0; i < r.w * r.h; i++) {
+          add(`kind ${r.kind[i]}`)
+          if (r.prop[i]) add(`prop ${r.prop[i]}`)
+          if (r.deco[i]) add(`deco ${r.deco[i]}`)
+        }
+      }
+      const n = (k: string) => count.get(k) ?? 0
+      // 바탕이 가장 흔한 종류
+      const most = [...count].filter(([k]) => k.startsWith('kind ')).sort((a, b) => b[1] - a[1])[0]![0]
+      expect(`${id} ${most}`).toBe(`${id} kind ${ground}`)
+      expect(`${id} ${n(`kind ${second}`) > 0} ${n(`prop ${tree}`) > 0} ${n(`deco ${deco}`) > 0}`).toBe(`${id} true true true`)
+    }
+  })
+
+  test('the sets other than graph paper are worlds without edges whose top reaches within a step of the height limit of the set, above the graph-paper range, with the start on dry walkable ground', async () => {
     const open = Biome.BIOMES.filter(x => x.open === true)
-    expect(open.map(b => b.id)).toEqual(['meadow', 'mountain', 'forest', 'lake'])
+    expect(open.map(b => b.id)).toEqual(['meadow', 'mountain', 'forest', 'lake', 'beach', 'snow', 'desert'])
     for (const b of open) {
       const w = World.create(5, b.gen, { open: true })
       expect(`${b.id} ${World.isOpen(w)} ${World.inside(w, -5000, 7000)}`).toBe(`${b.id} true true`)
       let top = 0
       for (let y = -40; y < 40; y++) for (let x = -40; x < 40; x++) top = Math.max(top, World.heightAt(w, x, y))
-      expect(`${b.id} ${top > 4}`).toBe(`${b.id} true`)
+      expect(`${b.id} ${top >= b.gen.hmax - 1 && top > 2}`).toBe(`${b.id} true`)
       const f = World.flagsAt(w, w.spawn.x, w.spawn.y)
       expect(`${b.id} ${(f & World.WALK) !== 0 && (f & (World.WATER | World.BLOCK)) === 0}`).toBe(`${b.id} true`)
     }

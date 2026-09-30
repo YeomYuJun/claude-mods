@@ -325,6 +325,17 @@ function isMirrored(pose: Sprite.PetPose): boolean {
   return pose.flip && !pose.body.startsWith('front')
 }
 
+// 동물 그림의 바닥 점(버퍼 좌표). 물에 뜬 동물은 수면점에서 가라앉은 만큼(1 배 픽셀, 줄여 그리면 같은 비로) 아래에 둔다.
+// 그림은 줌과 상관없이 같은 크기인데 원거리·맵 보기 투영은 가라앉은 높이를 줄이므로, 투영대로 두면 물속 줄이 수면 위로 올라온다(1 배·2 배는 같은 자리)
+export function figureAt(p: PetState, world: WorldState, view: View, proj: Proj): { x: number; y: number } {
+  const s = Iso.screenOf(p.x, p.y, p.z, proj)
+  const x = Math.round(s.sx) - view.ox
+  if (!p.swimming || p.hop) return { x, y: Math.round(s.sy) - view.oy }
+  const surface = World.walkHeightAt(world, Math.round(p.x), Math.round(p.y)) * Names.STEP_PX
+  const w = Iso.screenOf(p.x, p.y, surface, proj)
+  return { x, y: Math.round(w.sy + (surface - p.z) / shrinkOf(proj)) - view.oy }
+}
+
 // 동물과 입에 문 공·나뭇가지. 문 것은 얼굴이 보이면 동물 다음에 그려 머리 앞에 오고,
 // 뒷모습이면 먼저 그려 머리에 가린다(동물 그림은 깊이를 쓰지 않는다). 공은 입 칸에서 보는 쪽으로 한 칸 나가 가운데가 입 칸 줄에 온다
 function drawFigure(b: Buffer, p: PetState, pose: Sprite.PetPose, x: number, y: number, depth: number): void {
@@ -363,8 +374,7 @@ function drawPet(b: Buffer, scene: Scene, view: View, proj: Proj): void {
   const by = shrinkOf(proj)
   const k = 1 / by
   const s = Iso.screenOf(p.x, p.y, p.z, proj)
-  const x = Math.round(s.sx) - ox
-  const y = Math.round(s.sy) - oy
+  const { x, y } = figureAt(p, world, view, proj)
   // 그림자는 땅(물이면 수면)에 붙어 있고, 높이 뛸수록 작아진다
   const tx = Math.round(p.x)
   const ty = Math.round(p.y)
@@ -420,9 +430,7 @@ function drawPet(b: Buffer, scene: Scene, view: View, proj: Proj): void {
 export function drawGround(b: Buffer, scene: Scene, view: View, proj: Proj): void {
   Iso.drawWorld(b, scene.world, view, proj, scene.theme, scene.glint.phase)
   const p = scene.pet
-  const s = Iso.screenOf(p.x, p.y, p.z, proj)
-  const x = Math.round(s.sx) - view.ox
-  const y = Math.round(s.sy) - view.oy
+  const { x, y } = figureAt(p, scene.world, view, proj)
   const box = figureBox(p, Pet.poseOf(p), shrinkOf(proj))
   Prop.drawProps(b, scene.world, view, proj, { x0: x + box.x0, y0: y + box.y0, x1: x + box.x1, y1: y + box.y1, depth: p.x + p.y + 0.4 - (view.dz ?? 0) })
 }

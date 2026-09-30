@@ -1,4 +1,4 @@
-// 소품 그리기(순수 모듈): 나무·바위(장애물)와 꽃·풀포기·버섯·갈대·연잎(걷는 꾸밈). 그림은 art.ts, 색은 세트가 소품 묶음에 채운다.
+// 소품 그리기(순수 모듈): 나무·바위(장애물)와 꽃·풀포기·버섯·갈대·연잎·조개·마른 덤불(걷는 꾸밈). 그림은 art.ts, 색은 세트가 소품 묶음에 채운다.
 //
 // 모든 타일을 그린 뒤 뒤에서 앞으로(x + y 순) 픽셀마다 깊이를 비교해 그리고 깊이를 쓴다.
 // 깊이: 장애물 소품 = 칸 x + y + 0.45(같은 칸 동물 0.4 보다 조금 앞), 걷는 꾸밈 = x + y + 0.6(같은 칸 동물의 발을 조금 가린다).
@@ -26,8 +26,9 @@ const DECO_DEPTH = 0.6
 const G = World.Gen
 const PROP_IDS: ReadonlyArray<readonly [number, PropArtId]> = [
   [G.PROP_ROCK, 'rock'], [G.PROP_BROADLEAF, 'broadleaf'], [G.PROP_PINE, 'pine'], [G.PROP_OAK, 'oak'], [G.PROP_WILLOW, 'willow'], [G.PROP_PAPER_TREE, 'paperTree'],
+  [G.PROP_PALM, 'palm'], [G.PROP_SNOW_PINE, 'snowPine'], [G.PROP_CACTUS, 'cactus'],
 ]
-const DECO_IDS: ReadonlyArray<readonly [number, PropArtId]> = [[G.DECO_FLOWER, 'flower'], [G.DECO_TUFT, 'tuft'], [G.DECO_MUSHROOM, 'mushroom'], [G.DECO_REED, 'reed'], [G.DECO_LILY, 'lily'], [G.DECO_BRANCH, 'branch']]
+const DECO_IDS: ReadonlyArray<readonly [number, PropArtId]> = [[G.DECO_FLOWER, 'flower'], [G.DECO_TUFT, 'tuft'], [G.DECO_MUSHROOM, 'mushroom'], [G.DECO_REED, 'reed'], [G.DECO_LILY, 'lily'], [G.DECO_BRANCH, 'branch'], [G.DECO_SHELL, 'shell'], [G.DECO_DRY_BUSH, 'dryBush']]
 
 // 팔레트 번호로 바꾼 그림. 투명은 255
 type Compiled = { w: number; h: number; ax: number; ay: number; px: Uint8Array; isTall: boolean }

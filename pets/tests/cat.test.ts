@@ -108,7 +108,7 @@ describe('cat', () => {
       const look = Species.lookOf(id)
       expect(look === Species.CAT).toBe(false)
       expect(look.id).toBe('cat')
-      for (const spec of [look.sprite.bodies.stand, look.sprite.bodies.sit, look.sprite.heads.face]) {
+      for (const spec of [look.sprite.bodies.stand, look.sprite.bodies.sit, look.sprite.heads!.face]) {
         const cols = new Set<number>()
         spec.rows.forEach(row => [...row].forEach((ch, x) => { if (ch === 'P') cols.add(x - spec.ax) }))
         expect(cols.size > 0).toBe(true)

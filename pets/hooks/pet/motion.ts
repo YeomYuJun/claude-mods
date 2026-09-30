@@ -2,7 +2,8 @@
 // - 속도는 가속·감속 한도 안에서 목표 속도로 다가간다. 끝 칸에 가까우면 v = √(2·감속·남은 거리) 로 줄여 미끄러지지 않고 선다
 // - 꺾이는 칸은 가운데까지 가지 않고 조금 앞에서 다음 칸으로 넘어가 모서리를 둥글게 돈다(세 칸 높이가 같을 때만)
 // - 걷는 높이가 다른 칸으로 넘어갈 때는 경계 앞에서 웅크렸다가(걷기만) 포물선으로 뛰고, 착지하면 잠깐 눌리고 먼지가 인다.
-//   물 칸의 걷는 높이는 수면이라 물가에서 얕은 물로는 뛰지 않고 걸어 들어가며, 발은 수면 아래로 잠긴다(World.standZ)
+//   물 칸의 걷는 높이는 수면이라 물가에서 얕은 물로는 뛰지 않고 걸어 들어가며, 발은 수면 아래로 잠긴다(World.standZ).
+//   헤엄치는 종은 얕은 물에서도 깊은 물처럼 떠서 헤엄치고(발이 수면 SWIM_PX 아래), 물에 들고 날 때 발 높이를 SINK_PX_S 로 옮긴다
 
 import Names from '../names'
 import Iso from '../iso'
@@ -11,8 +12,22 @@ import * as Fx from './fx.js'
 import { dirOf, isRight, type Pet } from './state.js'
 
 
-function groundOf(world: WorldState, x: number, y: number): number {
-  return World.standZ(world, Math.round(x), Math.round(y))
+// 헤엄치는 종이 물에 들고 날 때 발 높이를 옮기는 빠르기(px/초)
+const SINK_PX_S = 24
+
+function groundOf(p: Pet, world: WorldState, x: number, y: number): number {
+  const tx = Math.round(x)
+  const ty = Math.round(y)
+  if (p.species.abilities.swim && World.isWater(world, tx, ty)) return World.walkHeightAt(world, tx, ty) * Names.STEP_PX - World.SWIM_PX
+  return World.standZ(world, tx, ty)
+}
+
+// 선 자리의 발 높이로 맞춘다. 헤엄치는 종이 물에 들고 날 때(높이 차가 SWIM_PX 이하)는 한 번에 옮기지 않는다
+function settle(p: Pet, world: WorldState, dt: number): void {
+  const z = groundOf(p, world, p.x, p.y)
+  if (!p.species.abilities.swim || Math.abs(z - p.z) > World.SWIM_PX) { p.z = z; return }
+  const k = SINK_PX_S * dt
+  p.z = z > p.z ? Math.min(z, p.z + k) : Math.max(z, p.z - k)
 }
 
 function face(p: Pet, dx: number, dy: number): void {
@@ -35,7 +50,7 @@ function puff(p: Pet, count: number, spread: number): void {
 }
 
 function startHop(p: Pet, world: WorldState, tx: number, ty: number, isPath: boolean): void {
-  const z1 = groundOf(world, tx, ty)
+  const z1 = groundOf(p, world, tx, ty)
   const up = z1 > p.z
   const dist = Math.hypot(tx - p.x, ty - p.y)
   const j = p.species.jump
@@ -60,7 +75,7 @@ export function pounce(p: Pet, world: WorldState, dx: number, dy: number): void 
   p.speed = 0
   p.hop = {
     fx: p.x, fy: p.y, tx: ok ? x0 + dx : p.x, ty: ok ? y0 + dy : p.y, z0: p.z,
-    z1: ok ? groundOf(world, x0 + dx, y0 + dy) : p.z, t: 0, dur: ms, peak: peakPx, isPath: false,
+    z1: ok ? groundOf(p, world, x0 + dx, y0 + dy) : p.z, t: 0, dur: ms, peak: peakPx, isPath: false,
   }
 }
 
@@ -70,7 +85,13 @@ export function hopInPlace(p: Pet, peakPx: number, ms: number): void {
   p.hop = { fx: p.x, fy: p.y, tx: p.x, ty: p.y, z0: p.z, z1: p.z, t: 0, dur: ms, peak: peakPx, isPath: false }
 }
 
+// 한 스텝 움직이고, 헤엄치는 종이 물 칸에 있는지 다시 정한다
 export function step(p: Pet, world: WorldState, dtMs: number): void {
+  move(p, world, dtMs)
+  p.swimming = p.species.abilities.swim && World.isWater(world, Math.round(p.x), Math.round(p.y))
+}
+
+function move(p: Pet, world: WorldState, dtMs: number): void {
   const dt = dtMs / 1000
   p.turnMs = Math.max(0, p.turnMs - dtMs)
   p.landMs = Math.max(0, p.landMs - dtMs)
@@ -103,7 +124,7 @@ export function step(p: Pet, world: WorldState, dtMs: number): void {
   const wp = p.path[0]
   if (!wp) {
     p.speed = 0
-    p.z = groundOf(world, p.x, p.y)
+    settle(p, world, dt)
     return
   }
   const dx = wp.x - p.x
@@ -125,7 +146,8 @@ export function step(p: Pet, world: WorldState, dtMs: number): void {
     remaining += Math.abs(q.x - prev.x) + Math.abs(q.y - prev.y)
     prev = q
   }
-  const g = p.species.gaits[p.gait]
+  // 물에서는 행동이 고른 걸음 대신 헤엄 걸음
+  const g = (p.swimming ? p.species.gaits.swim : undefined) ?? p.species.gaits[p.gait]
   const target = Math.min(g.speed, Math.sqrt(2 * g.decel * remaining))
   if (p.speed < target) p.speed = Math.min(target, p.speed + g.accel * dt)
   else p.speed = Math.max(target, p.speed - g.decel * dt)
@@ -137,7 +159,7 @@ export function step(p: Pet, world: WorldState, dtMs: number): void {
     faceTo(p, dx, dy)
   }
   p.stride += move / g.stride
-  p.z = groundOf(world, p.x, p.y)
+  settle(p, world, dt)
   if (p.gait === 'run' && m.runDustMs > 0) {
     p.fxClock += dtMs
     if (p.fxClock >= m.runDustMs) { p.fxClock = 0; puff(p, 1, 6) }

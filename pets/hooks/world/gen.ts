@@ -10,7 +10,7 @@
 // 4. 블록 높이 = 발자국 높이 + 1 또는 + 2(발자국 높이가 모두 같을 때만 놓는다)
 // 5. 지표 종류: 순서대로 첫 참. 호수(물), 호수 테(물가 종류), 블록, 눈(온도 노이즈 - 0.06 × 높이 < 눈 문턱, 높이 하한 이상),
 //    돌(높이 문턱 이상), 얼룩(습도 노이즈 < 문턱 이고 잔무늬 노이즈 > 문턱), 나머지는 바탕 종류
-// 6. 걷는 꾸밈(꽃·풀포기·버섯·갈대·연잎·나뭇가지): 장애물·블록이 아닌 칸에 칸 해시로 둔다. 장애물이 아니라 걸음을 막지 않는다
+// 6. 걷는 꾸밈(꽃·풀포기·버섯·갈대·연잎·나뭇가지·조개·마른 덤불): 장애물·블록이 아닌 칸에 칸 해시로 둔다. 장애물이 아니라 걸음을 막지 않는다
 // 7. 호수: LAKE_CELL 칸 격자 셀마다 확률로 하나. 모양·깊이·수면이 셀 좌표와 포락선 전 높이만의 함수라 어느 영역에서 불러도 같다.
 //    수면 L = 발자국을 hmax + 1 칸 넓힌 곳의 포락선 전 높이 최솟값, 바닥은 얕음 L - 1, 깊음 L - 2 로 고정하고 포락선을 돌린다.
 //    포락선은 한 칸마다 한 단까지만 오르므로 테(발자국과 8 방향으로 닿는 칸)는 L 보다 낮을 수 없다(떠 있는 물이 없다).
@@ -51,8 +51,11 @@ export type GenParams = {
   mushroomP?: number
   reedP?: number
   lilyP?: number
-  // 나뭇가지(강아지가 물어 옮길 수 있는 꾸밈) 확률(칸당). 풀·낙엽 칸에, 다른 꾸밈이 없을 때만
+  // 나뭇가지(강아지가 물어 옮길 수 있는 꾸밈) 확률(칸당). 풀·낙엽·바탕 종류 칸에, 다른 꾸밈이 없을 때만
   branchP?: number
+  // 조개(모래·젖은 모래 칸), 마른 덤불(모래 칸) 확률(칸당)
+  shellP?: number
+  dryBushP?: number
   // 호수: 격자 셀마다 있을 확률과 반지름 범위(칸). shore 는 호수 테의 지표 종류. 없으면 호수가 없다
   lake?: { p: number; r: readonly [number, number] }
   shore?: number
@@ -66,10 +69,13 @@ export const PROP_PINE = 3
 export const PROP_OAK = 4
 export const PROP_WILLOW = 5
 export const PROP_PAPER_TREE = 6
+export const PROP_PALM = 7
+export const PROP_SNOW_PINE = 8
+export const PROP_CACTUS = 9
 
 // 나무인지(키가 커서 동물을 가릴 수 있는 소품)
 export function isTree(prop: number): boolean {
-  return prop >= PROP_BROADLEAF && prop <= PROP_PAPER_TREE
+  return prop >= PROP_BROADLEAF && prop <= PROP_CACTUS
 }
 
 // 지표 종류(kind 배열 값). 종이는 모눈종이 세트 하나뿐이다
@@ -82,6 +88,8 @@ export const KIND_LITTER = 5
 export const KIND_SAND = 6
 // 호수 칸. 얕은지 깊은지는 water 배열이 가른다
 export const KIND_WATER = 7
+export const KIND_ICE = 8
+export const KIND_WET_SAND = 9
 
 // 걷는 꾸밈(deco 배열 값). 0 은 없음
 export const DECO_NONE = 0
@@ -91,6 +99,8 @@ export const DECO_MUSHROOM = 3
 export const DECO_REED = 4
 export const DECO_LILY = 5
 export const DECO_BRANCH = 6
+export const DECO_SHELL = 7
+export const DECO_DRY_BUSH = 8
 
 // water 배열 값
 export const WATER_NONE = 0
@@ -488,7 +498,9 @@ export function decoOf(seed: number, p: GenParams, x: number, y: number, kind: n
     if (u < flower + (p.tuftP ?? 0)) return DECO_TUFT
   }
   if ((kind === KIND_GRASS || kind === KIND_LITTER) && unit(hash(seed, x, y, 302)) < (p.mushroomP ?? 0)) return DECO_MUSHROOM
-  if ((kind === KIND_GRASS || kind === KIND_LITTER) && unit(hash(seed, x, y, 305)) < (p.branchP ?? 0)) return DECO_BRANCH
+  if ((kind === KIND_GRASS || kind === KIND_LITTER || kind === p.ground) && unit(hash(seed, x, y, 305)) < (p.branchP ?? 0)) return DECO_BRANCH
+  if ((kind === KIND_SAND || kind === KIND_WET_SAND) && unit(hash(seed, x, y, 306)) < (p.shellP ?? 0)) return DECO_SHELL
+  if (kind === KIND_SAND && unit(hash(seed, x, y, 307)) < (p.dryBushP ?? 0)) return DECO_DRY_BUSH
   return DECO_NONE
 }
 

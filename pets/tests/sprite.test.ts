@@ -28,7 +28,7 @@ function petOfSpecies(species: SpeciesDef): PetState {
 
 const petOf = () => petOfSpecies(Species.DOG)
 
-// 자세 × 방향 × 시계(꼬리·숨·단계 시간) × 걸음을 훑어 scene 이 그릴 수 있는 모습을 모은다
+// 자세 × 방향 × 시계(꼬리·숨·단계 시간) × 걸음을 훑어 scene 이 그릴 수 있는 모습을 모은다. 헤엄치는 종은 깊은 물에 뜬 모습(자세마다, 헤엄 중)도
 function allPoses(species: SpeciesDef = Species.DOG): Array<{ name: string; pose: PetPose }> {
   const petOf = () => petOfSpecies(species)
   const out: Array<{ name: string; pose: PetPose }> = []
@@ -54,6 +54,16 @@ function allPoses(species: SpeciesDef = Species.DOG): Array<{ name: string; pose
         p.landMs = ms % 5 === 0 ? 50 : 0
         out.push({ name: gait, pose: Pet.poseOf(p) })
       }
+      if (!species.abilities.swim) continue
+      for (const name of [...POSES, 'swimming']) {
+        const p = petOf()
+        p.dir = dir
+        p.swimming = true
+        p.breath = ms
+        p.blinkMs = ms % 3 === 0 ? 50 : 0
+        if (name === 'swimming') { p.speed = 1; p.stride = ms / 400 } else p.pose = name as PoseName
+        out.push({ name: `swim ${name}`, pose: Pet.poseOf(p) })
+      }
     }
     const hop = petOf()
     hop.dir = dir
@@ -76,8 +86,9 @@ function pixelsOf(pose: PetPose, species: SpeciesDef = Species.DOG): Map<string,
 }
 
 describe('sprite', () => {
-  test('every species draws every pose, direction and gait inside 16 × 13 pixels, above the floor and never empty', async () => {
-    for (const species of Object.values(Species.SPECIES)) {
+  // 종마다 한 테스트(모습 수천 개를 훑어 한 테스트에 모으면 엔진 시간 한도를 넘는다)
+  for (const species of Object.values(Species.SPECIES)) {
+    test(`the ${species.id} draws every pose, direction and gait inside 16 × 13 pixels, above the floor and never empty`, async () => {
       for (const { name, pose } of allPoses(species)) {
         let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
         const painted = pixelsOf(pose, species)
@@ -89,8 +100,8 @@ describe('sprite', () => {
         if (!fits) throw new Error(`${species.id} ${name}: ${painted.size} px, x ${x0}..${x1}, y ${y0}..${y1}`)
         expect(fits).toBe(true)
       }
-    }
-  })
+    })
+  }
 
   test('every painted color has a real RGB value', async () => {
     for (const { name, pose } of allPoses()) {
@@ -211,7 +222,7 @@ describe('new poses', () => {
   })
 
   test('a carried ball is drawn over the mouth cell of the head, facing either side and bowing', async () => {
-    const face = Species.DOG.sprite.heads.face
+    const face = Species.DOG.sprite.heads!.face
     const mrow = face.rows.findIndex(r => r.includes('M'))
     const mcol = face.rows[mrow]!.indexOf('M')
     for (const [dir, pose] of [['SE', 'stand'], ['SW', 'stand'], ['SE', 'bow'], ['SW', 'bow']] as const) {

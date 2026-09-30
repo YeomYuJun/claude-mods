@@ -1,15 +1,23 @@
 import { CAT } from './cat.js'
+import { CLAUDE } from './claude.js'
 import { DOG } from './dog.js'
+import { DUCK } from './duck.js'
+import { PENGUIN } from './penguin.js'
+import { TURTLE } from './turtle.js'
 import { BASE_BODIES, EXTRA_BODIES, HEAD_KINDS, type BitmapSpec, type BodyKind, type BreedDef, type BreedId, type HeadKind, type SpeciesDef, type SpeciesId } from './types.js'
 
 export * from './types.js'
 export { CAT } from './cat.js'
+export { CLAUDE } from './claude.js'
 export { DOG } from './dog.js'
+export { DUCK } from './duck.js'
+export { PENGUIN } from './penguin.js'
+export { TURTLE } from './turtle.js'
 
-export const SPECIES: Readonly<Record<SpeciesId, SpeciesDef>> = { dog: DOG, cat: CAT }
+export const SPECIES: Readonly<Record<SpeciesId, SpeciesDef>> = { dog: DOG, cat: CAT, turtle: TURTLE, duck: DUCK, penguin: PENGUIN, claude: CLAUDE }
 
-// 모든 품종(강아지 품종 다음 고양이 품종). 첫 번째가 기본
-export const BREEDS: readonly BreedDef[] = [...DOG.breeds, ...CAT.breeds]
+// 모든 품종(강아지, 고양이, 거북이, 오리, 펭귄, 마스코트 순). 첫 번째가 기본
+export const BREEDS: readonly BreedDef[] = [...DOG.breeds, ...CAT.breeds, ...TURTLE.breeds, ...DUCK.breeds, ...PENGUIN.breeds, ...CLAUDE.breeds]
 export const DEFAULT_BREED: BreedId = BREEDS[0]!.id
 
 export function breedOf(id: BreedId): BreedDef {
@@ -43,7 +51,7 @@ const SPOT = 'P'
 
 // 그림마다 점 자리를 고르는 소금. 같은 모습의 그림(웅크린 잠 두 장, 정면 몸, 옆머리)은 같은 값이라 점이 같은 자리에 남는다
 const SALT: Readonly<Record<BodyKind | HeadKind, number>> = {
-  stand: 1, sit: 2, lie: 3, curlA: 4, curlB: 4, frontSit: 5, frontStand: 5, bellyA: 8, bellyB: 8, frontBeg: 5,
+  stand: 1, sit: 2, lie: 3, curlA: 4, curlB: 4, frontSit: 5, frontStand: 5, bellyA: 8, bellyB: 8, frontBeg: 5, stoop: 1, swim: 9,
   face: 6, back: 7, alert: 6, droop: 6, tilt: 5,
 }
 
@@ -77,10 +85,13 @@ export function lookOf(id: BreedId): SpeciesDef {
       const spec = src[kind]
       if (spec) bodies[kind] = patterned(spec, breed, SALT[kind])
     }
-    const heads: Partial<Record<HeadKind, BitmapSpec>> = {}
-    for (const kind of HEAD_KINDS) {
-      const spec = s.heads[kind]
-      if (spec) heads[kind] = patterned(spec, breed, SALT[kind])
+    let heads: Partial<Record<HeadKind, BitmapSpec>> | undefined
+    if (s.heads) {
+      heads = {}
+      for (const kind of HEAD_KINDS) {
+        const spec = s.heads[kind]
+        if (spec) heads[kind] = patterned(spec, breed, SALT[kind])
+      }
     }
     look = {
       ...species,

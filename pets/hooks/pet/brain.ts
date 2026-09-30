@@ -97,6 +97,9 @@ const THIRST_URGENT = 0.85
 const SPLASH_OUT = 2
 // 씹을 나뭇가지를 찾는 걸음 수
 const CHEW_REACH = 12
+// 헤엄칠 물을 찾는 걸음 수, 떠 있다가 옮겨 갈 다음 물 칸의 거리(맨해튼)
+const SWIM_REACH = 12
+const SWIM_HOP = 4
 
 function act(name: ActName, steps: Step[]): Activity {
   return { name, steps, i: 0, t: 0, started: -1 }
@@ -259,6 +262,30 @@ function shallowsOf(world: WorldState, s: Survey): Tile[] {
     }
     return out
   })
+}
+
+// 헤엄 행동이 들어갈 물 칸(얕은 물 포함): SWIM_REACH 걸음 안
+function watersOf(world: WorldState, s: Survey): Tile[] {
+  return memo(s, 'water', () => {
+    const { dist, r, from } = s.reach
+    const side = 2 * r + 1
+    const out: Tile[] = []
+    for (let i = 0; i < dist.length; i++) {
+      if (dist[i]! <= 0 || dist[i]! > SWIM_REACH) continue
+      const t = { x: (i % side) + from.x - r, y: Math.floor(i / side) + from.y - r }
+      if (World.isWater(world, t.x, t.y)) out.push(t)
+    }
+    return out
+  })
+}
+
+// 헤엄을 마치고 나올 땅: 지금 자리에서 닿는 물이 아닌 칸 중 그 물 칸에서 가장 가까운 칸(맨해튼)
+function landNear(p: Pet, world: WorldState, s: Survey, from: Tile): Tile | undefined {
+  const land = dry(world, tilesAt(p, world, s, 0, SWIM_REACH + 4))
+  if (land.length === 0) return undefined
+  const d = (t: Tile) => Math.abs(t.x - from.x) + Math.abs(t.y - from.y)
+  const best = Math.min(...land.map(d))
+  return Rng.pick(p.rng, land.filter(t => d(t) === best))
 }
 
 // 칸에서 가장 가까운 물까지의 맨해튼 거리. SPLASH_OUT 보다 멀면 SPLASH_OUT + 1
@@ -582,6 +609,27 @@ export const ACTS: Record<ActName, ActDef> = {
       { k: 'go', to: Rng.pick(p.rng, digSpotsOf(p, world, s)), gait: 'walk', must: true },
       pose('dig', ms(p, 2000, 3200)), { k: 'pit' }, pose('sniff', 600),
     ]),
+  },
+  // 헤엄치는 종만: 12 걸음 안의 물(얕은 물 포함)로 들어가 떠 있다가 가까운 물 칸으로 한 번 옮기고, 가까운 땅으로 나와 몸을 턴다.
+  // 헤엄 못 하는 종은 가능 여부에서 바로 빠져 난수를 쓰지 않는다(평소 행동 맨 끝이라 다른 종의 행동 열이 그대로다)
+  swim: {
+    name: 'swim', cls: 'N', base: 8, drive: { curiosity: 0.6, play: 0.6 }, cooldownMs: 45_000,
+    feasible: (p, world, s) => p.species.abilities.swim && watersOf(world, s).length > 0,
+    adjust: FLAT,
+    build: (p, world, s) => {
+      const waters = watersOf(world, s)
+      const into = Rng.pick(p.rng, waters)
+      const next = waters.filter(t => (t.x !== into.x || t.y !== into.y) && Math.abs(t.x - into.x) + Math.abs(t.y - into.y) <= SWIM_HOP)
+      const hop = next.length > 0 ? Rng.pick(p.rng, next) : undefined
+      const out = landNear(p, world, s, hop ?? into)
+      return act('swim', [
+        { k: 'go', to: into, gait: 'walk', must: true },
+        pose('stand', ms(p, 2500, 5000), { face: Rng.pick(p.rng, DIRS) }),
+        ...(hop ? [{ k: 'go', to: hop, gait: 'walk' } as Step, pose('stand', ms(p, 2000, 4000))] : []),
+        ...(out ? [{ k: 'go', to: out, gait: 'walk' } as Step] : []),
+        pose('shake', 500),
+      ])
+    },
   },
   greet: {
     name: 'greet', cls: 'G', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,

@@ -211,19 +211,19 @@ describe('water', () => {
     }
   })
 
-  test('every water color a set paints has a darker shadow, and each water set fills its water, sand and splash colors', async () => {
+  test('every water color a set paints has a darker shadow, and each water set fills its water, shore and splash colors', async () => {
     let sets = 0
     for (const b of Biome.BIOMES) {
       if (!b.gen.lake) continue
       sets++
-      const { rgb, shadowOf, kindSlot } = Biome.themeOf(b.id)
+      const { rgb, shadowOf } = Biome.themeOf(b.id)
       for (const c of [Palette.SHALLOW, Palette.DEEP_WATER, Palette.SHIMMER, Palette.FOAM, Palette.SHALLOW_SH, Palette.DEEP_SH, Palette.WATER_END, Palette.SPLASH]) expect(`${b.id} ${c} ${rgb[c] === Palette.UNSET}`).toBe(`${b.id} ${c} false`)
       for (const c of [Palette.SHALLOW, Palette.DEEP_WATER, Palette.SHIMMER, Palette.FOAM, Palette.SHALLOW_SH, Palette.DEEP_SH]) {
         expect(`${b.id} ${c} ${Palette.lumaOf(rgb[shadowOf[c]!]!) < Palette.lumaOf(rgb[c]!)}`).toBe(`${b.id} ${c} true`)
       }
-      expect(`${b.id} sand ${kindSlot[Gen.KIND_SAND]! > 0}`).toBe(`${b.id} sand true`)
+      expect(`${b.id} shore ${b.colors.kinds.some(k => k.id === b.gen.shore)}`).toBe(`${b.id} shore true`)
     }
-    expect(sets).toBe(4)
+    expect(sets).toBe(7)
   })
 
   // 세트마다 물가 프레임의 쌍이 가장 많이 나온 시드(node 측정: 초원 423, 산악 470, 숲 502, 호숫가 399)
