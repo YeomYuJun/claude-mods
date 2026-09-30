@@ -117,6 +117,8 @@ function stampAll(b: Buffer, world: WorldState, view: View, proj: Proj, hollow: 
       const c = pair?.[slot]
       if (!c) continue
       // 물 위 꾸밈(갈대·연잎)은 수면에 놓는다. 수면은 물가 윗면보다 1 픽셀 낮다
+      // 경사 칸의 꾸밈도 칸 높이(경사 낮은 변 높이)에 놓아 경사면 위 조금 아래쪽에 선다. 칸 가운데 윗면(반 단 = 2 픽셀 위)에 놓으면
+      // 셀(위아래 두 픽셀) 안에서 꾸밈과 바탕이 평지와 다른 줄에 걸려 새 색 쌍이 생긴다
       const s = Iso.screenOf(x, y, World.walkHeightAt(world, x, y) * Names.STEP_PX, proj)
       const sink = World.isWater(world, x, y) ? 1 : 0
       stamp(b, c, Math.round(s.sx) - view.ox, Math.round(s.sy) - view.oy + sink, d - dz + (prop ? PROP_DEPTH : DECO_DEPTH), hollow)

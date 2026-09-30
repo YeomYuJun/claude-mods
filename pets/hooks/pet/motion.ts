@@ -1,7 +1,8 @@
 // 경로 따라가기와 단차 뛰기(순수 모듈). 고정 스텝(약 16.7 ms)마다 한 번 부른다.
 // - 속도는 가속·감속 한도 안에서 목표 속도로 다가간다. 끝 칸에 가까우면 v = √(2·감속·남은 거리) 로 줄여 미끄러지지 않고 선다
 // - 꺾이는 칸은 가운데까지 가지 않고 조금 앞에서 다음 칸으로 넘어가 모서리를 둥글게 돈다(세 칸 높이가 같을 때만)
-// - 걷는 높이가 다른 칸으로 넘어갈 때는 경계 앞에서 웅크렸다가(걷기만) 포물선으로 뛰고, 착지하면 잠깐 눌리고 먼지가 인다.
+// - 두 칸이 맞닿는 변의 높이 차가 한 단 이상이면(World.stepGapOf) 경계 앞에서 웅크렸다가(걷기만) 포물선으로 뛰고, 착지하면 잠깐 눌리고 먼지가 인다.
+//   경사를 따라 오르내리면 변 높이가 같아 뛰지 않고, 발 높이는 선 자리의 경사 윗면을 따른다(World.surfaceZ). 경사 옆 변을 건너면 반 단(2 픽셀) 옮겨진다.
 //   물 칸의 걷는 높이는 수면이라 물가에서 얕은 물로는 뛰지 않고 걸어 들어가며, 발은 수면 아래로 잠긴다(World.standZ).
 //   헤엄치는 종은 얕은 물에서도 깊은 물처럼 떠서 헤엄치고(발이 수면 SWIM_PX 아래), 물에 들고 날 때 발 높이를 SINK_PX_S 로 옮긴다
 
@@ -19,7 +20,7 @@ function groundOf(p: Pet, world: WorldState, x: number, y: number): number {
   const tx = Math.round(x)
   const ty = Math.round(y)
   if (p.species.abilities.swim && World.isWater(world, tx, ty)) return World.walkHeightAt(world, tx, ty) * Names.STEP_PX - World.SWIM_PX
-  return World.standZ(world, tx, ty)
+  return World.surfaceZ(world, x, y)
 }
 
 // 선 자리의 발 높이로 맞춘다. 헤엄치는 종이 물에 들고 날 때(높이 차가 SWIM_PX 이하)는 한 번에 옮기지 않는다
@@ -130,9 +131,11 @@ function move(p: Pet, world: WorldState, dtMs: number): void {
   const dx = wp.x - p.x
   const dy = wp.y - p.y
   const dist = Math.hypot(dx, dy)
-  const here = World.walkHeightAt(world, Math.round(p.x), Math.round(p.y))
+  const hx = Math.round(p.x)
+  const hy = Math.round(p.y)
+  const here = World.walkHeightAt(world, hx, hy)
   const there = World.walkHeightAt(world, wp.x, wp.y)
-  if (there !== here && dist <= m.hopAt) {
+  if (World.stepGapOf(world, hx, hy, wp.x, wp.y) >= 1 && dist <= m.hopAt) {
     faceTo(p, dx, dy)
     // 걷다가 오를 때는 멈칫 웅크리고, 뛰는 중에는 속도 그대로 뛰어오른다
     if (p.gait === 'run' || p.gait === 'trot') startHop(p, world, wp.x, wp.y, true)
@@ -168,7 +171,9 @@ function move(p: Pet, world: WorldState, dtMs: number): void {
   const left = dist - move
   // 다음 구간이 지금 가는 축과 다른 축이면 꺾는 칸이다
   const isTurn = next !== undefined && (next.x !== wp.x) !== (Math.abs(dx) > Math.abs(dy))
+  // 경사 칸이 끼면 돌지 않는다(모서리 한가운데에서 경사 옆 변의 반 단 옮김이 생긴다)
   const flat = next !== undefined && World.walkHeightAt(world, next.x, next.y) === there && here === there
+    && !World.slopeDirAt(world, hx, hy) && !World.slopeDirAt(world, wp.x, wp.y) && !World.slopeDirAt(world, next.x, next.y)
   if (left <= 1e-4 || (isTurn && flat && left < m.corner)) {
     p.path.shift()
     if (p.path.length === 0) { p.x = wp.x; p.y = wp.y; p.speed = 0 }

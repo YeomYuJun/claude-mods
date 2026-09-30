@@ -183,7 +183,8 @@ const BED_CLEAR = 2
 
 // 자기 전 아늑한 자리: 6 걸음 안의 물이 아닌 칸 중 뒤쪽(화면 위쪽)에 높은 칸을 등진 곳. 앞쪽에 나무가 있는 칸은 빼고, 다 빠지면 전부에서 고른다
 function bedOf(p: Pet, world: WorldState, s: Survey): Tile | undefined {
-  const near = dry(world, tilesAt(p, world, s, 0, 6))
+  // 경사 칸은 뺀다(웅크린 그림은 평평한 바닥 기준이다)
+  const near = dry(world, tilesAt(p, world, s, 0, 6)).filter(t => !World.slopeDirAt(world, t.x, t.y))
   const open = near.filter(t => !World.hasTreeInFront(world, t.x, t.y, BED_CLEAR))
   const tiles = open.length > 0 ? open : near
   let best: Tile | undefined
@@ -356,10 +357,10 @@ function putBranch(p: Pet, world: WorldState): void {
   World.setDeco(world, hold.from.x, hold.from.y, World.Gen.DECO_BRANCH)
 }
 
-// 구덩이를 팔 칸: 2~5 걸음 안의 걷는 땅(물·블록이 아님) 중 구덩이·나뭇가지가 없는 칸
+// 구덩이를 팔 칸: 2~5 걸음 안의 걷는 땅(물·블록·경사가 아님) 중 구덩이·나뭇가지가 없는 칸. 구덩이 흔적은 평지 윗면에만 그린다
 function digSpotsOf(p: Pet, world: WorldState, s: Survey): Tile[] {
   return memo(s, 'digSpots', () => tilesAt(p, world, s, 2, 5).filter(t =>
-    (World.flagsAt(world, t.x, t.y) & (World.WATER | World.BLOCK)) === 0 && !World.hasPit(world, t.x, t.y) && World.decoAt(world, t.x, t.y) !== World.Gen.DECO_BRANCH))
+    (World.flagsAt(world, t.x, t.y) & (World.WATER | World.BLOCK)) === 0 && !World.slopeDirAt(world, t.x, t.y) && !World.hasPit(world, t.x, t.y) && World.decoAt(world, t.x, t.y) !== World.Gen.DECO_BRANCH))
 }
 
 // 공이 길 찾기 창 밖이면 칸을 읽지 않고 false(멀리 두고 온 공의 청크를 다시 만들지 않는다)
@@ -1191,7 +1192,7 @@ function runStep(p: Pet, world: WorldState, step: Step, a: Activity, dtMs: numbe
     }
     case 'pit': {
       const t = tileOf(p)
-      if ((World.flagsAt(world, t.x, t.y) & (World.WATER | World.BLOCK)) === 0) World.addPit(world, t.x, t.y, now)
+      if ((World.flagsAt(world, t.x, t.y) & (World.WATER | World.BLOCK)) === 0 && !World.slopeDirAt(world, t.x, t.y)) World.addPit(world, t.x, t.y, now)
       return true
     }
     case 'chase': {

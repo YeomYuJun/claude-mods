@@ -23,7 +23,7 @@ export type Biome = { id: BiomeId; label: string; aliases: readonly string[]; co
 // 바탕은 풀, 블록은 돌, 호수 둘레는 모래(surface 가 바탕·물가 종류·높이 상한을 바꿀 수 있다).
 // surface 는 지표 종류 규칙(돌·눈 높이, 얼룩), 걷는 꾸밈 확률, 호수(셀당 확률·반지름), 지형 모양(바탕 단 수, 스탬프, 능선 띠, 잔기복, 호수 분지),
 // 장애물 밀도 얼룩, 물가 띠 폭, 강(초원·산악·숲·호숫가·설원. 수면이 세트 최저 단인 얕은 물 띠)
-type Surface = Partial<Pick<Gen.GenParams, 'ground' | 'shore' | 'hmax'>> & Pick<Gen.GenParams, 'rockLine' | 'snow' | 'patch' | 'flowerP' | 'tuftP' | 'mushroomP' | 'lake' | 'reedP' | 'lilyP' | 'branchP' | 'shellP' | 'dryBushP' | 'levels' | 'baseMin' | 'forms' | 'crest' | 'detail' | 'basin' | 'obsField' | 'obsNear' | 'shoreWidth' | 'river'>
+type Surface = Partial<Pick<Gen.GenParams, 'ground' | 'shore' | 'hmax'>> & Pick<Gen.GenParams, 'rockLine' | 'snow' | 'patch' | 'flowerP' | 'tuftP' | 'mushroomP' | 'lake' | 'reedP' | 'lilyP' | 'branchP' | 'shellP' | 'dryBushP' | 'levels' | 'baseMin' | 'forms' | 'crest' | 'detail' | 'basin' | 'obsField' | 'obsNear' | 'shoreWidth' | 'river' | 'extraLakes'>
 const gen = (spacing: readonly number[], amp: readonly number[], warp: number, warpSpacing: number, gain: number, bias: number, obsP: number, treeW: number, rockW: number, blockW: number, tree: number, surface: Surface): Gen.GenParams =>
   ({ spacing, amp, warp, warpSpacing, gain, bias, hmin: 1, hmax: 6, obsP, treeW, rockW, blockW, tree, ground: World.Gen.KIND_GRASS, blockKind: World.Gen.KIND_STONE, shore: World.Gen.KIND_SAND, ...surface })
 
@@ -92,20 +92,20 @@ export const BIOMES: readonly Biome[] = [
   {
     id: 'meadow', label: '초원', aliases: ['초원'], open: true,
     colors: colorsOf({ kinds: [{ id: K.KIND_GRASS, lo: 0x7fb35a, hi: 0xa6cf78, material: 0 }, { id: K.KIND_DIRT, lo: 0xa88a5c, hi: 0xc4aa7c, material: 0 }, stone()], side: 0x8a6a48, edge: 0x937657, dust: 0xc8b48c, water: { shallow: 0x3f7fb8, deep: 0x2c6096, shimmer: 0xcfeaff, foam: 0x9cc2e2 }, sand: [0xd8c890, 0xebdfb2] }, PROP_COLORS.meadow),
-    gen: gen([48, 16], [1, 0.35], 6, 23, 0.9, 0, 0.22, 3, 1, 1, World.Gen.PROP_BROADLEAF, { levels: 3, baseMin: 2, forms: [{ shape: 'dome', cell: 40, p: 0.6, r: [6, 11], h: [2, 3.5] }], patch: { kind: K.KIND_DIRT, wet: 0.4, p: 0.55 }, flowerP: 0.06, tuftP: 0.09, branchP: 0.004, lake: { p: 0.35, r: [3, 6], lowOnly: 2 }, river: { spacing: 64, width: 0.02 } }),
+    gen: gen([48, 16], [1, 0.35], 6, 23, 0.9, 0, 0.22, 3, 1, 1, World.Gen.PROP_BROADLEAF, { levels: 3, baseMin: 2, forms: [{ shape: 'dome', cell: 40, p: 0.6, r: [6, 11], h: [2, 3.5] }], patch: { kind: K.KIND_DIRT, wet: 0.4, p: 0.55 }, flowerP: 0.06, tuftP: 0.09, branchP: 0.004, lake: { p: 0.35, r: [3, 6], lowOnly: 2 }, extraLakes: [{ p: 0.5, r: [8, 12], cell: 96, lowOnly: 2 }], river: { spacing: 64, width: 0.02 } }),
   },
   // 1~3 단 골짜기 사이로 능선 두 벌(큰 줄기 셀 56, 작은 줄기 셀 36)이 길게 뻗고, 마루를 따라 봉우리와 고개가 번갈아 난다. 호수는 골짜기(2 단 이하)에만.
   // 낮은 곳은 풀, 3 단 이상은 돌, 5 단 이상의 추운 곳은 눈
   {
     id: 'mountain', label: '산악', aliases: ['산악', '산'], open: true,
     colors: colorsOf({ kinds: [{ id: K.KIND_GRASS, lo: 0x8fae6a, hi: 0xa9bf84, material: 0 }, stone(), { id: K.KIND_SNOW, lo: 0xdde3e8, hi: 0xf4f7f9, material: 2 }], heavy: 1, side: 0x7b766f, edge: 0x807b74, dust: 0xb8b2a8, water: { shallow: 0x4f82a6, deep: 0x3f6c8c, shimmer: 0xd8ecf6, foam: 0xa4c0d4 }, sand: [0xcfc6a6, 0xe2dcc4] }, PROP_COLORS.mountain),
-    gen: gen([40, 40 / 3], [1, 0.35], 9, 29, 0.9, -0.05, 0.28, 2, 2, 1, World.Gen.PROP_PINE, { levels: 3, baseMin: 1, detail: { spacing: 9, amp: 0.6 }, forms: [{ shape: 'ridge', cell: 56, p: 0.85, r: [30, 44], h: [4.5, 5.5], slope: 0.75 }, { shape: 'ridge', cell: 36, p: 0.55, r: [14, 22], h: [2.5, 3.5], slope: 0.9, shift: 18 }], rockLine: 3, snow: { line: 0.18, min: 5 }, flowerP: 0.03, tuftP: 0.045, branchP: 0.003, lake: { p: 0.2, r: [3, 5], lowOnly: 1 }, river: { spacing: 64, width: 0.02 } }),
+    gen: gen([40, 40 / 3], [1, 0.35], 9, 29, 0.9, -0.05, 0.28, 2, 2, 1, World.Gen.PROP_PINE, { levels: 3, baseMin: 1, detail: { spacing: 9, amp: 0.6 }, forms: [{ shape: 'ridge', cell: 56, p: 0.85, r: [30, 44], h: [4.5, 5.5], slope: 0.75 }, { shape: 'ridge', cell: 36, p: 0.55, r: [14, 22], h: [2.5, 3.5], slope: 0.9, shift: 18 }], rockLine: 3, snow: { line: 0.18, min: 5 }, flowerP: 0.03, tuftP: 0.045, branchP: 0.003, lake: { p: 0.2, r: [3, 5], lowOnly: 1 }, extraLakes: [{ p: 0.45, r: [7, 11], cell: 96, lowOnly: 1 }], river: { spacing: 64, width: 0.02 } }),
   },
   // 낮고 넓은 2·3·4 단 평지에 48 칸 셀마다 완만한 언덕. 나무가 빽빽한 곳과 빈터가 번갈아 난다(후보 확률 × 0.35~1.3). 못은 언덕 위에 두지 않는다(3 단 이하)
   {
     id: 'forest', label: '숲', aliases: ['숲'], open: true,
     colors: colorsOf({ kinds: [{ id: K.KIND_GRASS, lo: 0x5f9448, hi: 0x7bac5c, material: 0 }, { id: K.KIND_LITTER, lo: 0xa0804c, hi: 0xbc9c68, material: 0 }, stone()], side: 0x6b4f35, edge: 0x8e7864, dust: 0xa08a60, water: { shallow: 0x3f6f94, deep: 0x305a7c, shimmer: 0xc8e0f0, foam: 0x92b0c8 }, sand: [0xccb482, 0xdfcca0] }, PROP_COLORS.forest),
-    gen: gen([40, 40 / 3], [1, 0.35], 6, 23, 0.9, 0, 0.46, 6, 1, 0.3, World.Gen.PROP_OAK, { levels: 3, baseMin: 2, forms: [{ shape: 'dome', cell: 48, p: 0.5, r: [7, 12], h: [2, 3.5] }], obsField: { spacing: 24, lo: 0.35, hi: 1.3 }, patch: { kind: K.KIND_LITTER, wet: 0.55, p: 0.45 }, tuftP: 0.03, mushroomP: 0.02, branchP: 0.008, lake: { p: 0.25, r: [3, 5], lowOnly: 2 }, river: { spacing: 64, width: 0.02 } }),
+    gen: gen([40, 40 / 3], [1, 0.35], 6, 23, 0.9, 0, 0.46, 6, 1, 0.3, World.Gen.PROP_OAK, { levels: 3, baseMin: 2, forms: [{ shape: 'dome', cell: 48, p: 0.5, r: [7, 12], h: [2, 3.5] }], obsField: { spacing: 24, lo: 0.35, hi: 1.3 }, patch: { kind: K.KIND_LITTER, wet: 0.55, p: 0.45 }, tuftP: 0.03, mushroomP: 0.02, branchP: 0.008, lake: { p: 0.25, r: [3, 5], lowOnly: 2 }, extraLakes: [{ p: 0.4, r: [7, 11], cell: 96, lowOnly: 2 }], river: { spacing: 64, width: 0.02 } }),
   },
   // 64 칸 셀마다 큰 호수(반지름 9~16) 하나, 둘레는 분지라 물가에서 멀어질수록 3·4·5 단 바탕으로 오른다. 분지 바닥 2 단(수면 2, 깊은 물 바닥 0)
   {
@@ -126,7 +126,7 @@ export const BIOMES: readonly Biome[] = [
   {
     id: 'snow', label: '설원', aliases: ['설원', '눈', '눈밭'], open: true,
     colors: colorsOf({ kinds: [{ id: K.KIND_SNOW, lo: 0xe2e9ef, hi: 0xf7fafc, material: 0 }, { id: K.KIND_ICE, lo: 0xbfe0f0, hi: 0xd6ecf6, material: 0 }, stone()], heavy: 2, side: 0x9fb3c4, edge: 0x6f7d89, dust: 0xf4f8fb, water: { shallow: 0x5b90b8, deep: 0x467aa0, shimmer: 0xffffff, foam: 0xd8ecf6 } }, PROP_COLORS.snow),
-    gen: gen([56, 56 / 3], [1, 0.35], 7, 25, 0.8, 0, 0.26, 4, 2, 1, World.Gen.PROP_SNOW_PINE, { levels: 2, baseMin: 2, forms: [{ shape: 'dome', cell: 36, p: 0.55, r: [5, 10], h: [2, 3.5] }], ground: K.KIND_SNOW, shore: K.KIND_ICE, patch: { kind: K.KIND_ICE, wet: 0.45, p: 0.55, maxH: 2 }, lake: { p: 0.15, r: [3, 5], lowOnly: 1 }, river: { spacing: 64, width: 0.02 }, branchP: 0.004 }),
+    gen: gen([56, 56 / 3], [1, 0.35], 7, 25, 0.8, 0, 0.26, 4, 2, 1, World.Gen.PROP_SNOW_PINE, { levels: 2, baseMin: 2, forms: [{ shape: 'dome', cell: 36, p: 0.55, r: [5, 10], h: [2, 3.5] }], ground: K.KIND_SNOW, shore: K.KIND_ICE, patch: { kind: K.KIND_ICE, wet: 0.45, p: 0.55, maxH: 2 }, lake: { p: 0.15, r: [3, 5], lowOnly: 1 }, extraLakes: [{ p: 0.35, r: [7, 11], cell: 112, lowOnly: 1 }], river: { spacing: 64, width: 0.02 }, branchP: 0.004 }),
   },
   // 바탕이 1·2 단 모래이고 사구 마루가 가는 1 단 선으로 한 방향으로 줄지어 난다. 44 칸 셀마다 메사(평평한 꼭대기, 옆은 한 칸에 한 단 계단)가 서고
   // 4 단 이상은 붉은 바위. 드문 작은 호수(오아시스)는 2 단 이하에만 있고 테는 풀이며 풀포기·갈대가 난다

@@ -29,6 +29,8 @@ export type Proj = {
   // 옆면에 단마다 가로 줄을 긋는다. 한 단이 3 픽셀 미만이면 줄이 면을 덮어 끈다
   isStriped: boolean
   tops: readonly TopPixel[]
+  // 경사 윗면(World.Slope 방향 1..4 → 번호 0..3). 기준점은 평지와 같이 칸 높이 h 의 위 꼭짓점
+  slopes: readonly (readonly TopPixel[])[]
   left: readonly FaceColumn[]
   right: readonly FaceColumn[]
 }
@@ -63,7 +65,31 @@ function projOf(hw: number, hh: number, step: number, base: number, lineEvery: n
     if (dx < 0) left.push({ dx, start, depth: 1 + a / hw })
     else right.push({ dx, start, depth: 1 - a / hw })
   }
-  return { hw, hh, step, base, lineEvery, isStriped: step >= 3, tops, left, right }
+  const slopes = [1, 2, 3, 4].map(dir => slopeTopsOf(hw, hh, step, dir))
+  return { hw, hh, step, base, lineEvery, isStriped: step >= 3, tops, slopes, left, right }
+}
+
+// 경사 윗면: 낮은 변 h, 높은 변 h + 1 인 평면. 픽셀 가운데 (a, b) 에서 평면 위 (u, w) 를 풀어 max(|u|, |w|) < 0.5 인 픽셀만 넣는다.
+// 꼭짓점이 정수 좌표이고 모든 변 벡터에서 가로·세로 변위의 2 인수 개수가 달라 픽셀 가운데가 변 위에 놓이지 않는다. 그래서 이웃 칸과 빈틈·겹침이 없고
+// 픽셀 수가 평행사변형 넓이와 같다. 보는 쪽으로 오르는 경사(+x·+y)는 면이 누워 좁고, 맵 보기(한 단 2 = 2hh)에서는 넓이가 0 이라 픽셀이 없다.
+// 경사 윗면에는 선·앞 모서리 하이라이트를 긋지 않아 edge·front 는 0 이다
+function slopeTopsOf(hw: number, hh: number, step: number, dir: number): TopPixel[] {
+  const [ddx, ddy] = World.Slope.DIRS[dir - 1]!
+  // u + w = s, u − w = p 로 두면 높이 오프셋 e = s·(ddx + ddy)/2 + p·(ddx − ddy)/2 + 0.5 가 화면 b 를 e × step 만큼 올린다
+  const den = hh - (step * (ddx + ddy)) / 2
+  const out: TopPixel[] = []
+  if (den <= 0) return out
+  for (let dy = -step; dy < 2 * hh; dy++) {
+    for (let dx = -hw; dx < hw; dx++) {
+      const p = (dx + 0.5) / hw
+      const s = (dy + 0.5 - hh + step * ((p * (ddx - ddy)) / 2 + 0.5)) / den
+      const u = (s + p) / 2
+      const w = (s - p) / 2
+      if (Math.max(Math.abs(u), Math.abs(w)) >= 0.5) continue
+      out.push({ dx, dy, edge: 0, front: 0, nw: (u + 0.5) * 2 * hh, ne: (w + 0.5) * 2 * hh, depth: u + w })
+    }
+  }
+  return out
 }
 
 export const NEAR = projOf(Names.TILE_W / 2, Names.TILE_H / 2, Names.STEP_PX, Names.BASE_PX, 1)
@@ -140,6 +166,30 @@ function masksOf(id: number): Uint8Array[] | undefined {
   }
   return masks.get(id)
 }
+// 계단(돌 칸 경사): 경사 윗면에서 오름 높이 e(0~1)가 문턱을 넘는 자리에 턱 줄을 긋는다. 1 배는 1/3·2/3 두 줄, 원거리는 1/2 한 줄, 맵 보기는 없음.
+// 줄 픽셀은 e 가 문턱 이상이고 네 이웃 템플릿 픽셀 중 문턱 아래가 있는 픽셀(문턱 선의 높은 쪽 한 줄). 방향 1..4 → 번호 0..3, 투영마다 처음 쓸 때 만든다
+const stairMasks = new Map<Proj, Uint8Array[]>()
+
+function stairMasksOf(proj: Proj): Uint8Array[] {
+  let masks = stairMasks.get(proj)
+  if (!masks) {
+    const steps = proj === NEAR ? [1 / 3, 2 / 3] : proj === FAR ? [1 / 2] : []
+    masks = proj.slopes.map((tops, k) => {
+      const rise = (p: TopPixel) => World.Slope.riseOf(k + 1, p.nw / (2 * proj.hh) - 0.5, p.ne / (2 * proj.hh) - 0.5)
+      const at = new Map(tops.map(p => [`${p.dx},${p.dy}`, rise(p)]))
+      const m = new Uint8Array(tops.length)
+      tops.forEach((p, j) => {
+        const e = rise(p)
+        const below = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([ox, oy]) => at.get(`${p.dx + ox!},${p.dy + oy!}`))
+        if (steps.some(t => e >= t && below.some(v => v !== undefined && v < t))) m[j] = 1
+      })
+      return m
+    })
+    stairMasks.set(proj, masks)
+  }
+  return masks
+}
+
 // 물 반짝임(1 배에서만): 칸마다 윗면 안쪽 픽셀 두 개. 위상이 바뀌면 칸 해시로 고른 자리가 옮겨 간다
 let inner: number[] | undefined
 
@@ -193,6 +243,9 @@ const CAST_MAX = 1
 const CONTACT_PX = 1.5
 
 // 한 타일. 옆면은 앞 이웃 윗면보다 높은 만큼만(맵 가장자리면 밑판까지) 그린다. 앞 이웃이 물이면 수면까지라 물가에는 1 픽셀 턱만 생긴다.
+// 경사 칸은 방향별 윗면 템플릿(proj.slopes)으로 그리고, 이 칸이나 앞 이웃이 경사면 옆면 길이를 열마다 잰다(slopedFace).
+// 경사 윗면은 칸 높이 띠 색 한 가지로 칠하고 모눈선·앞 모서리 하이라이트·무늬를 긋지 않는다. 경사 변은 셀(위아래 두 픽셀) 중간을 여러 높이로 지나
+// 한 셀에 새 색 조합이 들어간다. 밝은·어두운 띠와 선·하이라이트·무늬를 더하면 조합이 더 늘어 물가 프레임이 512 쌍을 넘었다
 // 경계 없는 월드에서 아직 없는 청크의 타일은 그리지 않고, 앞 이웃이 없는 청크면 그쪽 옆면을 그리지 않는다.
 // 화면 상자가 버퍼 밖이거나 청크가 없으면 그리지 않고 false
 function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View, proj: Proj, theme: Palette.Theme, glint: number | undefined): boolean {
@@ -200,9 +253,10 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   const z = topZ(world, x, y, proj)
   const tx = (x - y) * proj.hw - view.ox
   const ty = (x + y) * proj.hh - z - view.oy
+  const dir = World.slopeDirAt(world, x, y)
   // 화면 상자: 가로 tx ± hw, 세로 윗면 위 꼭짓점 ty 부터 옆면 아래 끝까지. 옆면은 윗면 아래 2hh 안에서 시작하고
-  // 길이가 z + 밑판 이하라 아래 끝은 ty + 2hh + z + base 를 넘지 않는다(땅 높이 + 밑판)
-  if (ty >= b.h || ty + 2 * proj.hh + z + proj.base <= 0 || tx + proj.hw <= 0 || tx - proj.hw >= b.w) return false
+  // 길이가 z + 밑판 이하라 아래 끝은 ty + 2hh + z + base 를 넘지 않는다(땅 높이 + 밑판). 경사 윗면은 위 꼭짓점이 한 단까지 더 위다
+  if (ty - (dir ? proj.step : 0) >= b.h || ty + 2 * proj.hh + z + proj.base <= 0 || tx + proj.hw <= 0 || tx - proj.hw >= b.w) return false
   if (!World.isLoaded(world, x, y)) return false
   const dz = view.dz ?? 0
   if (World.isWater(world, x, y)) {
@@ -218,16 +272,31 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   const base = x + y - dz
   const isEdgeLeft = !World.inside(world, x, y + 1)
   const isEdgeRight = !World.inside(world, x + 1, y)
-  const frontLeft = isEdgeLeft ? z + proj.base : World.isLoaded(world, x, y + 1) ? z - topZ(world, x, y + 1, proj) : 0
-  const frontRight = isEdgeRight ? z + proj.base : World.isLoaded(world, x + 1, y) ? z - topZ(world, x + 1, y, proj) : 0
+  const loadedL = !isEdgeLeft && World.isLoaded(world, x, y + 1)
+  const loadedR = !isEdgeRight && World.isLoaded(world, x + 1, y)
+  const zL = loadedL ? topZ(world, x, y + 1, proj) : 0
+  const zR = loadedR ? topZ(world, x + 1, y, proj) : 0
+  const dirL = loadedL ? World.slopeDirAt(world, x, y + 1) : 0
+  const dirR = loadedR ? World.slopeDirAt(world, x + 1, y) : 0
+  const frontLeft = isEdgeLeft ? z + proj.base : loadedL ? z - zL : 0
+  const frontRight = isEdgeRight ? z + proj.base : loadedR ? z - zR : 0
   const w = b.w
-  if (frontLeft > 0) face(b, proj.left, tx, ty, frontLeft, base, side + Palette.Side.SIDE_L, side + Palette.Side.L_STEP, isEdgeLeft, brick, proj, w)
-  if (frontRight > 0) face(b, proj.right, tx, ty, frontRight, base, side + Palette.Side.SIDE_R, side + Palette.Side.R_STEP, isEdgeRight, brick, proj, w)
+  // 이 칸이나 앞 이웃이 경사면 열마다 옆면 길이가 다르다. 아니면 높이 차 하나
+  const colorL = side + Palette.Side.SIDE_L
+  const colorR = side + Palette.Side.SIDE_R
+  const lensL = !isEdgeLeft && (dir || dirL) ? slopedFace(b, proj.left, true, tx, ty, z, dir, dirL, zL, loadedL, base, colorL, proj, w, LENS_L) : undefined
+  const lensR = !isEdgeRight && (dir || dirR) ? slopedFace(b, proj.right, false, tx, ty, z, dir, dirR, zR, loadedR, base, colorR, proj, w, LENS_R) : undefined
+  if (!lensL && frontLeft > 0) face(b, proj.left, tx, ty, frontLeft, base, colorL, side + Palette.Side.L_STEP, isEdgeLeft, brick, proj, w)
+  if (!lensR && frontRight > 0) face(b, proj.right, tx, ty, frontRight, base, colorR, side + Palette.Side.R_STEP, isEdgeRight, brick, proj, w)
+  // 앞 변 픽셀 아래에 옆면이 있는지(하이라이트). 경사가 낀 면은 그 픽셀 열의 옆면 길이로
+  const hw = proj.hw
+  const faceL = (dx: number) => (lensL ? lensL[Math.min(hw - 1, Math.max(0, dx + hw))]! > 0 : frontLeft > 0)
+  const faceR = (dx: number) => (lensR ? lensR[Math.min(hw - 1, Math.max(0, dx))]! > 0 : frontRight > 0)
   const band = theme.topBand[hgt] ?? 4
   const top = kind + TOP_OF[band]!
   const hi = kind + HI_OF[band]!
   const LINE = kind + T.LINE
-  const mask = proj === NEAR ? masksOf(id)?.[World.Gen.hash(world.seed, x, y, 401) & 3] : undefined
+  const mask = proj === NEAR && !dir ? masksOf(id)?.[World.Gen.hash(world.seed, x, y, 401) & 3] : undefined
   const accent = kind + T.ACCENT
   // 맵 뒤쪽 변(뒤에 칸이 없는 NW·NE 변)은 테 색으로 긋는다. 밝은 터미널에서도 맵 경계가 보이게 세트가 어두운 색을 줄 수 있다
   const every = proj.lineEvery
@@ -235,14 +304,18 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
   const lineNE = !World.inside(world, x, y - 1) ? Palette.RIM : y % every !== 0 ? 0 : y % 3 === 0 ? Palette.LINE_HEAVY : LINE
   // 빛은 왼쪽 앞(+y 쪽)에서 온다(왼쪽 면이 밝고 오른쪽 면이 어둡다). 그래서 NW 이웃(x - 1)의 그늘은 +x 로 이 칸에 떨어지고,
   // NE 이웃(y - 1)의 밝은 벽 밑에는 좁은 접촉 그늘만 진다
-  // 이웃 높이는 걷는 높이(물이면 수면)로 잰다. 물가는 수면과 같은 높이라 물 쪽으로 그늘이 지지 않는다
-  const upNW = World.inside(world, x - 1, y) ? World.walkHeightAt(world, x - 1, y) - hgt : 0
-  const upNE = World.inside(world, x, y - 1) ? World.walkHeightAt(world, x, y - 1) - hgt : 0
-  const pit = World.hasPit(world, x, y) ? pitMaskOf(proj) : undefined
+  // 이웃 높이는 걷는 높이(물이면 수면)로 잰다. 물가는 수면과 같은 높이라 물 쪽으로 그늘이 지지 않는다.
+  // 경사가 끼면 맞닿는 변 가운데 높이끼리 잰다(경사가 오르는 쪽 뒤 이웃은 경사의 높은 변과 높이가 같아 그늘이 없다)
+  const upNW = World.inside(world, x - 1, y) ? World.edgeHeightAt(world, x - 1, y, 1, 0) - World.edgeHeightAt(world, x, y, -1, 0) : 0
+  const upNE = World.inside(world, x, y - 1) ? World.edgeHeightAt(world, x, y - 1, 0, 1) - World.edgeHeightAt(world, x, y, 0, -1) : 0
+  // 구덩이 흔적 픽셀은 평지 템플릿 기준이다(경사 칸에는 파지 않는다)
+  const pit = World.hasPit(world, x, y) && !dir ? pitMaskOf(proj) : undefined
+  // 돌 칸 경사는 계단(턱 줄을 그 종류의 모눈선 색으로)
+  const stair = dir && id === World.Gen.KIND_STONE ? stairMasksOf(proj)[dir - 1] : undefined
   const castNW = upNW > 0 ? Math.min(CAST_MAX, upNW * CAST_PER_STEP) * 2 * proj.hh : 0
   const castNE = upNE > 0 ? CONTACT_PX : 0
   const level = hgt + 1
-  const tops = proj.tops
+  const tops = dir ? proj.slopes[dir - 1]! : proj.tops
   for (let j = 0; j < tops.length; j++) {
     const p = tops[j]!
     const px = tx + p.dx
@@ -250,10 +323,11 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
     if (px < 0 || py < 0 || px >= w || py >= b.h) continue
     let c = top
     const isShaded = p.nw < castNW || p.ne < castNE
-    if (p.edge === 1) c = lineNW || top
-    else if (p.edge === 2) c = lineNE || top
-    else if ((p.front === 1 && frontLeft > 0) || (p.front === 2 && frontRight > 0)) c = hi
+    if (p.edge === 1) c = (!dir && lineNW) || top
+    else if (p.edge === 2) c = (!dir && lineNE) || top
+    else if (!dir && ((p.front === 1 && faceL(p.dx)) || (p.front === 2 && faceR(p.dx)))) c = hi
     else if (pit?.[j]) c = Palette.PIT
+    else if (stair?.[j]) c = LINE
     // 무늬는 그늘 밖에서만 칠한다(그늘 속에서는 윗면 그늘 색)
     else if (mask?.[j] && !isShaded) c = accent
     if (isShaded) c = shadowOf[c]!
@@ -264,6 +338,48 @@ function drawTile(b: Buffer, world: WorldState, x: number, y: number, view: View
     b.level[i] = level
   }
   return true
+}
+
+// 이 칸이나 앞 이웃이 경사인 옆면. 열마다 이 칸 윗면 앞 변 아래 첫 줄부터 앞 이웃 윗면 뒤 변 아래 첫 줄 앞까지 칠한다
+// (평지끼리면 face 의 높이 차와 같은 줄). 변 높이는 World.Slope.riseOf. 경사 옆면은 한 단 반 이하라 단 줄·돌 세로 줄을 긋지 않는다
+// (단 줄을 그으면 줄이 셀 안 여러 자리에 걸려 새 색 쌍이 생긴다).
+// 왼쪽 면은 SW 변(u = 0.5 + p, w = 0.5)과 앞 이웃의 NE 변(w = −0.5), 오른쪽 면은 SE 변(u = 0.5, w = 0.5 − p)과 앞 이웃의 NW 변(u = −0.5). p = 열 가운데 / hw.
+// lens 에 열마다 옆면 길이(cols 순서)를 채워 돌려준다
+const LENS_L = new Int16Array(16)
+const LENS_R = new Int16Array(16)
+
+function slopedFace(b: Buffer, cols: readonly FaceColumn[], isLeft: boolean, tx: number, ty: number, z: number, dir: number, nDir: number, zN: number, loaded: boolean, base: number, color: number, proj: Proj, w: number, lens: Int16Array): Int16Array {
+  const { hw, hh, step } = proj
+  lens.fill(0)
+  if (!loaded) return lens
+  // 앞 이웃의 기준점(평지 위 꼭짓점) 줄
+  const tyN = ty + hh + z - zN
+  for (let i = 0; i < cols.length; i++) {
+    const c = cols[i]!
+    const p = (c.dx + 0.5) / hw
+    const u = isLeft ? 0.5 + p : 0.5
+    const v = isLeft ? 0.5 : 0.5 - p
+    const e = dir ? World.Slope.riseOf(dir, u, v) : 0
+    const eN = nDir ? World.Slope.riseOf(nDir, isLeft ? u : -0.5, isLeft ? -0.5 : v) : 0
+    const top = ty + Math.ceil((u + v) * hh - e * step + hh - 0.5)
+    const bottom = tyN + Math.ceil((isLeft ? p : -p) * hh - eN * step + hh - 0.5)
+    const len = bottom - top
+    if (len <= 0) continue
+    lens[i] = len
+    const px = tx + c.dx
+    if (px < 0 || px >= w) continue
+    for (let k = 0; k < len; k++) {
+      const py = top + k
+      if (py < 0) continue
+      if (py >= b.h) break
+      const j = py * w + px
+      b.px[j] = color
+      b.depth[j] = base + c.depth
+      b.surf[j] = SURF_SIDE
+      b.level[j] = 0
+    }
+  }
+  return lens
 }
 
 // 옆면. 한 단의 맨 아래 줄마다 진한 줄을 그어 몇 단인지 셀 수 있게 한다(면의 맨 아래 줄은 아래 윗면과 맞닿아 긋지 않는다).

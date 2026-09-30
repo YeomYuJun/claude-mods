@@ -235,6 +235,21 @@ describe('chunks', () => {
     for (const bad of [undefined, 3, { v: 2, list: [] }, { v: 1 }, { list: [] }, [[1, 2, 1, 6]]]) expect(World.editsFromSave(bad)).toBe(undefined)
     expect(World.editsFromSave({ v: 1, list: [[1, 2, 9, 0], ['a', 2, 1, 6], [1, 2, 1, 6]] })!.size).toBe(1)
   })
+
+  // 지형 생성기가 바뀌면 저장된 편집이 이제 물(강·호수)이나 나무·바위가 된 칸을 가리킬 수 있다
+  test('saved branches and pits on a tile that is now water or a tree are not applied, but stay in the saved edits', async () => {
+    const n = 8
+    const water = new Uint8Array(n * n)
+    const obstacle = new Uint8Array(n * n)
+    water[2 * n + 2] = G.WATER_SHALLOW
+    obstacle[5 * n + 5] = 1
+    const w = World.build({ w: n, h: n, height: new Uint8Array(n * n).fill(1), water, obstacle })
+    const edits = World.editsFromSave({ v: 1, at: T0, list: [[2, 2, 1, G.DECO_BRANCH], [2, 2, 2, T0 + 1], [5, 5, 1, G.DECO_BRANCH], [5, 5, 2, T0 + 1], [3, 3, 1, G.DECO_BRANCH], [3, 3, 2, T0 + 1]] })!
+    w.edits = edits
+    const got = [[2, 2], [5, 5], [3, 3]].map(([x, y]) => `${World.decoAt(w, x!, y!) === G.DECO_BRANCH} ${World.hasPit(w, x!, y!)}`)
+    expect(got).toEqual(['false false', 'false false', 'true true'])
+    expect(World.editsToSave(w, T0).list.length).toBe(6)
+  })
 })
 
 describe('chew and pits', () => {

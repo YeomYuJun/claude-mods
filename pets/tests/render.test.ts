@@ -249,7 +249,9 @@ describe('iso projections', () => {
             const z = Iso.topZ(world, x, y, proj)
             const tx = (x - y) * proj.hw - view.ox
             const ty = (x + y) * proj.hh - z - view.oy
-            if (tx - proj.hw < b.w && tx + proj.hw > 0 && ty < b.h && ty + 2 * proj.hh + z + proj.base > 0) meets++
+            // 경사 윗면은 위 꼭짓점이 한 단까지 더 위다
+            const rise = World.slopeDirAt(world, x, y) ? proj.step : 0
+            if (tx - proj.hw < b.w && tx + proj.hw > 0 && ty - rise < b.h && ty + 2 * proj.hh + z + proj.base > 0) meets++
           }
         }
         expect(`${id} ${name} ${drawn}`).toBe(`${id} ${name} ${meets}`)

@@ -117,6 +117,74 @@ describe('water', () => {
     }
   })
 
+  test('meadow, forest, snow and mountain have big lakes besides their ponds, and no land touching any water (pond, big lake or river) sits below its surface', async () => {
+    const N = 192
+    for (const id of ['meadow', 'forest', 'snow', 'mountain'] as const) {
+      let big = 0
+      for (const seed of [1, 2]) {
+        const p = Biome.byId(id).gen
+        const r = Gen.region(seed, p, -N / 2, -N / 2, N, N)
+        const seen = new Uint8Array(N * N)
+        let lake = 0
+        for (let s = 0; s < N * N; s++) {
+          if (seen[s] || !r.water[s]) continue
+          lake = 0
+          const q = [s]
+          seen[s] = 1
+          for (let head = 0; head < q.length; head++) {
+            const t = q[head]!
+            const x = t % N
+            const y = (t - x) / N
+            const surface = r.height[t]! + r.water[t]!
+            if (!Gen.riverAt(seed, p, x - N / 2, y - N / 2)) lake++
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const nx = x + dx
+                const ny = y + dy
+                if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue
+                const u = ny * N + nx
+                if (!r.water[u]) {
+                  const h = r.height[u]!
+                  const ok = dx === 0 || dy === 0 ? h === surface || r.block[u] === 1 : h >= surface
+                  if (!ok) expect(`${id} ${seed} ${nx},${ny} ${h} beside ${surface}`).toBe('')
+                } else if ((dx === 0 || dy === 0) && !seen[u]) { seen[u] = 1; q.push(u) }
+              }
+            }
+          }
+          if (lake >= 150) big++
+        }
+      }
+      expect(`${id} big lakes ${big > 0}`).toBe(`${id} big lakes true`)
+    }
+  })
+
+  // 한 호수의 테는 다른 호수 수면보다 많아야 hmax − 1 단 높다. 두 호수 물 칸 사이에 땅이 hmax 칸 이상 있으면 포락선이 테를 수면 아래로 깎지 못한다(떠 있는 물이 없다).
+  // 종류가 다른 호수(작은 못과 큰 호수)도 이 간격을 지킨다
+  test('lakes of every kind keep apart: over 768 × 768 tiles the water of any two lakes is at least hmax tiles of land apart', async () => {
+    for (const id of ['meadow', 'forest', 'snow', 'mountain'] as const) {
+      const p = Biome.byId(id).gen
+      let pairs = 0
+      for (const seed of [1, 2, 3]) {
+        // 호수마다 물 칸의 상자
+        const boxes = Gen.lakesIn(seed, p, -384, -384, 383, 383).map(l => {
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+          for (let j = 0; j < l.s; j++) for (let i = 0; i < l.s; i++) if (l.cells[j * l.s + i]) { x0 = Math.min(x0, l.x0 + i); x1 = Math.max(x1, l.x0 + i); y0 = Math.min(y0, l.y0 + j); y1 = Math.max(y1, l.y0 + j) }
+          return { x0, y0, x1, y1 }
+        })
+        for (let a = 0; a < boxes.length; a++) {
+          for (let b = a + 1; b < boxes.length; b++) {
+            const A = boxes[a]!
+            const B = boxes[b]!
+            pairs++
+            const gap = Math.max(B.x0 - A.x1, A.x0 - B.x1, B.y0 - A.y1, A.y0 - B.y1) - 1
+            if (gap < p.hmax) expect(`${id} ${seed} lakes at ${A.x0},${A.y0} and ${B.x0},${B.y0} gap ${gap}`).toBe('')
+          }
+        }
+      }
+      expect(pairs > 0).toBe(true)
+    }
+  })
+
   test('rivers are shallow water at the lowest step: every river tile is shallow with its surface at the set floor, the land beside it is at that surface too, and beach and desert have none', async () => {
     const N = 192
     for (const b of Biome.BIOMES.filter(x => x.open)) {

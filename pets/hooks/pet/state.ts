@@ -3,7 +3,6 @@
 import Rng from '../rng'
 import type { Reach, Tile } from '../path'
 import World, { type World as WorldState } from '../world'
-import Names from '../names'
 import Species, { type SpeciesDef } from '../species'
 import * as Ball from './ball.js'
 import type { Ball as BallState } from './ball.js'
@@ -195,16 +194,16 @@ function idleActivity(): Activity {
 export function create(world: WorldState, seed: number, now: number, species: SpeciesDef = Species.DOG): Pet {
   const rng = Rng.create(seed ^ 0x9e3779b9)
   const { x, y } = world.spawn
-  // 공은 시작 자리에서 몇 칸 떨어진 걷는 칸에 둔다
+  // 공은 시작 자리에서 몇 칸 떨어진 걷는 칸에 둔다. 경사 칸은 뺀다(두자마자 굴러간다)
   let bx = x
   let by = y
   for (let i = 0; i < 60; i++) {
     const cx = x + Rng.int(rng, -5, 5)
     const cy = y + Rng.int(rng, -5, 5)
-    if (World.isWalkable(world, cx, cy, species.abilities) && (cx !== x || cy !== y)) { bx = cx; by = cy; break }
+    if (World.isWalkable(world, cx, cy, species.abilities) && (cx !== x || cy !== y) && !World.slopeDirAt(world, cx, cy)) { bx = cx; by = cy; break }
   }
   return {
-    species, x, y, z: World.heightAt(world, x, y) * Names.STEP_PX,
+    species, x, y, z: World.surfaceZ(world, x, y),
     dir: 'SE', speed: 0, gait: 'walk', path: [], crouchMs: 0, landMs: 0, stride: 0, turnMs: 0, swimming: false,
     act: idleActivity(), queue: [], history: [], lastEndAt: {}, simMs: 0, blockedUntil: {}, aborts: 0,
     needs: { curiosity: 0.4, play: 0.3, social: 0.3, thirst: 0 }, waterNear: false, playHistory: [], visits: new Map(), tileKey: keyOf(x, y), lastHumanAt: now, carrying: false,

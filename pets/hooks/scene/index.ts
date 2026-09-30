@@ -378,9 +378,11 @@ function drawPet(b: Buffer, scene: Scene, view: View, proj: Proj): void {
   // 그림자는 땅(물이면 수면)에 붙어 있고, 높이 뛸수록 작아진다
   const tx = Math.round(p.x)
   const ty = Math.round(p.y)
-  const groundZ = World.walkHeightAt(world, tx, ty) * Names.STEP_PX
+  // 경사 칸에서는 선 자리의 경사 윗면(World.surfaceZ)
+  const wet = World.isWater(world, tx, ty)
+  const groundZ = wet ? World.walkHeightAt(world, tx, ty) * Names.STEP_PX : World.surfaceZ(world, p.x, p.y)
   const g = Iso.screenOf(p.x, p.y, groundZ, proj)
-  const lift = Math.max(0, p.z - World.standZ(world, tx, ty))
+  const lift = Math.max(0, p.z - (wet ? World.standZ(world, tx, ty) : groundZ))
   const curled = p.pose === 'sleep' && !Pet.isMoving(p)
   const sprite = p.species.sprite
   Iso.drawShadow(b, g.sx - ox + 0.5, g.sy - oy - 0.5, Math.max(2.5, (curled ? sprite.shadow.rxCurl : sprite.shadow.rx) - lift * 0.3) * k, sprite.shadow.ry * k, World.walkHeightAt(world, tx, ty) + 1, shadowOf)
@@ -392,7 +394,7 @@ function drawPet(b: Buffer, scene: Scene, view: View, proj: Proj): void {
   // 문 공은 입 칸에 그린다(drawFigure). 입 칸이 없는 모습(웅크린 잠)이면 공의 자리에 그대로 둔다
   const inMouth = p.carrying && Sprite.mouthOf(p.species, pose) !== undefined
   if (!inMouth && World.isLoaded(world, bt.x, bt.y)) {
-    const bg = Iso.screenOf(ball.x, ball.y, World.walkHeightAt(world, bt.x, bt.y) * Names.STEP_PX, proj)
+    const bg = Iso.screenOf(ball.x, ball.y, World.isWater(world, bt.x, bt.y) ? World.walkHeightAt(world, bt.x, bt.y) * Names.STEP_PX : World.surfaceZ(world, ball.x, ball.y), proj)
     Iso.drawShadow(b, bg.sx - ox + 0.5, bg.sy - oy - 0.5, 2 * k, 1 * k, World.walkHeightAt(world, bt.x, bt.y) + 1, shadowOf)
     const bs = Iso.screenOf(ball.x, ball.y, ball.z, proj)
     const ballX = Math.round(bs.sx) - ox

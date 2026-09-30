@@ -9,14 +9,15 @@
 //
 // 강아지가 바꾼 칸(옮긴 나뭇가지, 구덩이 흔적)은 맵이 아니라 편집 표에 둔다. 청크를 버렸다 다시 만들어도 편집은 남고, 질의 함수가 편집을 먼저 본다.
 // 다른 모듈은 World 의 배열을 직접 읽지 않고 아래 질의 함수(heightAt, flagsAt, isWalkable, canStep 등)만 쓴다.
-// 칸 플래그는 물리 사실(물, 깊은 물, 장애물 소품, 블록)만 담고, 종마다 다른 통과 여부는 이동 규칙(Rules)으로 계산한다.
+// 칸 플래그는 물리 사실(물, 깊은 물, 장애물 소품, 블록, 경사 방향)만 담고, 종마다 다른 통과 여부는 이동 규칙(Rules)으로 계산한다.
 
 import Names from '../names'
 import * as Chunks from './chunks.js'
 import { BLOCK, DEEP, OBSTACLE, WALK, WATER } from './flags.js'
 import * as Gen from './gen.js'
+import * as Slope from './slope.js'
 
-export { Chunks, Gen }
+export { Chunks, Gen, Slope }
 export { BLOCK, DEEP, OBSTACLE, WALK, WATER }
 
 // 이동 규칙: 한 걸음에 오르내릴 수 있는 단 수, 깊은 물을 건널 수 있는지
@@ -117,11 +118,11 @@ export function kindAt(world: World, x: number, y: number): number {
   return inside(world, x, y) ? world.kind[y * world.w + x]! : 0
 }
 
-// 걷는 꾸밈. 편집이 덮었으면 그 값
+// 걷는 꾸밈. 편집이 덮었으면 그 값(칸이 물·장애물 소품이면 편집을 적용하지 않는다, editApplies)
 export function decoAt(world: World, x: number, y: number): number {
   if (world.edits.size > 0) {
     const e = world.edits.get(cellKeyOf(x, y))
-    if (e?.deco !== undefined) return e.deco
+    if (e?.deco !== undefined && editApplies(world, x, y)) return e.deco
   }
   return madeDecoAt(world, x, y)
 }
@@ -148,7 +149,13 @@ export const EDITS_MAX = 256
 export const PIT_MS = 30 * 60_000
 
 export function hasPit(world: World, x: number, y: number): boolean {
-  return world.edits.size > 0 && world.edits.get(cellKeyOf(x, y))?.pit !== undefined
+  return world.edits.size > 0 && world.edits.get(cellKeyOf(x, y))?.pit !== undefined && editApplies(world, x, y)
+}
+
+// 편집(나뭇가지·구덩이)을 이 칸에 적용하는지. 지형 생성기가 바뀌면 저장된 편집이 이제 물(강·호수)이나 나무·바위 칸을 가리킬 수 있어,
+// 그런 칸에서는 읽을 때 적용하지 않는다. 편집 표와 저장값에서는 지우지 않는다
+function editApplies(world: World, x: number, y: number): boolean {
+  return (flagsAt(world, x, y) & (WATER | OBSTACLE)) === 0
 }
 
 // 새 칸을 넣을 자리를 만든다. 구덩이만 있는 칸을 오래된 것부터 버리고, 그래도 없으면 false
@@ -273,6 +280,27 @@ export function standZ(world: World, x: number, y: number): number {
   return f & WATER ? z - (f & DEEP ? SWIM_PX : WADE_PX) : z
 }
 
+// 경사 방향(Slope.DIRS 번호 1..4, 평지 0). 경사 칸은 걷는 높이가 칸 높이 h 이고 윗면이 방향 쪽 변에서 h + 1 까지 오른다
+export function slopeDirAt(world: World, x: number, y: number): number {
+  return (flagsAt(world, x, y) & Slope.FORM_MASK) >> Slope.FORM_SHIFT
+}
+
+// 실수 좌표 (fx, fy) 에 선 발의 높이(1 배 픽셀). 평지·물은 칸 가운데의 standZ, 경사는 선 자리의 윗면 높이
+export function surfaceZ(world: World, fx: number, fy: number): number {
+  const x = Math.round(fx)
+  const y = Math.round(fy)
+  const dir = slopeDirAt(world, x, y)
+  if (!dir) return standZ(world, x, y)
+  return (heightAt(world, x, y) + Slope.riseOf(dir, fx - x, fy - y)) * Names.STEP_PX
+}
+
+// 칸이 (dx, dy) 쪽 이웃과 맞닿는 변 가운데의 걷는 높이(단). 평지는 걷는 높이, 경사는 방향 쪽 변 h + 1, 반대쪽 h, 옆 변 h + 0.5
+export function edgeHeightAt(world: World, x: number, y: number, dx: number, dy: number): number {
+  const dir = slopeDirAt(world, x, y)
+  if (!dir) return walkHeightAt(world, x, y)
+  return heightAt(world, x, y) + Slope.riseOf(dir, dx / 2, dy / 2)
+}
+
 // 물가: 물이 아닌 걷는 칸 중 4 방향 이웃에 물이 있는 칸과 그 물 쪽 방향(이웃 순서 NEIGHBORS 의 첫 물).
 // from 둘레 ±r 칸 상자를 행 우선으로 훑는다
 export type WaterEdge = { x: number; y: number; dx: number; dy: number }
@@ -315,18 +343,28 @@ export function isWalkable(world: World, x: number, y: number, rules: Rules = DE
   return passable(world, x, y, rules)
 }
 
+// 두 칸 사이를 걸어 건널 때 발 높이가 끊기는 폭(단): 맞닿는 변 가운데 높이의 차. 평지끼리는 걷는 높이 차, 경사를 따라서는 0, 경사 옆 변은 반 단이 섞인다.
+// 이웃 칸이 아니면 걷는 높이 차
+export function stepGapOf(world: World, x0: number, y0: number, x1: number, y1: number): number {
+  const dx = x1 - x0
+  const dy = y1 - y0
+  if (Math.abs(dx) + Math.abs(dy) !== 1) return Math.abs(walkHeightAt(world, x1, y1) - walkHeightAt(world, x0, y0))
+  return Math.abs(edgeHeightAt(world, x0, y0, dx, dy) - edgeHeightAt(world, x1, y1, -dx, -dy))
+}
+
 export function canStep(world: World, x0: number, y0: number, x1: number, y1: number, rules: Rules = DEFAULT_RULES): boolean {
   return isWalkable(world, x1, y1, rules) && Math.abs(walkHeightAt(world, x1, y1) - walkHeightAt(world, x0, y0)) <= rules.climb
 }
 
-// 한 걸음의 경로 비용: 1, 단차가 있으면 CLIMB_COST, 얕은 물로 들어가면 WADE_COST, 깊은 물(헤엄)이면 SWIM_COST 를 더한다
+// 한 걸음의 경로 비용: 1, 뛰어야 하는 단차(맞닿는 변 높이 차 ≥ 1, stepGapOf)면 CLIMB_COST, 얕은 물로 들어가면 WADE_COST, 깊은 물(헤엄)이면 SWIM_COST 를 더한다.
+// 경사를 따라 오르내리는 걸음은 뛰지 않아 단차 비용이 없다. 그래서 길 찾기가 되도록 경사로 돈다
 export const WADE_COST = 0.5
 export const SWIM_COST = 2
 
 export function stepCost(world: World, x0: number, y0: number, x1: number, y1: number): number {
   const f = flagsAt(world, x1, y1)
   const wet = f & WATER ? (f & DEEP ? SWIM_COST : WADE_COST) : 0
-  return 1 + (walkHeightAt(world, x1, y1) !== walkHeightAt(world, x0, y0) ? CLIMB_COST : 0) + wet
+  return 1 + (stepGapOf(world, x0, y0, x1, y1) >= 1 ? CLIMB_COST : 0) + wet
 }
 
 export const NEIGHBORS: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, 1], [-1, 0], [0, -1]]
@@ -369,7 +407,8 @@ export function componentsOf(height: Uint8Array, w: number, h: number, obstacle?
 // water: 칸마다 0 땅, WATER_SHALLOW 얕은 물, WATER_DEEP 깊은 물. 물 칸의 height 는 바닥 높이다
 export const WATER_SHALLOW = Gen.WATER_SHALLOW
 export const WATER_DEEP = Gen.WATER_DEEP
-export type Spec = { w: number; h: number; height: Uint8Array; block?: Uint8Array; obstacle?: Uint8Array; prop?: Uint8Array; kind?: Uint8Array; deco?: Uint8Array; water?: Uint8Array; seed?: number }
+// slopes: 경사 칸을 둔다(합성 맵용. 모눈종이 섬은 두지 않는다). 맵 가장자리 칸은 평지로 둔다
+export type Spec = { w: number; h: number; height: Uint8Array; block?: Uint8Array; obstacle?: Uint8Array; prop?: Uint8Array; kind?: Uint8Array; deco?: Uint8Array; water?: Uint8Array; seed?: number; slopes?: boolean }
 
 export function build(spec: Spec): World {
   const { w, h, height } = spec
@@ -388,6 +427,14 @@ export function build(spec: Spec): World {
   let best = 0
   for (let i = 1; i < sizes.length; i++) if (sizes[i]! > sizes[best]!) best = i
   if (sizes.length > 0) for (let i = 0; i < w * h; i++) if (label[i] === best) flags[i]! |= WALK
+  if (spec.slopes) {
+    const solid = new Uint8Array(w * h)
+    for (let i = 0; i < w * h; i++) solid[i] = spec.block?.[i] || spec.obstacle?.[i] ? 1 : 0
+    const wet = spec.water ?? new Uint8Array(w * h)
+    const base = new Uint8Array(w * h)
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) base[y * w + x] = Slope.slopeOf(walkH, wet, solid, y * w + x, w)
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) flags[y * w + x]! |= Slope.stripOf(base, y * w + x, w) << Slope.FORM_SHIFT
+  }
   let spawn = { x: 0, y: 0 }
   let near = Infinity
   for (const dry of [true, false]) {

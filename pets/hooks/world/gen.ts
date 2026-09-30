@@ -13,7 +13,8 @@
 // 5. 지표 종류: 순서대로 첫 참. 호수(물), 호수 테(물가 종류), 블록, 눈(온도 노이즈 - 0.06 × 높이 < 눈 문턱, 높이 하한 이상),
 //    돌(높이 문턱 이상), 얼룩(습도 노이즈 < 문턱 이고 잔무늬 노이즈 > 문턱, 높이 상한 이하), 나머지는 바탕 종류. 테 폭은 세트마다(기본 1 칸)
 // 6. 걷는 꾸밈(꽃·풀포기·버섯·갈대·연잎·나뭇가지·조개·마른 덤불): 장애물·블록이 아닌 칸에 칸 해시로 둔다. 장애물이 아니라 걸음을 막지 않는다
-// 7. 호수: 호수 셀(기본 LAKE_CELL 칸) 격자 셀마다 확률로 하나(세트에 따라 중심의 분지 전 높이가 낮을 때만). 모양·깊이·수면이 셀 좌표와 포락선 전 높이만의 함수라 어느 영역에서 불러도 같다.
+// 7. 호수: 호수 종류(작은 못, 큰 호수 등)마다 제 셀 격자(기본 LAKE_CELL 칸)의 셀마다 확률로 하나(세트에 따라 중심의 분지 전 높이가 낮을 때만,
+//    번호가 큰 종류의 호수 가까이에는 두지 않는다). 모양·깊이·수면이 셀 좌표와 포락선 전 높이만의 함수라 어느 영역에서 불러도 같다.
 //    수면 L = 발자국을 hmax + 1 칸 넓힌 곳의 포락선 전 높이 최솟값, 바닥은 얕음 L - 1, 깊음 L - 2 로 고정하고 포락선을 돌린다.
 //    포락선은 한 칸마다 한 단까지만 오르므로 테(발자국과 8 방향으로 닿는 칸)는 L 보다 낮을 수 없다(떠 있는 물이 없다).
 //    물과 4 방향으로 닿은 테는 얕은 바닥 바로 옆이라 L 보다 높을 수도 없어 수면과 같은 높이로 평평하고, 대각선으로만 닿은 테는 L + 1 일 수 있다.
@@ -63,7 +64,11 @@ export type GenParams = {
   dryBushP?: number
   // 호수: 격자 셀마다 있을 확률과 반지름 범위(칸), 셀 한 변(없으면 LAKE_CELL). lowOnly 가 있으면 중심의 분지 전 높이가 hmin + lowOnly 이하일 때만 둔다.
   // shore 는 호수 테의 지표 종류, shoreWidth 는 테 폭(발자국과 8 방향 거리, 없으면 1). 없으면 호수가 없다
-  lake?: { p: number; r: readonly [number, number]; cell?: number; lowOnly?: number }
+  lake?: LakeSpec
+  // 호수 종류를 더 둔다(큰 호수 등). 종류 번호 k 는 lake 가 0, 이 목록의 i 번째가 i + 1. 종류마다 셀 격자·해시(salt + 1000k)·캐시 키가 따로다.
+  // 번호가 큰 종류가 우선: 호수는 번호가 더 큰 종류의 호수(셀 해시와 lowOnly 로 있다고 나온 것)와 발자국 상자끼리 hmax + 5 칸 안이면 두지 않는다.
+  // 같은 종류 안의 이웃 셀 호수처럼 서로 hmax + 4 칸 넘게 떨어져 떠 있는 물이 생기지 않는다. lake 가 없으면 쓰지 않는다
+  extraLakes?: readonly LakeSpec[]
   shore?: number
   shoreWidth?: number
   // 바탕: 높이 노이즈를 levels 단으로 나눠 baseMin(없으면 hmin)부터 쌓는다. 없으면 hmin~hmax 단 전부를 쓰고 고도가 고르게 쓰이게 편다
@@ -86,6 +91,9 @@ export type GenParams = {
   // 포락선이 둘레를 hmin 으로 깎는다. 호수 수면을 찾는 상자(발자국을 hmax + 1 칸 넓힌 곳) 안에서는 끊긴다
   river?: { spacing: number; width: number }
 }
+
+// 호수 한 종류: 격자 셀마다 있을 확률, 반지름 범위(칸), 셀 한 변(없으면 LAKE_CELL), 중심의 분지 전 높이 조건(hmin + lowOnly 이하일 때만)
+export type LakeSpec = { p: number; r: readonly [number, number]; cell?: number; lowOnly?: number }
 
 // dome: 둥근 언덕(가운데 h, 가장자리 0 으로 매끈하게), peak: 뾰족한 봉우리(가운데로 갈수록 가파르게), mesa: 평평한 꼭대기(반지름 안은 모두 h).
 // ridge: 길이 r, 마루 높이 h 의 능선. 8 방위 중 하나로 뻗고, 마루를 따라 봉우리(h)와 고개(h − 2)가 번갈아 나며, 옆으로 한 칸에 slope(없으면 1) 단씩 내려간다.
@@ -339,45 +347,80 @@ export function riverAt(seed: number, p: GenParams, x: number, y: number): boole
 function isRiverOf(seed: number, p: GenParams, x: number, y: number, wx: number, wy: number): boolean {
   const r = p.river!
   if (Math.abs(2 * vnoise(seed, 40, wx, wy, r.spacing) - 1) >= r.width) return false
-  if (!p.lake) return true
-  const cell = lakeCellOf(p)
-  const gx = Math.floor(x / cell)
-  const gy = Math.floor(y / cell)
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const c = lakeCenterOf(seed, p, gx + dx, gy + dy)
-      if (!c) continue
-      const k = Math.ceil(1.25 * c.r0) + 1 + p.hmax + 1
-      if (Math.abs(x - c.cx) <= k && Math.abs(y - c.cy) <= k) return false
+  const kinds = lakeKindsOf(p)
+  for (let kind = 0; kind < kinds; kind++) {
+    const cell = lakeCellOf(p, kind)
+    const gx = Math.floor(x / cell)
+    const gy = Math.floor(y / cell)
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const c = lakeCenterOf(seed, p, gx + dx, gy + dy, kind)
+        if (!c) continue
+        const k = Math.ceil(1.25 * c.r0) + 1 + p.hmax + 1
+        if (Math.abs(x - c.cx) <= k && Math.abs(y - c.cy) <= k) return false
+      }
     }
   }
   return true
 }
 
-// 호수 격자 셀 한 변(칸)
-export function lakeCellOf(p: GenParams): number {
-  return p.lake?.cell ?? LAKE_CELL
+// 호수 종류 수(lake 가 없으면 0)
+export function lakeKindsOf(p: GenParams): number {
+  return p.lake ? 1 + (p.extraLakes?.length ?? 0) : 0
 }
 
-// 호수 셀 (gx, gy) 의 호수 중심과 반지름. 셀 해시만 읽는다(lowOnly 는 보지 않는다). 없으면 undefined.
+// 종류 kind 의 호수 매개변수
+export function lakeSpecOf(p: GenParams, kind: number): LakeSpec | undefined {
+  return kind === 0 ? p.lake : p.lake && p.extraLakes?.[kind - 1]
+}
+
+// 종류 kind 의 호수 격자 셀 한 변(칸)
+export function lakeCellOf(p: GenParams, kind = 0): number {
+  return lakeSpecOf(p, kind)?.cell ?? LAKE_CELL
+}
+
+// 종류 kind 의 호수 셀 (gx, gy) 의 호수 중심과 반지름. 셀 해시만 읽는다(lowOnly·우선 종류는 보지 않는다). 없으면 undefined.
 // 중심은 셀 가장자리에서 inset 안쪽이라 이웃 셀 호수와 hmax + 4 칸 넘게 떨어진다
-export function lakeCenterOf(seed: number, p: GenParams, gx: number, gy: number): { cx: number; cy: number; r0: number } | undefined {
-  const spec = p.lake
-  if (!spec || unit(hash(seed, gx, gy, 501)) >= spec.p) return undefined
+export function lakeCenterOf(seed: number, p: GenParams, gx: number, gy: number, kind = 0): { cx: number; cy: number; r0: number } | undefined {
+  const spec = lakeSpecOf(p, kind)
+  const s = 1000 * kind
+  if (!spec || unit(hash(seed, gx, gy, 501 + s)) >= spec.p) return undefined
   const [rLo, rHi] = spec.r
-  const r0 = rLo + Math.floor(unit(hash(seed, gx, gy, 502)) * (rHi - rLo + 1))
-  const cell = lakeCellOf(p)
+  const r0 = rLo + Math.floor(unit(hash(seed, gx, gy, 502 + s)) * (rHi - rLo + 1))
+  const cell = lakeCellOf(p, kind)
   const inset = Math.ceil(1.3 * rHi) + Math.floor(p.hmax / 2) + 2
   const room = Math.max(1, cell - 2 * inset)
-  const cx = gx * cell + inset + Math.floor(unit(hash(seed, gx, gy, 503)) * room)
-  const cy = gy * cell + inset + Math.floor(unit(hash(seed, gx, gy, 504)) * room)
+  const cx = gx * cell + inset + Math.floor(unit(hash(seed, gx, gy, 503 + s)) * room)
+  const cy = gy * cell + inset + Math.floor(unit(hash(seed, gx, gy, 504 + s)) * room)
   return { cx, cy, r0 }
 }
 
-// 중심 칸의 분지 전 높이가 lowOnly 조건을 넘어 호수를 두지 않는지. 칸 좌표의 함수라(raw 캐시·시험용 바꿔 끼우기를 거치지 않는다) 어느 영역에서 불러도 같다
-function tooHighOf(seed: number, p: GenParams, cx: number, cy: number): boolean {
-  const low = p.lake?.lowOnly
+// 중심 칸의 분지 전 높이가 종류 kind 의 lowOnly 조건을 넘어 호수를 두지 않는지. 칸 좌표의 함수라(raw 캐시·시험용 바꿔 끼우기를 거치지 않는다) 어느 영역에서 불러도 같다
+function tooHighOf(seed: number, p: GenParams, cx: number, cy: number, kind = 0): boolean {
+  const low = lakeSpecOf(p, kind)?.lowOnly
   return low !== undefined && Math.max(p.hmin, Math.min(p.hmax, Math.floor(landAt(seed, p, cx, cy)))) > p.hmin + low
+}
+
+// 종류 kind 의 호수 셀 (gx, gy) 에 호수를 두는지(셀 해시, lowOnly, 번호가 더 큰 종류의 호수에 양보). 중심과 반지름, 없으면 undefined
+export function lakeSiteOf(seed: number, p: GenParams, gx: number, gy: number, kind = 0): { cx: number; cy: number; r0: number } | undefined {
+  const c = lakeCenterOf(seed, p, gx, gy, kind)
+  if (!c || tooHighOf(seed, p, c.cx, c.cy, kind)) return undefined
+  const R = Math.ceil(1.25 * c.r0) + 1
+  for (let j = kind + 1; j < lakeKindsOf(p); j++) {
+    const spec = lakeSpecOf(p, j)!
+    // 두 발자국 상자 사이가 hmax + 4 칸 넘게 떨어지도록: 중심 사이 체비셰프 거리 > R + Rj + hmax + 4
+    const D = R + Math.ceil(1.25 * spec.r[1]) + 1 + p.hmax + 4
+    const g = lakeCellsIn(c.cx - D, c.cy - D, c.cx + D, c.cy + D, lakeCellOf(p, j))
+    for (let gy2 = g.gy0; gy2 <= g.gy1; gy2++) {
+      for (let gx2 = g.gx0; gx2 <= g.gx1; gx2++) {
+        const o = lakeSiteOf(seed, p, gx2, gy2, j)
+        if (!o) continue
+        const d = R + Math.ceil(1.25 * o.r0) + 1 + p.hmax + 4
+        if (Math.abs(o.cx - c.cx) <= d && Math.abs(o.cy - c.cy) <= d) return undefined
+      }
+    }
+  }
+  return c
 }
 
 // 마지막으로 본 호수 셀의 분지(중심·반지름 Rb, 호수가 없거나 lowOnly 에 걸리면 Rb 0). 이웃 칸은 대개 같은 셀이라 셀 해시를 다시 계산하지 않는다.
@@ -439,8 +482,8 @@ function turnOf(dx: number, dy: number): number {
 // 모양: 방향 8 곳의 해시 값을 이어 만든 반지름 r0 × (0.75 + 0.5 × 노이즈) 안의 칸(거리는 제곱으로 비교), 가운데와 이어진 칸만 두고
 // 상자 테두리에서 닿지 않는 칸(구멍)은 채운다. 깊음: 반지름 4 이상이고 수면 2 이상일 때, 8 이웃이 모두 발자국이고 가운데에서 0.6 r0 안인 칸.
 // 중심은 셀 가장자리에서 inset 안쪽이라 이웃 셀 호수와 hmax + 4 칸 넘게 떨어진다. lim 이 있으면 발자국과 테가 그 안에 들 때만 둔다
-export function lakeOf(seed: number, p: GenParams, gx: number, gy: number, opts: GenOptions = {}): Lake | undefined {
-  const shape = lakeShapeOf(seed, p, gx, gy, opts)
+export function lakeOf(seed: number, p: GenParams, gx: number, gy: number, opts: GenOptions = {}, kind = 0): Lake | undefined {
+  const shape = lakeShapeOf(seed, p, gx, gy, opts, kind)
   return shape && lakeFinish(seed, p, shape, opts)
 }
 
@@ -448,14 +491,14 @@ export function lakeOf(seed: number, p: GenParams, gx: number, gy: number, opts:
 // near: 수면을 찾는 칸 범위(발자국을 hmax + 1 칸 넓힌 상자, 양 끝 포함)
 export type LakeShape = { x0: number; y0: number; s: number; R: number; r0: number; cells: Uint8Array; near: { x0: number; y0: number; x1: number; y1: number } }
 
-export function lakeShapeOf(seed: number, p: GenParams, gx: number, gy: number, opts: GenOptions = {}): LakeShape | undefined {
-  const c = lakeCenterOf(seed, p, gx, gy)
-  if (!c || tooHighOf(seed, p, c.cx, c.cy)) return undefined
+export function lakeShapeOf(seed: number, p: GenParams, gx: number, gy: number, opts: GenOptions = {}, kind = 0): LakeShape | undefined {
+  const c = lakeSiteOf(seed, p, gx, gy, kind)
+  if (!c) return undefined
   const { cx, cy, r0 } = c
   const R = Math.ceil(1.25 * r0) + 1
   const s = 2 * R + 1
   const v: number[] = []
-  for (let k = 0; k < 8; k++) v.push(unit(hash(seed, gx, gy, 510 + k)))
+  for (let k = 0; k < 8; k++) v.push(unit(hash(seed, gx, gy, 510 + 1000 * kind + k)))
   const shape = new Uint8Array(s * s)
   for (let j = 0; j < s; j++) {
     for (let i = 0; i < s; i++) {
@@ -570,8 +613,15 @@ function floodOf(m: Uint8Array, s: number, starts: readonly number[], want: numb
 }
 
 // 호수 셀 좌표를 한 수로(|셀 좌표| < 32768)
-export function lakeKeyOf(gx: number, gy: number): number {
-  return (gx & 0xffff) | (gy << 16)
+// 종류 kind 는 2^32 단위로 더한다(종류 0 은 전과 같은 키). lakeKeyParts 가 되돌린다
+export function lakeKeyOf(gx: number, gy: number, kind = 0): number {
+  return ((gx & 0xffff) | (gy << 16)) + kind * 4294967296
+}
+
+export function lakeKeyParts(key: number): { gx: number; gy: number; kind: number } {
+  const kind = Math.floor((key + 2147483648) / 4294967296)
+  const base = key - kind * 4294967296
+  return { gx: (base << 16) >> 16, gy: base >> 16, kind }
 }
 
 // [x0, x1] × [y0, y1] 와 겹치는 호수 셀 범위(양 끝 포함). cell 은 호수 셀 한 변
@@ -582,19 +632,20 @@ export function lakeCellsIn(x0: number, y0: number, x1: number, y1: number, cell
 // [x0, x1] × [y0, y1] 와 겹치는 호수들. 호수는 제 셀 안에 들어 있어 겹치는 셀만 본다
 export function lakesIn(seed: number, p: GenParams, x0: number, y0: number, x1: number, y1: number, opts: GenOptions = {}): Lake[] {
   const out: Lake[] = []
-  if (!p.lake) return out
   const cache = opts.lakeCache
-  const g = lakeCellsIn(x0, y0, x1, y1, lakeCellOf(p))
-  for (let gy = g.gy0; gy <= g.gy1; gy++) {
-    for (let gx = g.gx0; gx <= g.gx1; gx++) {
-      let lake: Lake | undefined
-      if (cache) {
-        const key = lakeKeyOf(gx, gy)
-        let v = cache.get(key)
-        if (v === undefined) { v = lakeOf(seed, p, gx, gy, opts) ?? null; cache.set(key, v) }
-        lake = v ?? undefined
-      } else lake = lakeOf(seed, p, gx, gy, opts)
-      if (lake && lake.x0 <= x1 && lake.y0 <= y1 && lake.x0 + lake.s > x0 && lake.y0 + lake.s > y0) out.push(lake)
+  for (let kind = 0; kind < lakeKindsOf(p); kind++) {
+    const g = lakeCellsIn(x0, y0, x1, y1, lakeCellOf(p, kind))
+    for (let gy = g.gy0; gy <= g.gy1; gy++) {
+      for (let gx = g.gx0; gx <= g.gx1; gx++) {
+        let lake: Lake | undefined
+        if (cache) {
+          const key = lakeKeyOf(gx, gy, kind)
+          let v = cache.get(key)
+          if (v === undefined) { v = lakeOf(seed, p, gx, gy, opts, kind) ?? null; cache.set(key, v) }
+          lake = v ?? undefined
+        } else lake = lakeOf(seed, p, gx, gy, opts, kind)
+        if (lake && lake.x0 <= x1 && lake.y0 <= y1 && lake.x0 + lake.s > x0 && lake.y0 + lake.s > y0) out.push(lake)
+      }
     }
   }
   return out

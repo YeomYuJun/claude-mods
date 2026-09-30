@@ -3,17 +3,18 @@
 // 생성은 작은 일 단위로 나뉜다. 한 틱에 몇 단위만 하고 다음 틱에 이어 하며, 어느 순서로 나눠 해도 결과는 한 번에 만든 것과 바이트가 같다
 // (모든 값이 좌표의 함수이고, 캐시는 같은 함수의 값을 담아 둘 뿐이다).
 // 1. 포락선 전 높이(raw): 32 × 32 블록마다 캐시하고, 필요한 칸만 RAW_CELLS 칸씩 채운다(행마다 채운 칸 비트). 이웃 청크와 호수 수면 탐색이 같은 값을 나눠 쓴다
-// 2. 호수 모양: 호수 셀마다 한 번(수면 전)
-// 3. 호수 수면·깊은 물: 호수 셀마다 한 번. 수면 탐색 범위의 raw 가 다 채워진 뒤
+// 2. 호수 모양: 호수 종류·셀마다 한 번(수면 전)
+// 3. 호수 수면·깊은 물: 호수 종류·셀마다 한 번. 수면 탐색 범위의 raw 가 다 채워진 뒤
 // 4. 영역 시작: 청크 둘레 2 칸을 더한 36 × 36 영역의 높이·소품·블록(regionStart, raw·호수는 캐시에서)
 // 5. 영역 행: 지표 종류·꾸밈·물을 ROWS_PER 행씩(regionRows)
-// 6. 걷는 칸을 정하고 가운데 32 × 32 를 청크로 남긴다
+// 6. 걷는 칸과 경사 방향(slope.ts, 플래그 비트 5~7)을 정하고 가운데 32 × 32 를 청크로 남긴다
 //
 // 걷는 칸은 맵 전체 BFS 대신 칸마다 정한다. 생성기가 장애물 덩어리를 서로 떨어뜨리고 구멍 없이 두므로(gen.ts 3) 장애물·깊은 물이 아닌
 // 지형 칸과 얕은 물은 모두 한 덩어리로 이어진다. 블록 칸만 둘레의 걷는 칸과 걷는 높이 차 ≤ 1 일 때(블록이 2 칸이면 짝 칸을 거쳐도) 걷는 칸이다.
 
 import { BLOCK, DEEP, OBSTACLE, WALK, WATER } from './flags.js'
 import * as Gen from './gen.js'
+import { FORM_SHIFT, slopeOf, stripOf } from './slope.js'
 
 export const SIZE = Gen.CHUNK
 const SHIFT = 5
@@ -177,14 +178,14 @@ export function nextUnit(store: Store, cx: number, cy: number): Unit | undefined
   const x0 = cx << SHIFT
   const y0 = cy << SHIFT
   const box: Box = { x0: x0 - pad, y0: y0 - pad, x1: x0 + SIZE - 1 + pad, y1: y0 + SIZE - 1 + pad }
-  if (gen.lake) {
-    const g = Gen.lakeCellsIn(box.x0, box.y0, box.x1, box.y1, Gen.lakeCellOf(gen))
+  for (let kind = 0; kind < Gen.lakeKindsOf(gen); kind++) {
+    const g = Gen.lakeCellsIn(box.x0, box.y0, box.x1, box.y1, Gen.lakeCellOf(gen, kind))
     for (let gy = g.gy0; gy <= g.gy1; gy++) {
       for (let gx = g.gx0; gx <= g.gx1; gx++) {
-        const key = Gen.lakeKeyOf(gx, gy)
+        const key = Gen.lakeKeyOf(gx, gy, kind)
         if (store.lakes.has(key)) continue
         const shape = store.shapes.get(key)
-        if (shape === undefined) return { kind: 'shape', run: () => { store.shapes.set(key, Gen.lakeShapeOf(seed, gen, gx, gy, opts) ?? null) } }
+        if (shape === undefined) return { kind: 'shape', run: () => { store.shapes.set(key, Gen.lakeShapeOf(seed, gen, gx, gy, opts, kind) ?? null) } }
         if (shape === null) { store.lakes.set(key, null); store.shapes.delete(key); continue }
         const r = rawUnit(store, shape.near)
         if (r) return r
@@ -206,13 +207,19 @@ function assemble(store: Store, cx: number, cy: number, r: Gen.Region): Chunk {
   const n = AREA * AREA
   const f = new Uint8Array(n)
   const walkH = new Uint8Array(n)
+  // 경사 판정용: 블록이나 장애물 소품(나무를 켜든 끄든 소품 번호로)
+  const solid = new Uint8Array(n)
   for (let i = 0; i < n; i++) {
     if (r.block[i]) f[i]! |= BLOCK
+    solid[i] = r.block[i] || r.prop[i] ? 1 : 0
     if (store.props && r.prop[i]) f[i]! |= OBSTACLE
     const wet = r.water[i]!
     if (wet) f[i]! |= wet === Gen.WATER_DEEP ? WATER | DEEP : WATER
     walkH[i] = r.height[i]! + wet
   }
+  // 경사 방향: 영역 둘레 한 칸을 뺀 칸마다 규칙대로 구하고, 청크 칸은 옆 이웃과 이어진 것만 남긴다(stripOf 가 두 칸 떨어진 칸까지 읽는다)
+  const base = new Uint8Array(n)
+  for (let y = 1; y < AREA - 1; y++) for (let x = 1; x < AREA - 1; x++) base[y * AREA + x] = slopeOf(walkH, r.water, solid, y * AREA + x, AREA)
   const closed = (i: number) => (f[i]! & (OBSTACLE | DEEP)) !== 0
   // 블록이 아닌 걷는 칸 이웃과 높이 차 ≤ 1 인 블록 칸
   const reaches = (i: number) => {
@@ -245,7 +252,7 @@ function assemble(store: Store, cx: number, cy: number, r: Gen.Region): Chunk {
       }
       const o = (j << SHIFT) | i
       out.height[o] = r.height[a]!
-      out.flags[o] = fl
+      out.flags[o] = fl | (stripOf(base, a, AREA) << FORM_SHIFT)
       out.prop[o] = store.props ? r.prop[a]! : 0
       out.kind[o] = r.kind[a]!
       out.deco[o] = r.deco[a]!
@@ -295,14 +302,13 @@ function pruneCaches(store: Store): void {
   for (const key of store.raw.keys()) if (distOf(store, key) > lim) store.raw.delete(key)
   for (const key of store.works.keys()) if (distOf(store, key) > lim) store.works.delete(key)
   if (lastRaw && !store.raw.has(lastRawKey)) lastRaw = undefined
-  const lakeCell = Gen.lakeCellOf(store.gen)
-  const cellLim = Math.ceil(((lim + 1) * SIZE) / lakeCell) + 1
-  const gcx = Math.floor((store.center.cx * SIZE) / lakeCell)
-  const gcy = Math.floor((store.center.cy * SIZE) / lakeCell)
   for (const map of [store.lakes, store.shapes] as Array<Map<number, unknown>>) {
     for (const key of map.keys()) {
-      const gx = (key << 16) >> 16
-      const gy = key >> 16
+      const { gx, gy, kind } = Gen.lakeKeyParts(key)
+      const lakeCell = Gen.lakeCellOf(store.gen, kind)
+      const cellLim = Math.ceil(((lim + 1) * SIZE) / lakeCell) + 1
+      const gcx = Math.floor((store.center.cx * SIZE) / lakeCell)
+      const gcy = Math.floor((store.center.cy * SIZE) / lakeCell)
       if (Math.max(Math.abs(gx - gcx), Math.abs(gy - gcy)) > cellLim) map.delete(key)
     }
   }
