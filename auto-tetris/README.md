@@ -13,6 +13,8 @@ claude plugin install auto-tetris@claude-mods
 
 `/tetris` 로 열고 닫는다. 전체 화면 레이아웃에서는 트랜스크립트 옆에 24 열 폭으로 붙는다. 24 열 × 22 행보다 작으면 필요한 크기를 알린다.
 
+fullscreen 렌더러(`/tui fullscreen`)에서만 쓸 수 있다. classic 렌더러(`/tui default`)에서는 패널이 입력창 위에 열리지만 크기가 모자라 크기 안내만 보인다.
+
 ## 기능
 
 ### 규칙

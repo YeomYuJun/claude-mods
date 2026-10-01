@@ -13,6 +13,8 @@ Claude Code 패널 플러그인 모음.
 
 네 플러그인 모두 TypeScript 함수 훅(`hooks/register.ts`)으로 돌아간다. 따로 설치할 런타임(Node 등)은 없고, 함수 훅 스위치 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` 이 켜져 있어야 불러와진다.
 
+pets 와 auto-tetris 는 fullscreen 렌더러(`/tui fullscreen`)에서만 쓸 수 있다. classic 렌더러(`/tui default`)에서는 패널이 입력창 위에 열리지만 크기가 모자라 크기 안내만 보인다. todo-md 는 두 렌더러 모두에서 동작한다.
+
 ## Get started
 
 1. `~/.claude/settings.json` 의 `env` 에 함수 훅 스위치를 켠다.

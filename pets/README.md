@@ -13,6 +13,7 @@ claude plugin install pets@claude-mods
 
 - 그림은 터미널에서만 그린다. VS Code 확장과 데스크톱 앱에서는 패널이 터미널에서 열라고 알린다.
 - 패널이 32 열 × 24 행보다 작으면 필요한 크기를 알린다.
+- fullscreen 렌더러(`/tui fullscreen`)에서만 쓸 수 있다. classic 렌더러(`/tui default`)에서는 패널이 입력창 위에 열리지만 크기가 모자라 크기 안내만 보인다.
 
 ## 기능
 
