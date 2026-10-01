@@ -9,8 +9,9 @@ Claude Code 패널 플러그인 모음.
 | [pets](pets/README.md) | `/pets` | 아이소메트릭 월드에서 동물 한 마리가 스스로 돌아다니고, 프롬프트·도구 호출·턴 끝 같은 세션 신호에 반응한다 |
 | [auto-tetris](auto-tetris/README.md) | `/tetris` | 세션이 쓰는 출력 토큰으로 수를 두고 도구 호출로 블록을 떨어뜨리는 자동 테트리스 |
 | [agent-trace](agent-trace/README.md) | `/trace` | 세션이 띄운 서브에이전트, agent team, Workflow, 백그라운드 셸을 흐름도와 파일 접근 목록으로 보여 준다 |
+| [todo-md](todo-md/README.md) | `/todo` | cwd 의 `TODO.md`(또는 지정한 md 파일)에서 제목과 체크리스트 항목만 보이고, 파일이 바뀌면 다시 그린다 |
 
-세 플러그인 모두 TypeScript 함수 훅(`hooks/register.ts`)으로 돌아간다. 따로 설치할 런타임(Node 등)은 없고, 함수 훅 스위치 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` 이 켜져 있어야 불러와진다.
+네 플러그인 모두 TypeScript 함수 훅(`hooks/register.ts`)으로 돌아간다. 따로 설치할 런타임(Node 등)은 없고, 함수 훅 스위치 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` 이 켜져 있어야 불러와진다.
 
 ## Get started
 
@@ -36,9 +37,10 @@ Claude Code 패널 플러그인 모음.
    claude plugin install pets@claude-mods          # /pets 동물 패널
    claude plugin install auto-tetris@claude-mods   # /tetris 자동 테트리스
    claude plugin install agent-trace@claude-mods   # /trace 에이전트 흐름도
+   claude plugin install todo-md@claude-mods       # /todo TODO.md 체크리스트
    ```
 
-4. Claude Code 를 다시 열고 명령(`/pets`, `/tetris`, `/trace`)으로 패널을 연다.
+4. Claude Code 를 다시 열고 명령(`/pets`, `/tetris`, `/trace`, `/todo`)으로 패널을 연다.
 
 Claude Code 세션 안에서는 2~3 단계를 `/plugin marketplace add YeomYuJun/claude-mods`, `/plugin install pets@claude-mods` 처럼 한다.
 

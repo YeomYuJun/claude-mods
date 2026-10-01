@@ -1,0 +1,8 @@
+{
+  "name": "todo-md",
+  "version": "0.0.0",
+  "description": "cwd 의 TODO.md(또는 지정한 md 파일)에서 제목과 체크리스트 항목만 골라 도킹 패널에 보이고, 파일이 바뀌면 다시 그린다",
+  "author": {
+    "name": "YeomYuJun"
+  }
+}
