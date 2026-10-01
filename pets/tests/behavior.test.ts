@@ -9,11 +9,13 @@ import { metricsOf, simulateQuiet, simulateSession, type SimLog } from './fixtur
 
 const T0 = 1_000_000
 
-// 신호 대본: [시각(ms), 신호]
+// 신호 대본: [시각(ms), 신호]. 첫 턴 끝 뒤 신호 없는 시간이 잠들 시간을 넘어, 두 번째 프롬프트 전에 잠자리로 간다
 type Cue = [number, 'prompt' | 'tool' | 'end']
-const SCRIPT: Cue[] = [[2000, 'prompt'], [3000, 'tool'], [3500, 'tool'], [5200, 'tool'], [9000, 'end'], [85_000, 'prompt'], [88_000, 'tool'], [95_000, 'end']]
+const LATER = 20_000 + Names.SLEEP_AFTER_MS
+const SCRIPT: Cue[] = [[2000, 'prompt'], [3000, 'tool'], [3500, 'tool'], [5200, 'tool'], [9000, 'end'], [LATER, 'prompt'], [LATER + 3000, 'tool'], [LATER + 10_000, 'end']]
+const SCRIPT_MS = LATER + 25_000
 
-// 대본대로 두 분을 돌려 행동이 바뀔 때마다 이름을 적는다
+// 대본대로 SCRIPT_MS 를 돌려 행동이 바뀔 때마다 이름을 적는다
 function play(seed: number, tweak?: (p: PetState) => void): { names: ActName[]; p: PetState } {
   const world = World.create(seed)
   const p = Pet.create(world, seed, T0)
@@ -21,7 +23,7 @@ function play(seed: number, tweak?: (p: PetState) => void): { names: ActName[]; 
   const names: ActName[] = [p.act.name]
   let act = p.act
   let next = 0
-  for (let t = Names.SIM_STEP_MS; t <= 120_000; t += Names.SIM_STEP_MS) {
+  for (let t = Names.SIM_STEP_MS; t <= SCRIPT_MS; t += Names.SIM_STEP_MS) {
     const now = T0 + t
     while (next < SCRIPT.length && SCRIPT[next]![0] <= t) {
       const kind = SCRIPT[next++]![1]

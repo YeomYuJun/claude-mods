@@ -197,6 +197,7 @@ export function setBiome(scene: Scene, biome: BiomeId, now: number): void {
   pet.mainTools = old.mainTools
   pet.toolSince = old.toolSince
   pet.turnStartedAt = old.turnStartedAt
+  pet.keepAwake = old.keepAwake
   scene.pet = pet
   const f = focusOf(pet)
   scene.cam = Iso.cameraOf(f.sx, f.sy)

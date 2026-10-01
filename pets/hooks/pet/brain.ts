@@ -8,6 +8,8 @@
 //   반복 벌점 = max(0.1, 1 - 최근 6 개 중 같은 행동 자리마다 0.65, 0.30, 0.15, 0.08, 0.04, 0.02 를 더한 값)
 //   욕구 항 = min(3, 0.35 + Σ 욕구 계수 × 욕구). 욕구는 호기심·놀고 싶음·사람 곁·목마름과 쉬고 싶음(1 - 기운)
 // 기운이 아주 낮으면 뽑기 전에 낮잠을 고르고, 모든 점수가 0 이면 가만히 선다.
+// 신호 없이 SLEEP_AFTER_MS 가 지나면 잠들고(잠들지 않기가 켜져 있으면 안 잔다), 잠든 지 SLEEP_MS 가 지나고 기운이 차면 스스로 깬다.
+// 사람이 명령으로 시킨 행동(order)은 사람 직접 부류로 반응하고 평소 행동 기록에 넣지 않는다.
 // 세션 신호가 지금 행동에 하는 일은 신호 종류 × 지금 행동 부류 표(RULES)가 정한다: 끊고 시작, 대기열 앞·뒤, 늘리기, 되돌려 놓고 끊기, 버리기, 얼굴만 돌리기.
 // 도구 호출·서브에이전트 도구 호출·타이핑·도구 실패는 토큰 통을 거쳐, 몰려 와도 행동이 몇 번만 바뀐다.
 // 한 번 고를 때 BFS 는 한 번만 돌리고(Survey), 그 선택의 판정과 목적지가 모두 그 결과를 쓴다.
@@ -100,6 +102,10 @@ const CHEW_REACH = 12
 // 헤엄칠 물을 찾는 걸음 수, 떠 있다가 옮겨 갈 다음 물 칸의 거리(맨해튼)
 const SWIM_REACH = 12
 const SWIM_HOP = 4
+// 멀리 가기: 구간마다 고르는 칸의 걸음 수, 방향을 고를 때 새 칸 가중치
+const ROAM_LO = 10
+const ROAM_HI = 16
+const ROAM_FRESH = 5
 
 function act(name: ActName, steps: Step[]): Activity {
   return { name, steps, i: 0, t: 0, started: -1 }
@@ -130,14 +136,17 @@ function pickTile(p: Pet, world: WorldState, s: Survey, lo: number, hi: number):
   return tiles.length > 0 ? Rng.pick(p.rng, tiles) : undefined
 }
 
-// 오래 안 간 칸일수록 잘 뽑힌다: 가중치 1 + fresh × min(1, 안 간 시간 / 120 s), 한 번도 안 간 칸은 1 + fresh
+// 오래 안 간 칸일수록 큰 가중치: 1 + fresh × min(1, 안 간 시간 / 120 s), 한 번도 안 간 칸은 1 + fresh
+function freshOf(p: Pet, t: Tile, fresh: number): number {
+  const at = p.visits.get(keyOf(t.x, t.y))
+  return 1 + fresh * (at === undefined ? 1 : Math.min(1, (p.simMs - at) / FRESH_MS))
+}
+
+// 오래 안 간 칸일수록 잘 뽑힌다(freshOf)
 function pickFresh(p: Pet, world: WorldState, s: Survey, lo: number, hi: number, fresh: number): Tile | undefined {
   const tiles = tilesAt(p, world, s, lo, hi)
   if (tiles.length === 0) return undefined
-  const weights = tiles.map(t => {
-    const at = p.visits.get(keyOf(t.x, t.y))
-    return 1 + fresh * (at === undefined ? 1 : Math.min(1, (p.simMs - at) / FRESH_MS))
-  })
+  const weights = tiles.map(t => freshOf(p, t, fresh))
   let x = Rng.next(p.rng) * weights.reduce((a, b) => a + b, 0)
   for (let i = 0; i < tiles.length; i++) {
     x -= weights[i]!
@@ -162,6 +171,43 @@ function frontTile(p: Pet, world: WorldState, s: Survey, lo: number, hi: number)
   if (tiles.length === 0) return undefined
   const best = Math.max(...tiles.map(t => t.x + t.y))
   return Rng.pick(p.rng, tiles.filter(t => t.x + t.y === best))
+}
+
+// 그 방향 성분이 가장 큰 값에서 2 안인 물이 아닌 칸 중 난수로. 물이 아닌 칸이 없으면 물 칸까지 넣어 고른다
+function towardTile(p: Pet, world: WorldState, s: Survey, lo: number, hi: number, dir: Dir): Tile | undefined {
+  const all = tilesAt(p, world, s, lo, hi)
+  const land = dry(world, all)
+  const tiles = land.length > 0 ? land : all
+  if (tiles.length === 0) return undefined
+  const [vx, vy] = DIR_VEC[dir]
+  const along = (t: Tile) => (t.x - s.from.x) * vx + (t.y - s.from.y) * vy
+  const best = Math.max(...tiles.map(along))
+  return Rng.pick(p.rng, tiles.filter(t => along(t) >= best - 2))
+}
+
+// 멀리 가기 방향: 4 방향마다 ROAM_LO~ROAM_HI 걸음 칸 중 그 방향 성분이 양수인 칸의 새 칸 가중치를 더하고, 그 비로 고른다
+function roamDirOf(p: Pet, world: WorldState, s: Survey): Dir | undefined {
+  const tiles = tilesAt(p, world, s, ROAM_LO, ROAM_HI)
+  const weights = DIRS.map(d => {
+    const [vx, vy] = DIR_VEC[d]
+    let sum = 0
+    for (const t of tiles) if ((t.x - s.from.x) * vx + (t.y - s.from.y) * vy > 0) sum += freshOf(p, t, ROAM_FRESH)
+    return [d, sum] as const
+  })
+  return weights.some(([, w]) => w > 0) ? Rng.weighted(p.rng, weights) : undefined
+}
+
+// 방향 하나를 골라 그쪽으로 ROAM_LO~ROAM_HI 걸음 구간을 2~3 번 이어 속보로 가고, 구간 사이에 둘러본다. 구간의 목적지는 그 구간을 시작한 자리에서 고른다
+function roamOf(p: Pet, world: WorldState, s: Survey): Activity {
+  const dir = roamDirOf(p, world, s) ?? Rng.pick(p.rng, DIRS)
+  const legs = Rng.int(p.rng, 2, 3)
+  const steps: Step[] = []
+  for (let i = 0; i < legs; i++) {
+    if (i > 0) steps.push(pose('look', ms(p, 600, 1200)))
+    steps.push({ k: 'go', pick: { lo: ROAM_LO, hi: ROAM_HI, toward: dir }, gait: 'trot', must: i === 0 })
+  }
+  steps.push(pose('stand', ms(p, 600, 1000), { face: Rng.pick(p.rng, DIRS) }), pose('sniff', ms(p, 1200, 2000)))
+  return act('roam', steps)
 }
 
 function go(p: Pet, world: WorldState, s: Survey, lo: number, hi: number, gait: 'walk' | 'trot' | 'run' | 'sniff'): Step[] {
@@ -392,8 +438,12 @@ function playVariant(p: Pet, world: WorldState): PlayName {
 }
 
 function buildPlay(p: Pet, world: WorldState): Activity {
+  return playOf(p, playVariant(p, world))
+}
+
+function playOf(p: Pet, variant: PlayName): Activity {
   const r = p.rng
-  switch (playVariant(p, world)) {
+  switch (variant) {
     case 'ball': {
       const steps: Step[] = []
       const kicks = Rng.int(r, 2, 3)
@@ -502,6 +552,13 @@ export const ACTS: Record<ActName, ActDef> = {
         pose('sniff', ms(p, 1200, 2000)),
       ])
     },
+  },
+  // 안 가 본 칸이 많은 쪽으로 멀리 간다(roamOf)
+  roam: {
+    name: 'roam', cls: 'N', base: 8, drive: { curiosity: 1.2 }, cooldownMs: 180_000,
+    feasible: (p, world, s) => p.energy > 0.4 && hasTilesAt(s, ROAM_LO, ROAM_HI),
+    adjust: FLAT,
+    build: (p, world, s) => roamOf(p, world, s),
   },
   // 가까운 블록 둘레를 한 바퀴 걸어 돈다
   patrol: {
@@ -657,6 +714,11 @@ export const ACTS: Record<ActName, ActDef> = {
     },
   },
   // 아래는 신호만 부르는 반응이다
+  // 잠든 지 SLEEP_MS 가 지나고 기운이 차면 스스로 깨어 기지개를 켜고 턴다
+  wakeUp: {
+    name: 'wakeUp', cls: 'A', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
+    build: () => act('wakeUp', wakeSteps()),
+  },
   // 사람 쪽을 본다(타이핑, 턴 도중 입력). 가끔 고개를 갸웃한다
   attend: {
     name: 'attend', cls: 'A', base: 0, drive: NONE, cooldownMs: 0, feasible: ALWAYS, adjust: FLAT,
@@ -719,9 +781,14 @@ export const ACTS: Record<ActName, ActDef> = {
   },
 }
 
+// 깨어나 기지개를 켜고 몸을 턴다
+function wakeSteps(): Step[] {
+  return [pose('wake', 700), pose('stretch', 900), pose('shake', 500)]
+}
+
 // 인사: 자고 있었으면 깨어나 털고, 사람 쪽을 보며 ! 를 띄운 뒤 달려간다. 짧은 프롬프트(글자 수를 알 때)에는 속보로 조금만 간다
 function greetOf(p: Pet, world: WorldState, s: Survey, text?: string): Activity {
-  const steps: Step[] = p.isAsleep ? [pose('wake', 700), pose('stretch', 900), pose('shake', 500)] : []
+  const steps: Step[] = p.isAsleep ? wakeSteps() : []
   const isShort = text !== undefined && text.length < SHORT_PROMPT
   steps.push(pose('look', 350, { emote: '!' }), ...(isShort ? go(p, world, s, 3, 6, 'trot') : go(p, world, s, 5, 12, 'run')), pose('pant', ms(p, 900, 1400)))
   return act('greet', steps)
@@ -770,7 +837,7 @@ function choose(p: Pet, world: WorldState, now: number): Activity {
 }
 
 function isEvent(a: Activity): boolean {
-  return ACTS[a.name].cls !== 'N'
+  return a.ordered === true || ACTS[a.name].cls !== 'N'
 }
 
 // 끝났거나 끊긴 평소 행동을 기록한다. 끊긴 것도 적어야 신호가 잦을 때도 반복 벌점·대기 시간이 걸린다
@@ -827,6 +894,7 @@ function end(p: Pet): void {
 // 그래야 그 사이에 온 도구 호출에도 반응하고, 도구가 도는 동안 잠들지 않는다
 function classOf(p: Pet): ActClass {
   if (p.isAsleep) return 'S'
+  if (p.act.ordered) return 'G'
   const cls = ACTS[p.act.name].cls
   return cls === 'S' ? 'N' : cls
 }
@@ -966,6 +1034,7 @@ export function onTurnStart(p: Pet, world: WorldState, now: number, text?: strin
     interrupt(p, greetOf(p, world, s, text))
   }
   p.isAsleep = false
+  p.sleepSince = undefined
 }
 
 // 메인 루프의 도구 호출. 도구 반응 중이면 자세를 늘리고, 아니면 통에 토큰이 있을 때만 반응한다
@@ -1119,7 +1188,8 @@ function runStep(p: Pet, world: WorldState, step: Step, a: Activity, dtMs: numbe
         let to = step.to
         if (step.pick) {
           const s = surveyOf(p, world)
-          to = step.pick.front ? frontTile(p, world, s, step.pick.lo, step.pick.hi) : pickTile(p, world, s, step.pick.lo, step.pick.hi)
+          const { lo, hi, front, toward } = step.pick
+          to = toward ? towardTile(p, world, s, lo, hi, toward) : front ? frontTile(p, world, s, lo, hi) : pickTile(p, world, s, lo, hi)
           to ??= step.must ? undefined : tileOf(p)
         }
         const path = to ? Path.find(world, tileOf(p), to, p.species.abilities) : null
@@ -1138,7 +1208,7 @@ function runStep(p: Pet, world: WorldState, step: Step, a: Activity, dtMs: numbe
         p.pose = poseFor(p.species, step.pose)
         if (step.face) Motion.faceTo(p, ...DIR_VEC[step.face])
         if (step.emote) p.emote = Fx.emoteOf(step.emote, 1100)
-        if (step.pose === 'sleep') p.isAsleep = true
+        if (step.pose === 'sleep') { p.isAsleep = true; p.sleepSince = now }
       }
       a.t += dtMs
       return a.t >= step.ms
@@ -1256,7 +1326,7 @@ function visit(p: Pet): void {
   p.visits.delete(p.tileKey)
   p.visits.set(p.tileKey, p.simMs)
   const seen = p.visits.get(key)
-  const roaming = p.act.name === 'explore' || p.act.name === 'walk' || p.act.name === 'patrol' || p.act.name === 'perch'
+  const roaming = p.act.name === 'explore' || p.act.name === 'roam' || p.act.name === 'walk' || p.act.name === 'patrol' || p.act.name === 'perch'
   if (roaming && (seen === undefined || p.simMs - seen > FRESH_MS)) p.needs.curiosity = clamp01(p.needs.curiosity - 0.01)
   p.visits.delete(key)
   p.visits.set(key, p.simMs)
@@ -1295,14 +1365,93 @@ function holdBall(p: Pet): void {
   b.settled = false
 }
 
+// 스스로 깬다. 신호 없는 시간을 새로 재서 SLEEP_AFTER_MS 동안은 다시 잠들지 않는다
+function wakeUp(p: Pet, world: WorldState, now: number): void {
+  p.isAsleep = false
+  p.sleepSince = undefined
+  p.lastSignalAt = now
+  p.queue = []
+  interrupt(p, build('wakeUp', p, world))
+}
+
+// 명령(/pets do)으로 시킬 수 있는 행동. 이 순서로 목록 글을 만든다
+export type OrderName = 'sleep' | 'wake' | 'sit' | 'lie' | 'play' | 'ball' | 'fetch' | 'zoomies' | 'roam' | 'explore' | 'come'
+export const ORDERS: ReadonlyArray<{ id: OrderName; label: string }> = [
+  { id: 'sleep', label: '자기' }, { id: 'wake', label: '깨기' }, { id: 'sit', label: '앉기' }, { id: 'lie', label: '엎드리기' },
+  { id: 'play', label: '놀기' }, { id: 'ball', label: '공 차기' }, { id: 'fetch', label: '공 물어 오기' }, { id: 'zoomies', label: '연달아 뛰기' },
+  { id: 'roam', label: '멀리 가기' }, { id: 'explore', label: '둘러보기' }, { id: 'come', label: '앞으로 와서 앉기' },
+]
+
+export function isOrderName(word: string): word is OrderName {
+  return ORDERS.some(o => o.id === word)
+}
+
+// 시킨 행동을 못 하는 이유: 이미 깨어 있다, 이미 자고 있다, 공까지 길이 없다, 갈 만한 먼 칸이 없다
+export type OrderRefusal = 'awake' | 'asleep' | 'ball' | 'far'
+
+// 사람이 시킨 행동을 지금 시작한다. 못 하면 그 이유를 돌려주고 아무것도 바꾸지 않는다.
+// 하던 행동과 대기열을 버리고, 자고 있었으면 깨는 단계부터 한다. 가능 조건(기운 등)과 대기 시간은 보지 않는다
+export function order(p: Pet, world: WorldState, now: number, name: OrderName): OrderRefusal | undefined {
+  const s = surveyOf(p, world)
+  let a: Activity
+  switch (name) {
+    case 'sleep':
+      if (p.isAsleep) return 'asleep'
+      a = ACTS.bedtime.build(p, world, s)
+      break
+    case 'wake':
+      if (!p.isAsleep) return 'awake'
+      a = ACTS.wakeUp.build(p, world, s)
+      break
+    case 'sit':
+    case 'lie':
+      a = ACTS[name].build(p, world, s)
+      break
+    case 'play':
+      a = buildPlay(p, world)
+      break
+    case 'ball':
+    case 'fetch':
+      if (!ballReachable(p, world)) return 'ball'
+      a = playOf(p, name)
+      break
+    case 'zoomies':
+      a = playOf(p, 'zoomies')
+      break
+    case 'roam':
+      if (!hasTilesAt(s, ROAM_LO, ROAM_HI)) return 'far'
+      a = roamOf(p, world, s)
+      break
+    case 'explore':
+      if (!hasTilesAt(s, 8, 14)) return 'far'
+      a = ACTS.explore.build(p, world, s)
+      break
+    case 'come':
+      a = ACTS.watch.build(p, world, s)
+      break
+  }
+  if (p.isAsleep) {
+    if (name !== 'wake') a.steps.unshift(...wakeSteps())
+    p.isAsleep = false
+    p.sleepSince = undefined
+  }
+  a.ordered = true
+  p.lastSignalAt = now
+  p.lastHumanAt = now
+  p.queue = []
+  interrupt(p, a)
+  return undefined
+}
+
 // 고정 스텝 한 번. now 는 실제 시각(잠들기 판정에 쓴다)
 export function update(p: Pet, world: WorldState, dtMs: number, now: number): void {
   p.simMs += dtMs
   if (p.toolsRunning > 0) p.lastSignalAt = now
-  if (!p.isAsleep && !isEvent(p.act) && now - p.lastSignalAt >= Names.SLEEP_AFTER_MS) {
+  if (!p.isAsleep && !p.keepAwake && !isEvent(p.act) && now - p.lastSignalAt >= Names.SLEEP_AFTER_MS) {
     p.queue = []
     interrupt(p, build('bedtime', p, world))
   }
+  if (p.isAsleep && now - (p.sleepSince ?? now) >= Names.SLEEP_MS && p.energy >= 1) wakeUp(p, world, now)
   // 마시는 중이면 다 마시고 나서 기다리러 온다(목마름이 급하면 기다리기보다 마시기를 먼저 고르므로)
   if (isWaiting(p, now) && classOf(p) === 'N' && p.act.name !== 'drink') interrupt(p, build('wait', p, world))
   // 한 스텝에 여러 단계가 끝날 수 있다(길이 0 인 go 등). 무한 반복을 막으려고 몇 번까지만

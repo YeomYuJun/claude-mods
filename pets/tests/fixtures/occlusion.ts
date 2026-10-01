@@ -55,10 +55,10 @@ function hiddenOf(scene: SceneState, props: boolean): { center: number; max: num
   return { center: perCol.get(x) ?? 0, max: Math.max(0, ...perCol.values()), hidden, total }
 }
 
-// script: 'session' 은 세션 대본(90~180 초마다 턴, 사이에 잠든다), 'awake' 는 신호 없이 늘 깨어 있게(매 스텝 신호 시각을 지금으로)
+// script: 'session' 은 세션 대본(4~6 분마다 턴, 사이에 잠들었다 깬다), 'awake' 는 신호 없이 늘 깨어 있게(매 스텝 신호 시각을 지금으로)
 export function occlusionOf(biome: BiomeId, seed: number, minutes: number, script: 'session' | 'awake', props = false): Occlusion {
   const scene = Scene.create(seed, T0, biome)
-  const cues = script === 'session' ? sessionScript(seed, minutes) : []
+  const cues = script === 'session' ? sessionScript(seed, minutes, [240_000, 360_000]) : []
   const out: Occlusion = { awake: { frames: 0, center7: 0, max7: 0, any: 0, half: 0 }, asleep: { frames: 0, center7: 0, max7: 0, any: 0, half: 0 } }
   let next = 0
   const steps = Math.round((minutes * 60_000) / Names.SIM_STEP_MS)

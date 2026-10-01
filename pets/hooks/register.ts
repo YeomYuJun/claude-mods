@@ -35,6 +35,13 @@ function petChoiceOf(value: unknown): BreedId | 'auto' {
   return Array.isArray(v.list) && Species.isBreedId(v.list[0]) ? v.list[0] : Species.DEFAULT_BREED
 }
 
+// 저장한 잠들지 않기 값을 읽는다. 모르는 모양·버전이면 꺼진 것으로 본다
+function idleOf(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as { v?: unknown; on?: unknown }
+  return v.v === Names.STORE_IDLE_VERSION && v.on === true
+}
+
 // Claude Code 테마가 밝은 계열이면 띠를 밝은 터미널용 색으로 그린다
 function isLightTheme(value: unknown): boolean {
   return typeof value === 'string' && value.startsWith('light')
@@ -64,6 +71,7 @@ export function register(on: On) {
   // 고른 맵 세트('auto' 면 세션 시드로 고른다)와 세션 시드
   let worldChoice: BiomeId | 'auto' = Biome.DEFAULT
   let petChoice: BreedId | 'auto' = Species.DEFAULT_BREED
+  let isIdle = false
   let isLight = false
   let sessionSeed = 0x5eed
   // 마지막으로 저장한 편집 목록(JSON)과 저장을 마지막으로 살핀 시각. 목록이 같으면 다시 쓰지 않는다.
@@ -202,9 +210,11 @@ export function register(on: On) {
       zoom = Scene.zoomOf(await $.store.get(Names.STORE_SCALE))
       worldChoice = worldChoiceOf(await $.store.get(Names.STORE_WORLD))
       petChoice = petChoiceOf(await $.store.get(Names.STORE_PETS))
+      isIdle = idleOf(await $.store.get(Names.STORE_IDLE))
     } catch { /* 저장한 값이 없으면 기본값 */ }
     try { isLight = isLightTheme((await $.config.list()).find(row => row.key === 'theme')?.value) } catch { /* 모르면 어두운 터미널로 본다 */ }
     scene = Scene.create(seed, now, biomeOf(worldChoice), breedOf(petChoice))
+    scene.pet.keepAwake = isIdle
     editsAt = now
     await loadEdits(key => $.store.get(key), now)
     try { await pruneEdits({ keys: () => $.store.keys(), get: key => $.store.get(key), delete: key => $.store.delete(key) }) } catch { /* 지우지 못하면 다음 세션에 */ }
@@ -264,6 +274,25 @@ export function register(on: On) {
       if (pane) pane.lastCells = ''
       $.ui.invalidate('ui.render')
       return { text: Names.PET_TEXT(Species.breedOf(scene.breed).label, picked === 'auto', rest.length) }
+    }
+    // idle 은 지금 상태를 보이고, idle on · off 는 잠들지 않기를 켜고 꺼 저장한다
+    if (arg === 'idle' && rest.length === 0) {
+      if (sub === '') return { text: Names.IDLE_NOW_TEXT(isIdle) }
+      if (sub !== 'on' && sub !== 'off') return { text: Names.IDLE_USAGE_TEXT }
+      isIdle = sub === 'on'
+      scene.pet.keepAwake = isIdle
+      await host?.store(Names.STORE_IDLE, { v: Names.STORE_IDLE_VERSION, on: isIdle })
+      return { text: Names.IDLE_TEXT(isIdle) }
+    }
+    // do <행동> 은 패널이 열려 있을 때 그 행동을 지금 시킨다. 못 하면 이유를 답하고 아무것도 바꾸지 않는다
+    if (arg === 'do' && rest.length === 0) {
+      const choices = Names.DO_CHOICES(Pet.ORDERS)
+      if (sub === '') return { text: Names.DO_USAGE_TEXT(choices) }
+      if (!Pet.isOrderName(sub)) return { text: Names.DO_UNKNOWN_TEXT(sub, choices) }
+      if (!isOpen) return { text: Names.DO_CLOSED_TEXT }
+      const refusal = Pet.order(scene.pet, scene.world, await $.clock.now(), sub)
+      if (refusal) return { text: Names.DO_REFUSED_TEXT[refusal] }
+      return { text: Names.DO_TEXT(Pet.ORDERS.find(o => o.id === sub)!.label) }
     }
     if (arg !== '') return { text: Names.USAGE_TEXT }
     if (isOpen) {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import Band, { type Band as BandState } from '../hooks/band'
+import Biome from '../hooks/biome'
 import Names from '../hooks/names'
 import Pet, { type Pet as PetState } from '../hooks/pet'
 import Scene from '../hooks/scene'
@@ -77,7 +78,7 @@ describe('pet', () => {
     expect(p.emote?.kind).toBe('heart')
   })
 
-  test('sixty seconds without signals puts the dog to sleep; the next prompt wakes it', async () => {
+  test('three minutes without signals puts the dog to sleep; the next prompt wakes it', async () => {
     const { world, p } = setup()
     let now = run(p, world, Names.SLEEP_AFTER_MS + 30_000, T0)
     expect(p.isAsleep).toBe(true)
@@ -90,6 +91,69 @@ describe('pet', () => {
     expect(p.isAsleep).toBe(false)
     now = run(p, world, 100, now)
     expect(p.pose).toBe('wake')
+  })
+
+  test('a minute after falling asleep with full energy the dog wakes by itself and stays up for the quiet time again', async () => {
+    const { world, p } = setup()
+    let now = T0
+    for (let i = 0; i < 4000 && !p.isAsleep; i++) now = run(p, world, 100, now)
+    expect(p.isAsleep).toBe(true)
+    const asleepAt = now
+    while (p.isAsleep && now - asleepAt < Names.SLEEP_MS + 5000) now = run(p, world, 100, now)
+    expect(p.isAsleep).toBe(false)
+    expect(now - asleepAt >= Names.SLEEP_MS - 200).toBe(true)
+    expect(p.act.name).toBe('wakeUp')
+    now = run(p, world, 100, now)
+    expect(p.pose).toBe('wake')
+    run(p, world, Names.SLEEP_AFTER_MS - 1000, now)
+    expect(p.isAsleep).toBe(false)
+  })
+
+  test('with idle on the dog never goes to bed without signals', async () => {
+    const { world, p } = setup()
+    p.keepAwake = true
+    let now = T0
+    let slept = false
+    for (let t = 0; t < 2 * Names.SLEEP_AFTER_MS; t += 1000) {
+      now = run(p, world, 1000, now)
+      if (p.isAsleep || p.act.name === 'bedtime') slept = true
+    }
+    expect(slept).toBe(false)
+  })
+
+  test('an order replaces what the dog is doing and refuses what does not fit', async () => {
+    const { world, p } = setup()
+    let now = run(p, world, 500, T0)
+    expect(Pet.order(p, world, now, 'wake')).toBe('awake')
+    expect(Pet.order(p, world, now, 'sit')).toBe(undefined)
+    expect(p.act.name).toBe('sit')
+    expect(p.act.ordered).toBe(true)
+    // 시킨 행동은 도구 호출에 끊기지 않고, 도구 반응은 대기열 앞에 선다
+    Pet.onTool(p, world, now + 10)
+    expect(p.act.name).toBe('sit')
+    expect(p.queue.map(a => a.name)).toEqual(['dig'])
+    expect(Pet.order(p, world, now, 'sleep')).toBe(undefined)
+    expect(p.queue.length).toBe(0)
+    for (let i = 0; i < 300 && !p.isAsleep; i++) now = run(p, world, 100, now)
+    expect(p.isAsleep).toBe(true)
+    expect(Pet.order(p, world, now, 'sleep')).toBe('asleep')
+    // 자는 중에 다른 행동을 시키면 깨는 단계부터 한다
+    expect(Pet.order(p, world, now, 'lie')).toBe(undefined)
+    expect(p.isAsleep).toBe(false)
+    now = run(p, world, 100, now)
+    expect(p.pose).toBe('wake')
+  })
+
+  test('roaming trots two or three legs one way and ends farther than a single walk', async () => {
+    const world = Biome.worldOf('meadow', 7)
+    const p = Pet.create(world, 7, T0)
+    const from = Pet.tileOf(p)
+    expect(Pet.order(p, world, T0, 'roam')).toBe(undefined)
+    expect(p.act.steps.filter(s => s.k === 'go').length >= 2).toBe(true)
+    let now = T0
+    for (let i = 0; i < 600 && p.act.name === 'roam'; i++) now = run(p, world, 100, now)
+    const to = Pet.tileOf(p)
+    expect(Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y)) >= 12).toBe(true)
   })
 
   test('a running tool keeps the dog awake', async () => {
@@ -144,14 +208,14 @@ describe('band', () => {
     expect(lines[2]!.includes('▀') || lines[2]!.includes('▄')).toBe(true)
   })
 
-  test('the band dog runs on a new prompt and falls asleep after sixty quiet seconds', async () => {
+  test('the band dog runs on a new prompt and falls asleep after the quiet time', async () => {
     const band = Band.create(1, T0)
     Band.compose(band, 80)
     Band.onTurnStart(band, T0)
     expect(band.mode).toBe('run')
     Band.step(band, 100, T0 + 100, false)
     let now = T0 + 100
-    for (let i = 0; i < 70; i++) { now += 1000; Band.step(band, 1000, now, false) }
+    for (let i = 0; i < Names.SLEEP_AFTER_MS / 1000 + 10; i++) { now += 1000; Band.step(band, 1000, now, false) }
     expect(band.mode).toBe('sleep')
   })
 

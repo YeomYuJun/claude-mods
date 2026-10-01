@@ -26,8 +26,8 @@ const SAMPLE_MS = 5000
 
 type Cue = { at: number; kind: 'prompt' | 'stream' | 'tool' | 'end' }
 
-// 세션 대본: 90~180 초마다 프롬프트, 글 조각, 도구 3~8 회(0.3~3 초 간격), 턴 끝 순서. 시드로 정해진다
-export function sessionScript(seed: number, minutes: number): Cue[] {
+// 세션 대본: 프롬프트 간격 gapMs(기본 90~180 초)마다 프롬프트, 글 조각, 도구 3~8 회(0.3~3 초 간격), 턴 끝 순서. 시드로 정해진다
+export function sessionScript(seed: number, minutes: number, gapMs: readonly [number, number] = [90_000, 180_000]): Cue[] {
   let s = (seed * 2654435761) >>> 0
   const next = () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), s | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
   const out: Cue[] = []
@@ -42,7 +42,7 @@ export function sessionScript(seed: number, minutes: number): Cue[] {
     t += 1500
     out.push({ at: t, kind: 'stream' })
     out.push({ at: t + 2000, kind: 'end' })
-    at += 90_000 + next() * 90_000
+    at += gapMs[0] + next() * (gapMs[1] - gapMs[0])
   }
   return out
 }

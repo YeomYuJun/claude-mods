@@ -1,8 +1,8 @@
 export const PLUGIN_NAME = 'pets'
 export const PANE_ID = 'pets'
 export const COMMAND_NAME = 'pets'
-export const COMMAND_DESCRIPTION = '동물 패널을 열고 닫는다. zoom [in|out|wide|far|1|2]: 맵 보기(wide)·원거리(far)·1 배·2 배, world [세트|auto]: 맵 세트, pet [품종|auto]: 동물(강아지·고양이 품종)'
-export const ARGUMENT_HINT = 'zoom [in|out|wide|far|1|2] | world [세트|auto] | pet [품종|auto]'
+export const COMMAND_DESCRIPTION = '동물 패널을 열고 닫는다. zoom [in|out|wide|far|1|2]: 맵 보기(wide)·원거리(far)·1 배·2 배, world [세트|auto]: 맵 세트, pet [품종|auto]: 동물(강아지·고양이 품종), idle [on|off]: 신호가 없어도 잠들지 않기, do <행동>: 행동 시키기'
+export const ARGUMENT_HINT = 'zoom [in|out|wide|far|1|2] | world [세트|auto] | pet [품종|auto] | idle [on|off] | do <행동>'
 // 패널 제목은 여는 순간의 동물 종 이름(강아지, 고양이)
 export const PANE_TITLE = (speciesLabel: string) => speciesLabel
 export const PANEL_SHOWN_TEXT = '동물 패널을 열었다'
@@ -10,7 +10,7 @@ export const PANEL_HIDDEN_TEXT = '동물 패널을 닫았다'
 export const ZOOM_TEXT = (zoom: 'wide' | 'far' | 1 | 2) => zoom === 'wide' ? '맵 보기로 가장 넓게 보게 바꿨다' : zoom === 'far' ? '원거리로 넓게 보게 바꿨다' : `도트 크기를 ${zoom} 배로 바꿨다`
 export const ZOOM_LIMIT_TEXT = (zoom: 'wide' | 'far' | 1 | 2) => zoom === 'wide' ? '이미 가장 넓게(맵 보기) 보고 있다' : '이미 가장 크게(2 배) 보고 있다'
 export const ZOOM_SAME_TEXT = (zoom: 'wide' | 'far' | 1 | 2) => `이미 ${zoom === 'wide' ? '맵 보기로' : zoom === 'far' ? '원거리로' : `${zoom} 배로`} 보고 있다`
-export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets zoom (맵 보기 → 원거리 → 1 배 → 2 배 순환), /pets zoom in · out (한 단계씩), /pets zoom wide · far · 1 · 2 (그 단계로 바로), /pets world (맵 세트 보기·바꾸기), /pets pet (동물 보기·바꾸기)'
+export const USAGE_TEXT = '/pets (패널 열고 닫기), /pets zoom (맵 보기 → 원거리 → 1 배 → 2 배 순환), /pets zoom in · out (한 단계씩), /pets zoom wide · far · 1 · 2 (그 단계로 바로), /pets world (맵 세트 보기·바꾸기), /pets pet (동물 보기·바꾸기), /pets idle on · off (신호가 없어도 잠들지 않기 켜고 끄기), /pets do <행동> (행동 시키기)'
 // 세트 목록 글: "paper 모눈종이, meadow 초원, …, auto(세션마다 모눈종이 밖에서 고름)"
 export const WORLD_CHOICES = (sets: ReadonlyArray<{ id: string; label: string }>) => `${sets.map(s => `${s.id} ${s.label}`).join(', ')}, auto(세션마다 모눈종이 밖에서 고름)`
 export const WORLD_NOW_TEXT = (label: string, isAuto: boolean, choices: string) => `지금 맵 세트: ${label}${isAuto ? '(자동)' : ''}. 고를 수 있는 세트: ${choices}`
@@ -21,6 +21,21 @@ export const PET_TEXT = (label: string, isAuto: boolean, dropped: number) =>
   `동물을 ${isAuto ? `자동으로 바꿨다(이 세션은 ${label})` : `바꿨다: ${label}`}${dropped > 0 ? `. 지금은 한 마리만 두어 첫 번째만 썼다(${dropped} 개는 무시)` : ''}`
 export const PET_UNKNOWN_TEXT = (word: string, choices: string) => `'${word}' 라는 품종은 없다. 고를 수 있는 품종: ${choices}`
 export const WORLD_UNKNOWN_TEXT = (word: string, choices: string) => `'${word}' 라는 맵 세트는 없다. 고를 수 있는 세트: ${choices}`
+export const IDLE_NOW_TEXT = (on: boolean) => on ? '지금 잠들지 않기가 켜져 있다. 신호가 없어도 잠들지 않는다(/pets idle off 로 끈다)' : `지금 잠들지 않기가 꺼져 있다. 신호 없이 ${SLEEP_AFTER_MS / 60_000} 분이 지나면 잠들고 ${SLEEP_MS / 60_000} 분 뒤 깬다(/pets idle on 으로 켠다)`
+export const IDLE_TEXT = (on: boolean) => on ? '잠들지 않기를 켰다. 신호가 없어도 잠들지 않는다' : '잠들지 않기를 껐다. 신호가 없으면 다시 잠든다'
+export const IDLE_USAGE_TEXT = '/pets idle (지금 상태), /pets idle on · off'
+// 행동 목록 글: "sleep 자기, wake 깨기, …"
+export const DO_CHOICES = (acts: ReadonlyArray<{ id: string; label: string }>) => acts.map(a => `${a.id} ${a.label}`).join(', ')
+export const DO_USAGE_TEXT = (choices: string) => `/pets do <행동>. 시킬 수 있는 행동: ${choices}`
+export const DO_UNKNOWN_TEXT = (word: string, choices: string) => `'${word}' 라는 행동은 없다. 시킬 수 있는 행동: ${choices}`
+export const DO_TEXT = (label: string) => `동물에게 시켰다: ${label}`
+export const DO_CLOSED_TEXT = '동물 패널이 닫혀 있다. /pets 로 패널을 연 뒤 다시 시켜 달라'
+export const DO_REFUSED_TEXT = {
+  awake: '이미 깨어 있다',
+  ball: '공이 닿지 않는 곳에 있다',
+  asleep: '이미 자고 있다',
+  far: '지금 자리에서 갈 만한 먼 칸이 없다',
+} as const
 export const RASTER_KEY = 'map'
 export const BAND_KEY = 'band'
 // 줌 단계('wide' | 'far' | 1 | 2). 값이 없거나 모르는 값이면 맵 보기이고, 이 키에 숫자 1·2 만 저장된 세션도 그대로 읽는다(scene 의 zoomOf)
@@ -31,6 +46,9 @@ export const STORE_WORLD_VERSION = 1
 // 동물 품종: { v: 1, list: [품종 id] | 'auto' }. 지금은 한 마리. 모르는 모양·버전·id 면 흰 강아지로 보고 지우지 않는다
 export const STORE_PETS = 'pets'
 export const STORE_PETS_VERSION = 1
+// 잠들지 않기: { v: 1, on: boolean }. 모르는 모양·버전이면 꺼진 것으로 보고 지우지 않는다
+export const STORE_IDLE = 'idle'
+export const STORE_IDLE_VERSION = 1
 // 강아지가 바꾼 칸(옮긴 나뭇가지, 구덩이 흔적): 'edits:<세트>:<세션 시드 16 진 8 자>' 키에 { v: 1, at, list }. 키는 가장 최근 것 EDITS_KEYS 개까지 남기고,
 // 바뀌었으면 EDITS_SAVE_MS 에 한 번과 세션 끝에 쓴다. 모르는 모양·버전이면 빈 표로 보고 그 키에는 쓰지도 지우지도 않는다
 export const STORE_EDITS_PREFIX = 'edits:'
@@ -84,6 +102,8 @@ export const SIM_STEP_MS = 1000 / 60
 export const MAX_CATCHUP_MS = 1000
 
 // 신호 없이 이만큼 지나면 잠든다. 도구가 실행 중인 동안은 신호가 이어지는 것으로 본다
-export const SLEEP_AFTER_MS = 60_000
+export const SLEEP_AFTER_MS = 180_000
+// 잠든 지 이만큼 지나고 기운이 가득 차면 스스로 깬다. 깨면 신호 없는 시간을 새로 잰다
+export const SLEEP_MS = 60_000
 
 export * as default from '.'

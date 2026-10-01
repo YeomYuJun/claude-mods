@@ -42,12 +42,12 @@ export function poseFor(species: SpeciesDef, name: PoseName): PoseName {
   return species.behavior.poseMap[name] ?? name
 }
 
-// go: to 가 있으면 그 칸, pick 이 있으면 단계를 시작할 때 지금 자리에서 걸음 수 [lo, hi] 인 칸을 고른다(front 면 화면 앞쪽 칸).
+// go: to 가 있으면 그 칸, pick 이 있으면 단계를 시작할 때 지금 자리에서 걸음 수 [lo, hi] 인 칸을 고른다(front 면 화면 앞쪽 칸, toward 면 그 방향으로 가장 먼 칸).
 // must 면 길이 없을 때 행동 전체를 그만둔다(목적지가 핵심인 행동). 아니면 그 단계만 건너뛴다.
 // pose 의 grow: 도구 호출이 이어지면 이 자세를 늘린다(새로 시작하지 않는다). splash: 서 있는 동안 발 둘레에 물보라를 튀긴다.
 // hop: 제자리에서 솟았다 내려온다
 export type Step =
-  | { k: 'go'; to?: Tile; pick?: { lo: number; hi: number; front?: boolean }; gait: Gait; must?: boolean }
+  | { k: 'go'; to?: Tile; pick?: { lo: number; hi: number; front?: boolean; toward?: Dir }; gait: Gait; must?: boolean }
   | { k: 'pose'; pose: PoseName; ms: number; face?: Dir; emote?: Emote['kind']; grow?: boolean; splash?: boolean }
   | { k: 'hop'; peakPx: number; ms: number }
   | { k: 'spin'; quarters: number; msPer: number }
@@ -65,9 +65,9 @@ export type Step =
 
 export type ActName =
   | 'idle' | 'walk' | 'run' | 'sniff' | 'play' | 'sit' | 'lie'
-  | 'explore' | 'patrol' | 'perch' | 'rollOver' | 'watch' | 'nap' | 'drink' | 'splash' | 'chew' | 'digSpot' | 'swim'
+  | 'explore' | 'roam' | 'patrol' | 'perch' | 'rollOver' | 'watch' | 'nap' | 'drink' | 'splash' | 'chew' | 'digSpot' | 'swim'
   | 'greet' | 'dig' | 'settle' | 'bedtime'
-  | 'attend' | 'ponder' | 'seeOff' | 'shakeOff' | 'nose' | 'alert' | 'bark' | 'wait' | 'beg' | 'sulk' | 'startle' | 'puzzled'
+  | 'wakeUp' | 'attend' | 'ponder' | 'seeOff' | 'shakeOff' | 'nose' | 'alert' | 'bark' | 'wait' | 'beg' | 'sulk' | 'startle' | 'puzzled'
 
 // 놀이 변형
 export type PlayName = 'ball' | 'fetch' | 'spin' | 'pounce' | 'stalk' | 'chaseTail' | 'zoomies'
@@ -75,8 +75,9 @@ export type PlayName = 'ball' | 'fetch' | 'spin' | 'pounce' | 'stalk' | 'chaseTa
 // 욕구 0~1. 쉬고 싶은 정도는 1 - energy 로 따로 계산한다
 export type Needs = { curiosity: number; play: number; social: number; thirst: number }
 
-// started: 시작 처리를 마친 단계 번호. i 와 다르면 그 단계를 막 시작한 것이다. aborted: 목적지를 못 찾아 그만뒀다
-export type Activity = { name: ActName; steps: Step[]; i: number; t: number; started: number; aborted?: boolean }
+// started: 시작 처리를 마친 단계 번호. i 와 다르면 그 단계를 막 시작한 것이다. aborted: 목적지를 못 찾아 그만뒀다.
+// ordered: 사람이 명령(/pets do)으로 시킨 행동. 사람 직접 부류로 반응하고 평소 행동 기록에 넣지 않는다
+export type Activity = { name: ActName; steps: Step[]; i: number; t: number; started: number; aborted?: boolean; ordered?: boolean }
 
 // 행동 부류. 신호가 지금 행동을 끊을지는 부류로 정한다.
 // N 평소, S 잠, A 가벼운 반응, T 도구 반응, P 권한 대기, E 턴 결과, G 사람 직접
@@ -167,6 +168,10 @@ export type Pet = {
   // 0~1. 세션 신호가 오면 오르고 시간이 지나면 식는다. 높으면 뛰고 논다
   excite: number
   isAsleep: boolean
+  // 실제 시각(ms). 잠 자세에 들어간 때. 이만큼 자고 기운이 차면 스스로 깬다
+  sleepSince?: number
+  // 신호가 없어도 잠들지 않는다(/pets idle on)
+  keepAwake: boolean
   // 꼬리·숨·깜빡임 시계(ms)
   tail: number
   breath: number
@@ -208,7 +213,7 @@ export function create(world: WorldState, seed: number, now: number, species: Sp
     act: idleActivity(), queue: [], history: [], lastEndAt: {}, simMs: 0, blockedUntil: {}, aborts: 0,
     needs: { curiosity: 0.4, play: 0.3, social: 0.3, thirst: 0 }, waterNear: false, playHistory: [], visits: new Map(), tileKey: keyOf(x, y), lastHumanAt: now, carrying: false,
     pose: 'stand',
-    energy: species.behavior.initial.energy, excite: species.behavior.initial.excite, isAsleep: false,
+    energy: species.behavior.initial.energy, excite: species.behavior.initial.excite, isAsleep: false, keepAwake: false,
     tail: 0, breath: 0, blinkIn: 2500, blinkMs: 0,
     particles: [], fxClock: 0,
     ball: Ball.create(bx, by, world),
