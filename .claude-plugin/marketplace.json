@@ -1,0 +1,10 @@
+{
+  "name": "claude-mods",
+  "owner": { "name": "YeomYuJun" },
+  "description": "YeomYuJun 의 Claude Code 플러그인 모음",
+  "plugins": [
+    { "name": "pets", "source": "./pets", "description": "터미널 도킹 패널의 아이소메트릭 월드에서 동물이 스스로 돌아다니며 세션 신호에 반응한다" },
+    { "name": "auto-tetris", "source": "./auto-tetris", "description": "세션이 쓰는 토큰으로만 움직이는 자동 테트리스를 도킹 패널에 그린다" },
+    { "name": "agent-trace", "source": "./agent-trace", "description": "세션이 띄운 서브에이전트, agent team, Workflow 를 도킹 패널에 흐름도와 파일 접근으로 그린다" }
+  ]
+}

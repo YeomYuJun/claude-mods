@@ -2,64 +2,53 @@
 
 세션이 쓰는 토큰으로만 움직이는 자동 테트리스를 `/tetris` 도킹 패널에 그린다. 사람은 조작하지 않는다(패널에 버튼도 키도 없다).
 
-## 실행
-
-모든 세션에서 쓰려면 `~/.claude/settings.json` 의 `env` 에 두 값을 둔다. 새로 띄우는 세션부터 이 폴더를 `--plugin-dir` 로 준 것과 같이 불러온다(저장소 폴더를 그대로 읽으므로 `git pull` 이 다음 세션에 반영된다).
-
-```json
-{
-  "env": {
-    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1",
-    "CLAUDE_CODE_PLUGIN_DIRS": "D:/claude-mods/auto-tetris"
-  }
-}
-```
-
-`CLAUDE_CODE_PLUGIN_DIRS` 에 폴더가 여럿이면 `;` 로 잇는다. 빼면 전역 로드가 풀린다. 한 세션에서만 쓰려면:
+## 설치
 
 ```powershell
-$env:CLAUDE_CODE_ENABLE_FUNCTION_HOOKS = "1"
-claude --plugin-dir "D:/claude-mods/auto-tetris"
+claude plugin marketplace add YeomYuJun/claude-mods
+claude plugin install auto-tetris@claude-mods
 ```
 
-`/tetris` 로 열고 닫는다. 전체 화면 레이아웃에서는 트랜스크립트 옆에 24 열 폭으로 붙는다(`columns: 24` 요청, 사람이 끌어 바꾼 폭이 이긴다).
+함수 훅 스위치 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` 이 켜져 있어야 한다. 자세한 순서는 [저장소 README](../README.md#get-started) 에 있다.
 
-## 규칙
+`/tetris` 로 열고 닫는다. 전체 화면 레이아웃에서는 트랜스크립트 옆에 24 열 폭으로 붙는다. 24 열 × 22 행보다 작으면 필요한 크기를 알린다.
+
+## 기능
+
+### 규칙
 
 | 세션에서 일어난 일 | 게임에서 |
 |---|---|
-| 출력 토큰 12 개(텍스트·생각·도구 인자 스트림) | 한 수: 목표 회전으로 한 번 돌리기, 목표 열로 한 칸, 또는 한 칸 내리기 |
-| 모델이 도구 호출을 시작(`turn.step` 의 `tool` 조각) | 그 앞에 쌓인 수를 다 둔 뒤, 지금 블록이 계획한 자리로 한 행씩 떨어진다 |
+| 출력 토큰 12 개(텍스트, 생각, 도구 인자) | 한 수: 한 번 돌리기, 한 칸 옮기기, 또는 한 칸 내리기 |
+| 모델이 도구 호출을 시작 | 지금 블록이 계획한 자리로 떨어진다 |
 | 아무 일 없음 | 멈춘다. 시간만으로는 블록이 내려가지 않는다 |
 
-- 수는 AI 가 둔다. 실력은 응답을 쓰는 모델(서브에이전트 포함, `turn.step` 의 `model`)의 등급을 따르고, 다음 블록부터 적용된다. 모델 id 에 `haiku`·`sonnet`·`opus`·`fable` 이 있으면 그 등급, 없으면 `sonnet` 이다.
-  - 놓기: 회전 × 열마다 곧장 내려 닿는 자리를 모두 나열한다.
-  - 고르기: `haiku` 는 높이·지운 줄·구멍·울퉁불퉁함 4 가중치, 그 위는 Dellacherie 6 특징(착지 높이·깎인 칸·행 전이·열 전이·구멍·우물). `opus`·`fable` 은 NEXT 블록까지 두 수를 본다.
-  - 실수: 평가 잡음, 판단 실수(상위 4 후보 중 최선이 아닌 것), 실행 실수(노린 열에서 한 칸 옆). 확률은 `hooks/game/ai.ts` 의 `TIERS` 에 있다.
-  - 빈 판에서 1000 조각씩 세 번 돌린 결과(100 조각당 새로 생긴 구멍 / 게임 오버): haiku 25~32 / 7~9, sonnet 11~16 / 1~2, opus 4~6 / 0, fable 2~4 / 0.
-- `░` 는 AI 가 노린 착지 자리다. 실행 실수가 나면 블록은 그 옆에 떨어진다.
-- 토큰은 스트림 조각(텍스트·생각·도구 인자 JSON)의 글자 수로 어림해 바로 수를 주고(영문 4 글자·한글 1.6 글자에 1 토큰), 응답이 끝나면 `stop` 조각의 `usage.output_tokens` 로 맞춘다. 어림이 모자랐던 만큼(스트림에 보이지 않은 생각 등)은 수로 더 주고, 속도 막대에는 그 응답이 걸린 시간에 고르게 나눠 넣는다.
-- 서브에이전트·팀원의 응답도 같은 게임을 움직인다.
-- 토큰과 낙하는 들어온 순서대로 큐에 쌓이고, 프레임마다 정해진 만큼만 꺼내 둔다. 한꺼번에 많은 토큰이 들어와도(도구 인자, 응답 끝 정산) 한 수씩 보인다. 프레임마다 쓰는 토큰은 `max(48, tok/s) + 밀린 토큰 ÷ 1.5 초` 를 초당 양으로 한 값이고, 토큰은 실수로 쌓아 12 개 몫이 찰 때마다 한 수가 된다. 한 프레임에 3 수를 넘지 않는다.
-- 낙하 속도는 `20 + tok/s × 0.4` 행/초(최대 60)다. 떨어지는 동안과 줄 지우기 중에는 수를 받지 않고 큐에서 기다린다.
-- 패널이 닫혀 있어도 게임은 진행된다(애니메이션을 건너뛰고 큐를 바로 비운다). 밀린 토큰은 480 개(40 수)까지만 쌓는다.
+- 서브에이전트와 팀원의 응답도 같은 게임을 움직인다.
+- 낙하 속도는 토큰 속도를 따른다.
+- 패널이 닫혀 있어도 게임은 진행된다.
 
-## 화면
+### AI 실력
 
-고정 폭 24 열. 보드 한 칸은 2 열 × 1 행이고 `▀` 의 위 절반을 밝게 칠한다. 패널이 더 넓으면 가운데에 두고, 24 열 × 22 행보다 작으면 필요한 크기를 글로 적는다. 22 행이면 보드만, 40 행쯤이면 아래 정보까지 다 보인다.
+수는 AI 가 둔다. 실력은 응답을 쓰는 모델의 등급(`haiku`, `sonnet`, `opus`, `fable`)을 따른다.
 
-- `NEXT` 다음 블록, `LINES` `SCORE` `COMBO`(지금 콤보와 최고) `PIECES` `GAME` `AI`(지금 등급)
-- 콤보: 줄을 지운 배치가 이어진 횟수. 줄을 못 지운 배치에서 0 이 된다. 2 콤보부터 `50 × (콤보 - 1)` 점을 더한다. 줄을 지우면 우물 안에 `SINGLE`~`TETRIS` 와 `COMBO xN` 이 1.2 초 뜨고, 게임 오버도 우물 안에 적는다.
-- `OUT TOK` 출력 토큰, `IN TOK` 입력 토큰(캐시 읽기·쓰기 포함), `tok/s` 최근 2 초 평균 속도와 0.5 초 막대 20 개
-- 상태: `streaming`(텍스트가 흐르는 중), `thinking`, `tool call`(도구 실행 중, 깜빡임), `waiting`(턴은 진행 중인데 조각이 없음), `idle`
+- `haiku` 는 단순한 평가로 두고 실수가 잦다.
+- `sonnet` 이상은 더 많은 특징으로 판을 평가한다.
+- `opus` 와 `fable` 은 다음 블록까지 두 수를 본다.
+- 등급마다 평가 잡음, 판단 실수, 실행 실수(노린 열에서 한 칸 옆) 확률이 다르다(`hooks/game/ai.ts` 의 `TIERS`).
 
-그리기는 `Raster` 한 장이고, 패널이 열려 있는 동안 33 ms 마다 새 셀을 만들어 달라졌을 때만 `$.ui.blit` 한다.
+### 화면
+
+- 보드, `░` 로 표시한 AI 가 노린 착지 자리
+- `NEXT`, `LINES`, `SCORE`, `COMBO`, `PIECES`, `GAME`, `AI`(지금 등급)
+- 출력 토큰, 입력 토큰, 최근 토큰 속도 막대
+- 세션 상태: `streaming`, `thinking`, `tool call`, `waiting`, `idle`
+- 줄을 지우면 `SINGLE`~`TETRIS` 와 `COMBO xN` 이 뜬다
 
 ## 개발
 
 ```powershell
-claude plugin test "D:/claude-mods/auto-tetris"
-claude plugin validate "D:/claude-mods/auto-tetris"
+claude plugin test "<저장소 경로>/auto-tetris"
+claude plugin validate "<저장소 경로>/auto-tetris"
 ```
 
-`hooks/game`·`hooks/meter`·`hooks/frame` 은 `$` 를 쓰지 않는 순수 모듈이다.
+`hooks/game`, `hooks/meter`, `hooks/frame` 은 `$` 를 쓰지 않는 순수 모듈이다.

@@ -1,0 +1,30 @@
+# 빌드·배포 산출물
+dist/
+*.zip
+
+# 의존성
+node_modules/
+__pycache__/
+*.pyc
+
+# 플러그인 타입 선언(로컬에서 만든다)과 그것을 읽는 설정
+**/.claude-plugin/types/
+tsconfig.json
+
+# Claude Code 로컬 상태
+.claude/
+.superpowers/
+.state/
+
+# 로그·환경 변수
+*.log
+.env
+.env.*
+
+# OS·에디터
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
