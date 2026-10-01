@@ -26,6 +26,6 @@ export const TETRIS_DOCKED = { ...TETRIS, presentation: { isFullscreen: true, co
 export function paneOf(columns: number, rows: number, surface: 'terminal' | 'desktop' = 'terminal') {
   return {
     component: 'Pane', surface, requestId: 'tetris', viewport: { columns: 160, rows: 50 },
-    props: { title: '테트리스', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {} },
+    props: { title: 'TETRIS', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {} },
   } as const
 }

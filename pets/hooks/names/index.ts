@@ -3,8 +3,7 @@ export const PANE_ID = 'pets'
 export const COMMAND_NAME = 'pets'
 export const COMMAND_DESCRIPTION = '동물 패널을 열고 닫는다. zoom [in|out|wide|far|1|2]: 맵 보기(wide)·원거리(far)·1 배·2 배, world [세트|auto]: 맵 세트, pet [품종|auto]: 동물(강아지·고양이 품종), idle [on|off]: 신호가 없어도 잠들지 않기, do <행동>: 행동 시키기'
 export const ARGUMENT_HINT = 'zoom [in|out|wide|far|1|2] | world [세트|auto] | pet [품종|auto] | idle [on|off] | do <행동>'
-// 패널 제목은 여는 순간의 동물 종 이름(강아지, 고양이)
-export const PANE_TITLE = (speciesLabel: string) => speciesLabel
+export const PANE_TITLE = 'pets'
 export const PANEL_SHOWN_TEXT = '동물 패널을 열었다'
 export const PANEL_HIDDEN_TEXT = '동물 패널을 닫았다'
 export const ZOOM_TEXT = (zoom: 'wide' | 'far' | 1 | 2) => zoom === 'wide' ? '맵 보기로 가장 넓게 보게 바꿨다' : zoom === 'far' ? '원거리로 넓게 보게 바꿨다' : `도트 크기를 ${zoom} 배로 바꿨다`
