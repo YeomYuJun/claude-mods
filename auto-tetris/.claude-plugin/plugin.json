@@ -1,6 +1,6 @@
 {
   "name": "auto-tetris",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Draws an auto-playing Tetris in a docked panel, moved only by the tokens the session writes. No one controls it",
   "author": {
     "name": "YeomYuJun"

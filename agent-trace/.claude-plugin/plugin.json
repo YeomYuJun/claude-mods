@@ -1,6 +1,6 @@
 {
   "name": "agent-trace",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Reads the subagents, agent teams and Workflows the session launched from its transcript files and draws them in a docked panel as a flow diagram, agent details and file access",
   "author": {
     "name": "YeomYuJun"

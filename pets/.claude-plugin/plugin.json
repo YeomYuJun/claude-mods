@@ -1,6 +1,6 @@
 {
   "name": "pets",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "An animal (dog, cat, turtle, duck, penguin or the Claude mascot) roams an isometric world (8 map sets) in a docked terminal panel and reacts to session signals (prompts, tool calls, turn ends).",
   "author": {
     "name": "YeomYuJun"
