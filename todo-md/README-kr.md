@@ -40,6 +40,18 @@ fullscreen 렌더러(`/tui fullscreen`)에서는 터미널이 110 열 이상이�
 - Edit, Write 도구가 그 파일을 고치면 바로 다시 읽는다.
 - 파일이 없으면 없다고 표시하고, 만들어지면 다음 확인 때 보인다. 1 MiB 를 넘는 파일은 읽지 않는다.
 
+## 언어
+
+패널 글, `/todo` 설명, 명령 응답은 플러그인의 `language` 옵션을 따른다. 값은 `auto`(기본), `en`, `ko` 다. `/config` 에서 바꾸면 플러그인이 새 값으로 다시 불러와진다.
+
+`auto` 는 아래 순서로 보고 한국어나 영어로 읽히는 첫 값을 쓴다. 아무것도 없으면 영어다.
+
+1. Claude Code settings 의 `language` 키(`"korean"`, `"한국어"`, `"english"`)
+2. 환경변수 `LC_ALL`
+3. 환경변수 `LANG`(`ko_KR.UTF-8`)
+
+Windows 에서는 `LC_ALL`·`LANG` 이 대개 비어 있어서 settings 에 `language` 키가 없으면 영어로 보인다. settings 의 키를 바꾼 것은 다음 세션부터 반영된다.
+
 ## 개발
 
 ```sh

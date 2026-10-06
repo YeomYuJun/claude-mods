@@ -1,5 +1,6 @@
-import type { FsStat, On, Timer } from 'claude-code'
+import type { EngineInterface, FsStat, On, PluginOptions, Timer } from 'claude-code'
 
+import Messages, { type Language } from './messages'
 import Names from './names'
 import Parse from './parse'
 import Target, { type Target as TargetValue } from './target'
@@ -17,7 +18,25 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function register(on: On) {
+// userConfig 의 language 가 auto 면 settings 의 language, LC_ALL, LANG 순으로 본다. $ 는 훅 안에만 있어 session.start 에서 부른다
+async function languageIn($: Pick<EngineInterface, 'settings' | 'env'>, option: unknown): Promise<Language> {
+  if (option === 'en' || option === 'ko') return option
+  const valueOf = async (read: () => Promise<unknown>) => {
+    try {
+      return await read()
+    } catch {
+      return undefined
+    }
+  }
+  return Messages.languageOf(option, [
+    await valueOf(async () => (await $.settings.read()).language),
+    await valueOf(() => $.env.get('LC_ALL')),
+    await valueOf(() => $.env.get('LANG')),
+  ])
+}
+
+export function register(on: On, options: PluginOptions) {
+  let messages = Messages.messagesOf(Messages.languageOf(options.language))
   let host: Host | undefined
   let isOpen = false
   let target: TargetValue = { kind: 'cwd' }
@@ -91,21 +110,22 @@ export function register(on: On) {
       every: (ms, fn) => $.clock.every(ms, fn),
       invalidate: () => $.ui.invalidate('ui.render'),
     }
-    await $.command.register({ name: Names.COMMAND_NAME, description: Names.COMMAND_DESCRIPTION })
+    messages = Messages.messagesOf(await languageIn($, options.language))
+    await $.command.register({ name: Names.COMMAND_NAME, description: messages.commandDescription, argumentHint: messages.argumentHint })
     return next(e)
   })
 
   // 인자 없이 부르면 cwd 의 TODO.md 를 보고, 이미 그것을 보고 있으면 닫는다.
   // 경로를 주면 감시 대상을 그 파일 하나로 바꾼다. 폴더를 주면 그 안의 TODO.md 를 본다.
   on('command.run', { command: Names.COMMAND_NAME }, async ($, e) => {
-    if (!host) return { text: Names.PANEL_HIDDEN_TEXT }
+    if (!host) return { text: messages.notReady }
     const arg = Target.argOf(e.args)
     if (arg === '') {
       if (isOpen && target.kind === 'cwd') {
         await $.ui.close({ id: Names.PANE_ID })
         isOpen = false
         stopPoll()
-        return { text: Names.PANEL_HIDDEN_TEXT }
+        return { text: messages.panelHidden }
       }
       target = { kind: 'cwd' }
     } else {
@@ -117,7 +137,7 @@ export function register(on: On) {
     await $.ui.open({ id: Names.PANE_ID, title: Names.PANE_TITLE })
     isOpen = true
     startPoll(host)
-    return { text: `${Names.PANEL_SHOWN_TEXT}: ${await pathOf(host)}` }
+    return { text: messages.panelShown(await pathOf(host)) }
   })
 
   on('ui.close', { id: Names.PANE_ID }, async ($, e, next) => {
@@ -132,7 +152,7 @@ export function register(on: On) {
   on('ui.render', { component: 'Pane' }, ($, e, next) => {
     if (e.requestId !== Names.PANE_ID || !view) return next(e)
     const { Box, Text } = $.ui.resolve(e)
-    return Views.todoView({ kit: { Box, Text }, view })
+    return Views.todoView({ kit: { Box, Text }, messages, view })
   })
 
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {

@@ -4,5 +4,18 @@
   "description": "cwd 의 TODO.md(또는 지정한 md 파일)에서 제목과 체크리스트 항목만 골라 도킹 패널에 보이고, 파일이 바뀌면 다시 그린다",
   "author": {
     "name": "YeomYuJun"
+  },
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Panel and command language: auto, en or ko. auto follows the language key in settings, then LC_ALL and LANG, then English",
+      "options": [
+        "auto",
+        "en",
+        "ko"
+      ],
+      "default": "auto"
+    }
   }
 }
