@@ -48,6 +48,18 @@ fullscreen 렌더러(`/tui fullscreen`)에서만 쓸 수 있다. classic 렌더�
 - 세션 상태: `streaming`, `thinking`, `tool call`, `waiting`, `idle`
 - 줄을 지우면 `SINGLE`~`TETRIS` 와 `COMBO xN` 이 뜬다
 
+## 언어
+
+크기 안내, `/tetris` 설명, 명령 응답은 플러그인의 `language` 옵션을 따른다. 값은 `auto`(기본), `en`, `ko` 다. `/config` 에서 바꾸면 플러그인이 새 값으로 다시 불러와진다. 게임 화면 안의 라벨(`NEXT`, `SCORE`, 상태어)은 두 언어 모두 영어로 둔다. 보드 래스터가 폭 1 문자만 받기 때문이다.
+
+`auto` 는 아래 순서로 보고 한국어나 영어로 읽히는 첫 값을 쓴다. 아무것도 없으면 영어다.
+
+1. Claude Code settings 의 `language` 키(`"korean"`, `"한국어"`, `"english"`)
+2. 환경변수 `LC_ALL`
+3. 환경변수 `LANG`(`ko_KR.UTF-8`)
+
+Windows 에서는 `LC_ALL`·`LANG` 이 대개 비어 있어서 settings 에 `language` 키가 없으면 영어로 보인다. settings 의 키를 바꾼 것은 다음 세션부터 반영된다.
+
 ## 개발
 
 ```sh

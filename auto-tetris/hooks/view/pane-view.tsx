@@ -21,8 +21,3 @@ export function noticeView(kit: NoticeKit, lines: readonly string[]): RenderElem
   )
 }
 
-export function tooSmallLines(cols: number, rows: number): string[] {
-  return [`패널이 ${Names.COLS}열 × ${Names.MIN_ROWS}행 이상이어야 한다`, `지금 ${cols}열 × ${rows}행`]
-}
-
-export const NOT_TERMINAL_LINES: readonly string[] = ['테트리스는 터미널 패널에서만 그린다']

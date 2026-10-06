@@ -1,7 +1,8 @@
-import type { On, Timer } from 'claude-code'
+import type { EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
 import Frame from './frame'
 import Game from './game'
+import Messages, { type Language } from './messages'
 import Meter from './meter'
 import Names from './names'
 import Queue from './queue'
@@ -14,7 +15,25 @@ type Host = {
   invalidate: () => void
 }
 
-export function register(on: On) {
+// userConfig 의 language 가 auto 면 settings 의 language, LC_ALL, LANG 순으로 본다. $ 는 훅 안에만 있어 session.start 에서 부른다
+async function languageIn($: Pick<EngineInterface, 'settings' | 'env'>, option: unknown): Promise<Language> {
+  if (option === 'en' || option === 'ko') return option
+  const valueOf = async (read: () => Promise<unknown>) => {
+    try {
+      return await read()
+    } catch {
+      return undefined
+    }
+  }
+  return Messages.languageOf(option, [
+    await valueOf(async () => (await $.settings.read()).language),
+    await valueOf(() => $.env.get('LC_ALL')),
+    await valueOf(() => $.env.get('LANG')),
+  ])
+}
+
+export function register(on: On, options: PluginOptions) {
+  let messages = Messages.messagesOf(Messages.languageOf(options.language))
   let host: Host | undefined
   let isOpen = false
   let game = Game.create(0x1b873593)
@@ -94,7 +113,8 @@ export function register(on: On) {
     game = Game.create(((await $.clock.now()) | 0) ^ 0x1b873593)
     // 첫 응답 전에도 세션 모델의 등급으로 둔다. 모델을 읽지 못하면 기본 등급 그대로
     try { Game.setTier(game, Game.tierOf(await $.session.model())) } catch { /* 기본 등급 */ }
-    await $.command.register({ name: Names.COMMAND_NAME, description: Names.COMMAND_DESCRIPTION })
+    messages = Messages.messagesOf(await languageIn($, options.language))
+    await $.command.register({ name: Names.COMMAND_NAME, description: messages.commandDescription })
     return next(e)
   })
 
@@ -103,7 +123,7 @@ export function register(on: On) {
       await $.ui.close({ id: Names.PANE_ID })
       isOpen = false
       stopFrames()
-      return { text: Names.PANEL_HIDDEN_TEXT }
+      return { text: messages.panelHidden }
     }
     const docked = e.presentation?.isFullscreen === true
     await $.ui.open(docked
@@ -111,7 +131,7 @@ export function register(on: On) {
       : { id: Names.PANE_ID, title: Names.PANE_TITLE, holdToasts: true, rows: Names.INLINE_ROWS })
     isOpen = true
     Meter.resetRate(meter)
-    return { text: Names.PANEL_SHOWN_TEXT }
+    return { text: messages.panelShown }
   })
 
   on('ui.close', { id: Names.PANE_ID }, async ($, e, next) => {
@@ -127,11 +147,11 @@ export function register(on: On) {
     const rows = e.props.scroll.bodyRows
     if (!('Raster' in kit)) {
       mounted = undefined
-      return View.noticeView(kit, View.NOT_TERMINAL_LINES)
+      return View.noticeView(kit, [messages.notTerminal])
     }
     if (cols < Names.COLS || rows < Names.MIN_ROWS) {
       mounted = undefined
-      return View.noticeView(kit, View.tooSmallLines(cols, rows))
+      return View.noticeView(kit, messages.tooSmall(Names.COLS, Names.MIN_ROWS, cols, rows))
     }
     const cells = frameOf(cols, rows, await $.clock.now())
     mounted = { cols, rows }

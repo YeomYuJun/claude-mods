@@ -1,10 +1,7 @@
 export const PLUGIN_NAME = 'auto-tetris'
 export const PANE_ID = 'tetris'
 export const COMMAND_NAME = 'tetris'
-export const COMMAND_DESCRIPTION = '토큰으로 움직이는 자동 테트리스 패널을 열고 닫는다'
 export const PANE_TITLE = 'TETRIS'
-export const PANEL_SHOWN_TEXT = '테트리스 패널을 열었다'
-export const PANEL_HIDDEN_TEXT = '테트리스 패널을 닫았다'
 export const RASTER_KEY = 'board'
 
 // 고정 가로: 보드 한 칸 = 2열 × 1행, 보드 20열 + 테두리 2열 + 여백 2열

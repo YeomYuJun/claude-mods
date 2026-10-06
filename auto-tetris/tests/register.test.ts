@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import Messages from '../hooks/messages'
 import Fixtures from './fixtures'
 
 const USAGE = { input_tokens: 1_000, output_tokens: 1_200, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'claude-test' }
@@ -39,16 +40,18 @@ async function framesOf(world: ReturnType<typeof Fixtures.worldOf>, count: numbe
 }
 
 describe('register', () => {
-  test('/tetris opens the pane 24 columns wide when docked, again closes it', async ($, on) => {
-    const world = Fixtures.worldOf(on)
-    await $.session.start(Fixtures.START)
-    const first = await $.command.run(Fixtures.TETRIS_DOCKED)
-    const second = await $.command.run(Fixtures.TETRIS_DOCKED)
-    expect(first.text).toBe('테트리스 패널을 열었다')
-    expect(second.text).toBe('테트리스 패널을 닫았다')
-    expect(world.opened[0]?.columns).toBe(24)
-    expect(world.closed).toEqual(['tetris'])
-  })
+  for (const [language, shown, hidden] of [['ko', '테트리스 패널을 열었다', '테트리스 패널을 닫았다'], ['en', 'Opened the Tetris panel', 'Closed the Tetris panel']] as const) {
+    test(`/tetris opens the pane 24 columns wide when docked, again closes it (${language})`, { options: { language } }, async ($, on) => {
+      const world = Fixtures.worldOf(on)
+      await $.session.start(Fixtures.START)
+      const first = await $.command.run(Fixtures.TETRIS_DOCKED)
+      const second = await $.command.run(Fixtures.TETRIS_DOCKED)
+      expect(first.text).toBe(shown)
+      expect(second.text).toBe(hidden)
+      expect(world.opened[0]?.columns).toBe(24)
+      expect(world.closed).toEqual(['tetris'])
+    })
+  }
 
   test('the pane is one Raster as large as its body', async ($, on) => {
     Fixtures.worldOf(on)
@@ -60,12 +63,28 @@ describe('register', () => {
     expect(Reflect.get(Reflect.get(tree, 'props') as object, 'rows')).toBe(44)
   })
 
-  test('a pane narrower than 24 columns says how large it must be', async ($, on) => {
-    Fixtures.worldOf(on)
-    await $.session.start(Fixtures.START)
-    await $.command.run(Fixtures.TETRIS_DOCKED)
-    const tree = await $.ui.render(Fixtures.paneOf(20, 44))
-    expect(Fixtures.textOf(tree)).toContain('24열 × 22행 이상')
+  for (const [language, notice] of [['ko', '24열 × 22행 이상'], ['en', 'at least 24 columns × 22 rows']] as const) {
+    test(`a pane narrower than 24 columns says how large it must be (${language})`, { options: { language } }, async ($, on) => {
+      Fixtures.worldOf(on)
+      await $.session.start(Fixtures.START)
+      await $.command.run(Fixtures.TETRIS_DOCKED)
+      const tree = await $.ui.render(Fixtures.paneOf(20, 44))
+      expect(Fixtures.textOf(tree)).toContain(notice)
+    })
+  }
+
+  test('en and ko messages carry the same keys of the same kind', () => {
+    const { en, ko } = Messages.MESSAGES
+    expect(Object.keys(en).sort()).toEqual(Object.keys(ko).sort())
+    for (const key of Object.keys(en) as Array<keyof typeof en>) expect(typeof en[key]).toBe(typeof ko[key])
+  })
+
+  test('auto reads the settings language, then LC_ALL, then LANG, and falls back to English', () => {
+    expect(Messages.languageOf('auto', ['Korean', 'en_US.UTF-8'])).toBe('ko')
+    expect(Messages.languageOf('auto', [undefined, 'en_US.UTF-8', 'ko_KR.UTF-8'])).toBe('en')
+    expect(Messages.languageOf('auto', [undefined, undefined, 'ko_KR.UTF-8'])).toBe('ko')
+    expect(Messages.languageOf('auto', [undefined, 'C', undefined])).toBe('en')
+    expect(Messages.languageOf('ko', ['english'])).toBe('ko')
   })
 
   test('streamed output tokens show up and move the game', async ($, on) => {
