@@ -54,11 +54,11 @@ fullscreen 렌더러(`/tui fullscreen`)에서만 쓸 수 있다. classic 렌더�
 
 `auto` 는 아래 순서로 보고 한국어나 영어로 읽히는 첫 값을 쓴다. 아무것도 없으면 영어다.
 
-1. Claude Code settings 의 `language` 키(`"korean"`, `"한국어"`, `"english"`)
+1. settings 파일에 `language` 키가 있으면 그 값(`"korean"`, `"english"`). Claude Code settings 문서에는 없는 키다
 2. 환경변수 `LC_ALL`
 3. 환경변수 `LANG`(`ko_KR.UTF-8`)
 
-Windows 에서는 `LC_ALL`·`LANG` 이 대개 비어 있어서 settings 에 `language` 키가 없으면 영어로 보인다. settings 의 키를 바꾼 것은 다음 세션부터 반영된다.
+Windows 에서는 `LC_ALL`·`LANG` 이 대개 비어 있어서 그 키가 없으면 영어로 보인다. settings 의 키를 바꾼 것은 다음 세션부터 반영된다.
 
 ## 개발
 

@@ -48,11 +48,11 @@ The panel text, the `/todo` description and the command replies follow the plugi
 
 `auto` takes the first of these that names Korean or English, and falls back to English:
 
-1. The `language` key in Claude Code settings (`"korean"`, `"한국어"`, `"english"`)
+1. A `language` key in the settings files, if one is set (`"korean"`, `"english"`). The Claude Code settings reference does not list this key
 2. The `LC_ALL` environment variable
 3. The `LANG` environment variable (`ko_KR.UTF-8`)
 
-On Windows `LC_ALL` and `LANG` are usually unset, so without a `language` key in settings the plugin shows English. A change to the settings key takes effect in the next session.
+On Windows `LC_ALL` and `LANG` are usually unset, so without such a key the plugin shows English. A change to the settings key takes effect in the next session.
 
 ## Development
 

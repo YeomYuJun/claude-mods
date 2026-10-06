@@ -9,7 +9,7 @@
     "language": {
       "type": "string",
       "title": "Language",
-      "description": "Panel and command language: auto, en or ko. auto follows the language key in settings, then LC_ALL and LANG, then English",
+      "description": "Panel and command language: auto, en or ko. auto reads a language key in settings if one is set, then LC_ALL and LANG, then English",
       "options": [
         "auto",
         "en",

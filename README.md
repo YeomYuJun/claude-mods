@@ -17,7 +17,7 @@ All four plugins run as TypeScript function hooks (`hooks/register.ts`). No sepa
 
 pets and auto-tetris work only in the fullscreen renderer (`/tui fullscreen`). In the classic renderer (`/tui default`) the panel opens above the input box, but it is too small and shows only a size notice. todo-md works in both renderers.
 
-The panel text and command replies are in English or Korean. Each plugin has a `language` option (`auto`, `en`, `ko`) in `/config`. `auto` reads the `language` key in Claude Code settings, then `LC_ALL` and `LANG`, and falls back to English. Details are in each plugin's README.
+The panel text and command replies are in English or Korean. Each plugin has a `language` option (`auto`, `en`, `ko`) in `/config`. `auto` reads a `language` key in the settings files if one is set (not a documented Claude Code setting), then `LC_ALL` and `LANG`, and falls back to English. Details are in each plugin's README.
 
 ## Get started
 
