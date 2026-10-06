@@ -1,6 +1,7 @@
-import type { AgentInfo, FsEntry, On, SessionMessage, Timer } from 'claude-code'
+import type { AgentInfo, EngineInterface, FsEntry, On, PluginOptions, SessionMessage, Timer } from 'claude-code'
 
 import Collect from './collect'
+import Messages, { type Language } from './messages'
 import type { StopNote, TraceModel } from './model'
 import Names from './names'
 import PaneState, { type PaneAction } from './pane-state'
@@ -42,7 +43,25 @@ function messageOf(value: unknown): string | undefined {
   return undefined
 }
 
-export function register(on: On) {
+// userConfig 의 language 가 auto 면 settings 의 language, LC_ALL, LANG 순으로 본다. $ 는 훅 안에만 있어 session.start 에서 부른다
+async function languageIn($: Pick<EngineInterface, 'settings' | 'env'>, option: unknown): Promise<Language> {
+  if (option === 'en' || option === 'ko') return option
+  const valueOf = async (read: () => Promise<unknown>) => {
+    try {
+      return await read()
+    } catch {
+      return undefined
+    }
+  }
+  return Messages.languageOf(option, [
+    await valueOf(async () => (await $.settings.read()).language),
+    await valueOf(() => $.env.get('LC_ALL')),
+    await valueOf(() => $.env.get('LANG')),
+  ])
+}
+
+export function register(on: On, options: PluginOptions) {
+  let messages = Messages.messagesOf(Messages.languageOf(options.language))
   let host: Host | undefined
   let isOpen = false
   let sessionDir: string | undefined
@@ -149,7 +168,8 @@ export function register(on: On) {
         return { text: text.trim().split('\n')[0] ?? '', isError: result.isError === true }
       },
     }
-    await $.command.register({ name: Names.COMMAND_NAME, description: Names.COMMAND_DESCRIPTION })
+    messages = Messages.messagesOf(await languageIn($, options.language))
+    await $.command.register({ name: Names.COMMAND_NAME, description: messages.commandDescription })
     return next(e)
   })
 
@@ -160,7 +180,7 @@ export function register(on: On) {
       closedByPerson = true
       poll?.cancel()
       poll = undefined
-      return { text: Names.PANEL_HIDDEN_TEXT }
+      return { text: messages.panelHidden }
     }
     if (host) await refresh(host)
     const docked = e.presentation?.isFullscreen === true
@@ -169,7 +189,7 @@ export function register(on: On) {
       : { id: Names.PANE_ID, title: Names.PANE_TITLE, holdToasts: true, focus: true, closeOnEscape: true, rows: 24 })
     isOpen = true
     closedByPerson = false
-    return { text: Names.PANEL_SHOWN_TEXT }
+    return { text: messages.panelShown }
   })
 
   on('command.run', { command: ['clear', 'resume'] }, async ($, e, next) => {
@@ -182,7 +202,7 @@ export function register(on: On) {
   on('ui.close', { id: Names.PANE_ID }, async ($, e, next) => {
     if (state.detail !== undefined && e.origin.kind === 'person') {
       act({ type: 'back' })
-      return { deny: '상세에서 흐름으로 돌아간다' }
+      return { deny: messages.backToFlow }
     }
     const result = await next(e)
     if (result.deny === undefined) {
@@ -199,7 +219,7 @@ export function register(on: On) {
     const { Box, Text, Button, Markdown } = $.ui.resolve(e)
     const now = await $.clock.now()
     const view = Views.paneView({
-      kit: { Box, Text, Button, Markdown }, model: withNowTools(model), state, width: e.props.bodyColumns, rows: e.props.scroll.bodyRows,
+      kit: { Box, Text, Button, Markdown }, messages, model: withNowTools(model), state, width: e.props.bodyColumns, rows: e.props.scroll.bodyRows,
       now, act, canStop: true, stop: id => { void stop(id) }, copy: text => { void $.ui.copy({ text, surface: e.surface }) },
     })
     maxTop = Math.max(0, view.maxTop)

@@ -3,11 +3,11 @@
 /* @jsxFrag Fragment */
 import type { RenderElement } from 'claude-code'
 
+import type { Messages } from '../messages'
 import { statusOf, type ToolCall, type TraceModel, type TraceNode } from '../model'
 import Text from '../text'
-import { dotOf, metaLineOf, STATUS_WORD, type Act, type Kit } from './flow-view.jsx'
+import { dotOf, metaLineOf, type Act, type Kit } from './flow-view.jsx'
 
-const RUN_MODE = { background: '백그라운드', foreground: '포그라운드' } as const
 const INDENT = '  '
 const PROMPT_ROWS = 4
 const TOOL_NAME_MIN = 7
@@ -16,6 +16,7 @@ const TIME_CELLS = 8
 
 type Input = {
   kit: Kit
+  messages: Messages
   model: TraceModel
   id: string
   width: number
@@ -29,25 +30,26 @@ type Input = {
   copy?: (text: string) => void
 }
 
-function statusLineOf(node: TraceNode, now: number): string {
-  if (node.kind === 'session') return metaLineOf(node, now)
-  const raw = node.rawStatus !== undefined && statusOf(node.rawStatus) !== node.status ? ` (엔진 값: ${node.rawStatus})` : ''
+function statusLineOf(messages: Messages, node: TraceNode, now: number): string {
+  if (node.kind === 'session') return metaLineOf(messages, node, now)
+  const raw = node.rawStatus !== undefined && statusOf(node.rawStatus) !== node.status ? messages.engineValue(node.rawStatus) : ''
   const elapsed = node.startedAt === undefined ? '' : Text.durationOf((node.status === 'running' ? now : node.endedAt ?? now) - node.startedAt)
   const tokens = node.tokens === undefined ? '' : Text.tokensOf(node.tokens)
-  const phase = node.phase ? `${node.phase.done}/${node.phase.total} 단계` : ''
-  return [`${STATUS_WORD[node.status]}${raw}`, elapsed, tokens, phase, node.note === 'too-large' ? '기록이 커서 요약만' : ''].filter(Boolean).join(' · ')
+  const phase = node.phase ? messages.phaseSteps(node.phase.done, node.phase.total) : ''
+  return [`${messages.status[node.status]}${raw}`, elapsed, tokens, phase, node.note === 'too-large' ? messages.tooLarge : ''].filter(Boolean).join(' · ')
 }
 
-function fieldsOf(node: TraceNode, parentLabel: string | undefined): Array<[string, string]> {
-  const kind = [node.kind === 'teammate' ? '팀원' : undefined, node.agentType === node.name ? undefined : node.agentType, node.runMode && RUN_MODE[node.runMode]].filter(Boolean).join(' · ')
+function fieldsOf(messages: Messages, node: TraceNode, parentLabel: string | undefined): Array<[string, string]> {
+  const runMode = node.runMode === undefined ? undefined : messages[node.runMode]
+  const kind = [node.kind === 'teammate' ? messages.teammate : undefined, node.agentType === node.name ? undefined : node.agentType, runMode].filter(Boolean).join(' · ')
   const sent = (node.sentTo ?? []).map(item => `→ ${item.to} ×${item.count}`).join('  ')
   const fields: Array<[string, string]> = []
   if (node.kind === 'session') return fields
-  if (kind) fields.push(['유형', kind])
-  if (node.model) fields.push(['모델', Text.modelNameOf(node.model)])
-  if (parentLabel) fields.push(['부모', parentLabel])
-  if (sent) fields.push(['보냄', sent])
-  if (node.status === 'running' && node.nowTool) fields.push(['지금', node.nowTool])
+  if (kind) fields.push([messages.fieldKind, kind])
+  if (node.model) fields.push([messages.fieldModel, Text.modelNameOf(node.model)])
+  if (parentLabel) fields.push([messages.fieldParent, parentLabel])
+  if (sent) fields.push([messages.fieldSent, sent])
+  if (node.status === 'running' && node.nowTool) fields.push([messages.fieldNow, node.nowTool])
   return fields
 }
 
@@ -59,13 +61,15 @@ function callLineOf(call: ToolCall, startedAt: number | undefined, nameCells: nu
 
 export function detailView(input: Input): RenderElement {
   const { Box, Text: T, Button } = input.kit
-  const { width } = input
+  const { messages, width } = input
   const node = input.model.nodes.find(item => item.id === input.id)
   if (!node) {
-    return <Button key="back" plain onPress={() => input.act({ type: 'back' })}>← (사라진 노드)</Button>
+    return <Button key="back" plain onPress={() => input.act({ type: 'back' })}>{`← ${messages.missingNode}`}</Button>
   }
   const parent = input.model.nodes.find(item => item.id === node.parentId)
-  const fields = fieldsOf(node, parent?.label)
+  const fields = fieldsOf(messages, node, parent?.label)
+  // 값 열을 맞추려고 라벨을 가장 넓은 라벨의 칸 수까지 채운다
+  const labelCells = Math.max(0, ...fields.map(([label]) => Text.widthOf(label)))
   const members = input.model.nodes.filter(item => item.parentId === node.id)
   const hasCalls = node.kind !== 'session' && node.kind !== 'team'
   const isStoppable = input.canStop && (node.status === 'running' || (node.status === 'idle' && node.kind === 'teammate')) && (node.kind === 'subagent' || node.kind === 'teammate')
@@ -99,42 +103,42 @@ export function detailView(input: Input): RenderElement {
   return (
     <Box flexDirection="column">
       <Button key="back" plain onPress={() => input.act({ type: 'back' })}>{`← ${dotOf(node.status)} ${Text.clip(node.label, Math.max(1, width - 4))}`}</Button>
-      <T dimColor wrap="truncate-end">{`${INDENT}${statusLineOf(node, input.now)}`}</T>
+      <T dimColor wrap="truncate-end">{`${INDENT}${statusLineOf(messages, node, input.now)}`}</T>
       {isStoppable || canCopy ? (
         <Box flexDirection="row">
           <T>{INDENT}</T>
-          {isStoppable ? <Button key="stop" onPress={() => input.stop(node.id)}>에이전트 정지</Button> : null}
+          {isStoppable ? <Button key="stop" onPress={() => input.stop(node.id)}>{messages.stopAgent}</Button> : null}
           {isStoppable && canCopy ? <T>{'  '}</T> : null}
-          {canCopy ? <Button key="copy" onPress={() => { input.copy?.(node.transcriptPath ?? ''); input.act({ type: 'copied' }) }}>{input.isCopied ? '기록 경로 복사됨' : '기록 경로 복사'}</Button> : null}
+          {canCopy ? <Button key="copy" onPress={() => { input.copy?.(node.transcriptPath ?? ''); input.act({ type: 'copied' }) }}>{input.isCopied ? messages.pathCopied : messages.copyPath}</Button> : null}
         </Box>
       ) : null}
-      {node.stopNote ? <T color={node.stopNote.isError ? 'red' : undefined} dimColor={!node.stopNote.isError} wrap="truncate-end">{`${INDENT}${node.stopNote.isError ? '정지 실패' : '정지'}: ${node.stopNote.text}`}</T> : null}
+      {node.stopNote ? <T color={node.stopNote.isError ? 'red' : undefined} dimColor={!node.stopNote.isError} wrap="truncate-end">{`${INDENT}${node.stopNote.isError ? messages.stopFailed : messages.stopped}: ${node.stopNote.text}`}</T> : null}
 
       {fields.length > 0 ? blank('b:fields') : null}
       {fields.map(([label, value]) => (
         <Box key={`f:${label}`} flexDirection="row">
-          <T dimColor>{`${INDENT}${label}  `}</T>
+          <T dimColor>{`${INDENT}${label}${' '.repeat(labelCells - Text.widthOf(label))}  `}</T>
           <T wrap="truncate-end">{value}</T>
         </Box>
       ))}
 
       {prompt ? blank('b:prompt') : null}
-      {prompt ? rule('r:prompt', '지시문') : null}
+      {prompt ? rule('r:prompt', messages.promptTitle) : null}
       {prompt ? <Box paddingLeft={INDENT.length}><T wrap="wrap">{prompt}</T></Box> : null}
-      {clipped.isCut ? <Button key="prompt" plain dimColor onPress={() => input.act({ type: 'prompt' })}>{`${INDENT}${input.isPromptOpen ? '▾ 접기' : `▸ 전체 보기 (${clipped.rows}행)`}`}</Button> : null}
+      {clipped.isCut ? <Button key="prompt" plain dimColor onPress={() => input.act({ type: 'prompt' })}>{`${INDENT}${input.isPromptOpen ? `▾ ${messages.collapse}` : `▸ ${messages.expand(clipped.rows)}`}`}</Button> : null}
 
       {node.kind === 'team' ? blank('b:members') : null}
-      {node.kind === 'team' ? rule('r:members', `멤버 ${members.length}`) : null}
+      {node.kind === 'team' ? rule('r:members', messages.members(members.length)) : null}
       {node.kind === 'team' ? members.map(member => (
         <T key={`m:${member.id}`} wrap="truncate-end">{`${INDENT}${dotOf(member.status)}  ${member.label}`}</T>
       )) : null}
 
       {hasCalls ? blank('b:calls') : null}
-      {hasCalls ? rule('r:calls', `도구 호출 ${node.toolCalls.length}`) : null}
+      {hasCalls ? rule('r:calls', messages.toolCalls(node.toolCalls.length)) : null}
       {hasCalls ? shown.map(call => (
         <T key={`c:${call.id}`} wrap="truncate-end">{callLineOf(call, node.startedAt, nameCells)}</T>
       )) : null}
-      {hasCalls && hidden > 0 ? <T dimColor>{`${INDENT}… 외 ${hidden}개`}</T> : null}
+      {hasCalls && hidden > 0 ? <T dimColor>{`${INDENT}${messages.more(hidden)}`}</T> : null}
     </Box>
   )
 }

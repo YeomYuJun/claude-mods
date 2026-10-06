@@ -1,0 +1,47 @@
+import type { Messages } from './types.js'
+
+function counted(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`
+}
+
+export const en = {
+  commandDescription: 'Open or close the parallel agent flow panel',
+  panelShown: 'Opened the agent trace panel',
+  panelHidden: 'Closed the agent trace panel',
+  backToFlow: 'Going back from the details to the flow',
+  summary: (agents, running, idle, failed) => `${counted(agents, 'agent', 'agents')} · ${running} running · ${idle} idle · ${failed} failed`,
+  tabFlow: 'Flow',
+  tabFiles: 'Files',
+  densityCompact: 'Compact',
+  densityNormal: 'Normal',
+  status: { running: 'running', idle: 'idle', done: 'done', failed: 'failed', stopped: 'stopped' },
+  context: tokens => `context ${tokens}`,
+  tooLarge: 'transcript too large, summary only',
+  backgroundJobs: count => counted(count, 'background job', 'background jobs'),
+  shell: 'shell',
+  engineValue: raw => ` (engine value: ${raw})`,
+  phaseSteps: (done, total) => `${done}/${total} ${total === 1 ? 'step' : 'steps'}`,
+  teammate: 'teammate',
+  background: 'background',
+  foreground: 'foreground',
+  fieldKind: 'Type',
+  fieldModel: 'Model',
+  fieldParent: 'Parent',
+  fieldSent: 'Sent',
+  fieldNow: 'Now',
+  missingNode: '(node gone)',
+  stopAgent: 'Stop agent',
+  copyPath: 'Copy transcript path',
+  pathCopied: 'Transcript path copied',
+  stopFailed: 'Stop failed',
+  stopped: 'Stopped',
+  promptTitle: 'Prompt',
+  collapse: 'Collapse',
+  expand: rows => `Show all (${counted(rows, 'row', 'rows')})`,
+  members: count => counted(count, 'member', 'members'),
+  toolCalls: count => counted(count, 'tool call', 'tool calls'),
+  more: count => `… ${count} more`,
+  conflict: 'Possible conflict',
+  fileCounts: (reads, edits, writes) => `${counted(reads, 'read', 'reads')} · ${counted(edits, 'edit', 'edits')} · ${counted(writes, 'write', 'writes')}`,
+  bashNotTracked: 'Files changed through Bash are not listed',
+} satisfies Messages

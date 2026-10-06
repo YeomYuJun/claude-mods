@@ -4,6 +4,7 @@
 import type { ElementTable, RenderElement } from 'claude-code'
 
 import type { Layout } from '../layout'
+import type { Messages } from '../messages'
 import type { Status, TraceModel, TraceNode } from '../model'
 import type { PaneAction } from '../pane-state'
 import Text from '../text'
@@ -11,27 +12,26 @@ import Text from '../text'
 export type Kit = Pick<ElementTable<'terminal' | 'desktop'>, 'Box' | 'Text' | 'Button' | 'Markdown'>
 export type Act = (action: PaneAction) => void
 
-export const STATUS_WORD: Record<Status, string> = { running: '실행 중', idle: '대기', done: '완료', failed: '실패', stopped: '정지' }
 const DOT_COLOR: Record<Status, string> = { running: 'green', idle: 'yellow', done: 'gray', failed: 'red', stopped: 'gray' }
 
 export function dotOf(status: Status): string {
   return status === 'stopped' ? '■' : '●'
 }
 
-export function metaLineOf(node: TraceNode, now: number): string {
+export function metaLineOf(messages: Messages, node: TraceNode, now: number): string {
   if (node.kind === 'session') {
-    const context = node.contextTokens === undefined ? '' : ` · 컨텍스트 ${Text.tokensOf(node.contextTokens)}`
+    const context = node.contextTokens === undefined ? '' : ` · ${messages.context(Text.tokensOf(node.contextTokens))}`
     return `${node.model === undefined ? '' : Text.modelNameOf(node.model)}${context}`
   }
   const elapsed = node.startedAt === undefined ? '' : Text.durationOf((node.status === 'running' ? now : node.endedAt ?? now) - node.startedAt)
   const tokens = node.tokens === undefined ? '' : Text.tokensOf(node.tokens)
   const phase = node.phase ? `${'▰'.repeat(node.phase.done)}${'▱'.repeat(Math.max(0, node.phase.total - node.phase.done))} ${node.phase.done}/${node.phase.total}` : ''
-  const word = node.kind === 'team' || node.status === 'running' ? '' : STATUS_WORD[node.status]
-  return [word, elapsed, tokens, phase, node.note === 'too-large' ? '기록이 커서 요약만' : ''].filter(Boolean).join(' · ')
+  const word = node.kind === 'team' || node.status === 'running' ? '' : messages.status[node.status]
+  return [word, elapsed, tokens, phase, node.note === 'too-large' ? messages.tooLarge : ''].filter(Boolean).join(' · ')
 }
 
-export function flowView(input: { kit: Kit; model: TraceModel; layout: Layout; top: number; rows: number; now: number; act: Act }): RenderElement {
-  const { kit, model, layout, top, rows, now, act } = input
+export function flowView(input: { kit: Kit; messages: Messages; model: TraceModel; layout: Layout; top: number; rows: number; now: number; act: Act }): RenderElement {
+  const { kit, messages, model, layout, top, rows, now, act } = input
   const { Box, Text: T, Button } = kit
   const byId = new Map(model.nodes.map(node => [node.id, node]))
   const hasChildren = new Set(model.nodes.filter(node => node.kind !== 'shell').map(node => node.parentId).filter(Boolean) as string[])
@@ -43,7 +43,7 @@ export function flowView(input: { kit: Kit; model: TraceModel; layout: Layout; t
     const canFold = hasChildren.has(node.id) || hidden !== undefined
     const inner = placed.width - (layout.density === 'compact' ? 0 : 4) - (canFold ? 2 : 0)
     const title = Text.clip(`${node.label}${hidden ? ` +${hidden}` : ''}`, Math.max(1, inner - 2))
-    const meta = metaLineOf(node, now)
+    const meta = metaLineOf(messages, node, now)
     const border = layout.density === 'compact' ? {} : { borderStyle: node.kind === 'team' ? 'double' : 'round', paddingX: 1 }
     return (
       <Box key={`n:${node.id}`} position="absolute" top={placed.row - top} left={placed.col} width={placed.width} height={placed.height} flexDirection="column" {...border}>
@@ -68,13 +68,13 @@ export function flowView(input: { kit: Kit; model: TraceModel; layout: Layout; t
   const shellTop = layout.rows + 1
   const shellViews = shells.length === 0 ? [] : [
     <Box key="shells:head" position="absolute" top={shellTop - top} left={0}>
-      <T dimColor>{`백그라운드 작업 ${shells.length}`}</T>
+      <T dimColor>{messages.backgroundJobs(shells.length)}</T>
     </Box>,
     ...shells.map((shell, index) => (
       <Box key={`s:${shell.id}`} position="absolute" top={shellTop + 1 + index - top} left={0} flexDirection="row">
         <T color={DOT_COLOR[shell.status]}>{`${dotOf(shell.status)} `}</T>
         <Button key={`node:${shell.id}`} plain onPress={() => act({ type: 'open', id: shell.id })}>{Text.clip(shell.label, 40)}</Button>
-        <T dimColor>{` · 셸 · ${shell.startedAt === undefined ? '' : Text.durationOf((shell.status === 'running' ? now : shell.endedAt ?? now) - shell.startedAt)}`}</T>
+        <T dimColor>{` · ${messages.shell} · ${shell.startedAt === undefined ? '' : Text.durationOf((shell.status === 'running' ? now : shell.endedAt ?? now) - shell.startedAt)}`}</T>
       </Box>
     )).filter((_, index) => visible(shellTop + 1 + index, 1)),
   ]

@@ -44,6 +44,18 @@ claude plugin install agent-trace@claude-mods
 
 메인 세션은 `$.session` 에서, 서브에이전트와 Workflow 는 설정 폴더(`CLAUDE_CONFIG_DIR`, 없으면 `~/.claude`) 아래 세션 기록 파일에서 읽는다. 4 MiB 를 넘는 기록 파일은 읽지 않고 노드에 `기록이 커서 요약만` 을 단다.
 
+## 언어
+
+패널 글, `/trace` 설명, 명령 응답은 플러그인의 `language` 옵션을 따른다. 값은 `auto`(기본), `en`, `ko` 다. `/config` 에서 바꾸면 플러그인이 새 값으로 다시 불러와진다.
+
+`auto` 는 아래 순서로 보고 한국어나 영어로 읽히는 첫 값을 쓴다. 아무것도 없으면 영어다.
+
+1. Claude Code settings 의 `language` 키(`"korean"`, `"한국어"`, `"english"`)
+2. 환경변수 `LC_ALL`
+3. 환경변수 `LANG`(`ko_KR.UTF-8`)
+
+Windows 에서는 `LC_ALL`·`LANG` 이 대개 비어 있어서 settings 에 `language` 키가 없으면 영어로 보인다. settings 의 키를 바꾼 것은 다음 세션부터 반영된다.
+
 ## 개발
 
 ```sh

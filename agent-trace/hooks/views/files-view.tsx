@@ -3,6 +3,7 @@
 /* @jsxFrag Fragment */
 import type { RenderElement } from 'claude-code'
 
+import type { Messages } from '../messages'
 import type { TraceModel } from '../model'
 import Text from '../text'
 import type { Kit } from './flow-view.jsx'
@@ -31,21 +32,24 @@ export function fileRowsOf(model: TraceModel): FileRow[] {
     .sort((a, b) => Number(b.isConflict) - Number(a.isConflict) || a.path.localeCompare(b.path))
 }
 
-export function filesView(input: { kit: Kit; model: TraceModel; width: number }): RenderElement {
+export function filesView(input: { kit: Kit; messages: Messages; model: TraceModel; width: number }): RenderElement {
   const { Box, Text: T } = input.kit
+  const { messages } = input
   const rows = fileRowsOf(input.model)
+  const badge = `${messages.conflict} `
+  const badgeCells = Text.widthOf(badge)
   return (
     <Box flexDirection="column">
       {rows.map(row => (
         <Box key={`f:${row.path}`} flexDirection="column">
           <Box flexDirection="row">
-            {row.isConflict ? <T bold color="yellow">충돌 가능 </T> : null}
-            <T>{Text.clipStart(row.path.replace(/\\/g, '/'), Math.max(1, input.width - (row.isConflict ? 7 : 0)))}</T>
+            {row.isConflict ? <T bold color="yellow">{badge}</T> : null}
+            <T>{Text.clipStart(row.path.replace(/\\/g, '/'), Math.max(1, input.width - (row.isConflict ? badgeCells : 0)))}</T>
           </Box>
-          <T dimColor wrap="truncate-end">{`  읽기 ${row.reads} · 편집 ${row.edits} · 쓰기 ${row.writes} · ${row.nodes.join(', ')}`}</T>
+          <T dimColor wrap="truncate-end">{`  ${messages.fileCounts(row.reads, row.edits, row.writes)} · ${row.nodes.join(', ')}`}</T>
         </Box>
       ))}
-      <T dimColor>Bash 로 바꾼 파일은 빠져 있음</T>
+      <T dimColor>{messages.bashNotTracked}</T>
     </Box>
   )
 }

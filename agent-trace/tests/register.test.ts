@@ -3,7 +3,10 @@ import { describe, expect, test } from 'claude-code/testing'
 import Fixtures from './fixtures'
 
 describe('register', () => {
-  test('/trace opens the pane, again closes it', async ($, on) => {
+  const KO = { options: { language: 'ko' } } as const
+  const EN = { options: { language: 'en' } } as const
+
+  test('/trace opens the pane, again closes it', KO, async ($, on) => {
     const world = Fixtures.worldOf(on)
     await $.session.start(Fixtures.START)
 
@@ -18,7 +21,7 @@ describe('register', () => {
 
   const PANE = {
     component: 'Pane', surface: 'terminal', requestId: 'trace', viewport: { columns: 160, rows: 40 },
-    props: { title: '에이전트 추적', isFocused: false, bodyColumns: 90, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
+    props: { title: 'agent trace', isFocused: false, bodyColumns: 90, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
   } as const
 
   function agentFiles(dir: string) {
@@ -28,7 +31,7 @@ describe('register', () => {
     }
   }
 
-  test('the pane draws the agents read from the session folder', async ($, on) => {
+  test('the pane draws the agents read from the session folder', KO, async ($, on) => {
     Fixtures.worldOf(on, { files: agentFiles(Fixtures.SESSION_DIR), live: [{ id: 'a1', description: 'lea ARIA tests admin1', type: 'general-purpose', status: 'running' }] })
     await $.session.start(Fixtures.START)
     await $.command.run(Fixtures.TRACE)
@@ -39,7 +42,7 @@ describe('register', () => {
     expect(text).toContain('에이전트 1 · 실행 1 · 대기 0 · 실패 0')
   })
 
-  test('a tool call inside an agent shows as what runs now', async ($, on) => {
+  test('a tool call inside an agent shows as what runs now', KO, async ($, on) => {
     Fixtures.worldOf(on, { files: agentFiles(Fixtures.SESSION_DIR), live: [{ id: 'a1', description: 'x', type: 'general-purpose', status: 'running' }] })
     on('tool.call', { tool: 'Grep' }, () => new Promise(() => {}))
     await $.session.start(Fixtures.START)
@@ -77,7 +80,7 @@ describe('register', () => {
     }
   }
 
-  test('a waiting teammate counts as idle and does not keep the poll alive', async ($, on) => {
+  test('a waiting teammate counts as idle and does not keep the poll alive', KO, async ($, on) => {
     const world = Fixtures.worldOf(on, { files: teammateFiles(Fixtures.SESSION_DIR), live: [{ id: 't1', description: 'ticker', type: 'teammate', status: 'running', name: 'ticker' }] })
     await $.session.start(Fixtures.START)
     await $.command.run(Fixtures.TRACE)
@@ -100,7 +103,7 @@ describe('register', () => {
 
   const TEAMMATE_LIVE = [{ id: 't1', description: 'ticker', type: 'teammate', status: 'running', name: 'ticker' }]
 
-  test('Stop agent calls TaskStop with the teammate name and shows what it answered', async ($, on) => {
+  test('Stop agent calls TaskStop with the teammate name and shows what it answered', KO, async ($, on) => {
     const world = Fixtures.worldOf(on, { files: teammateFiles(Fixtures.SESSION_DIR), live: TEAMMATE_LIVE })
     await $.session.start(Fixtures.START)
     await $.command.run(Fixtures.TRACE)
@@ -113,7 +116,7 @@ describe('register', () => {
     expect(Fixtures.textOf(await $.ui.render(PANE))).toContain('정지: stopped')
   })
 
-  test('a stopped teammate that leaves the live list reads as stopped, not running', async ($, on) => {
+  test('a stopped teammate that leaves the live list reads as stopped, not running', KO, async ($, on) => {
     const files = {
       [`${Fixtures.SESSION_DIR}/subagents/agent-t1.meta.json`]: JSON.stringify({ description: 'ticker', name: 'ticker', taskKind: 'in_process_teammate', teamName: 'session-x', spawnDepth: 0 }),
       [`${Fixtures.SESSION_DIR}/subagents/agent-t1.jsonl`]: Fixtures.jsonl([Fixtures.userText('go', 900_000), Fixtures.toolUse('b1', 'Bash', { command: 'sleep' }, 950_000)]),
@@ -152,7 +155,7 @@ describe('register', () => {
     expect(text).not.toContain('task_type')
   })
 
-  test('a refused stop shows why', async ($, on) => {
+  test('a refused stop shows why', KO, async ($, on) => {
     on('tool.call', { tool: 'TaskStop' }, () => ({ deny: 'No task found with ID: ticker' }))
     const world = Fixtures.worldOf(on, { files: teammateFiles(Fixtures.SESSION_DIR), live: TEAMMATE_LIVE })
     await $.session.start(Fixtures.START)
@@ -224,5 +227,34 @@ describe('register', () => {
     await $.command.run(Fixtures.TRACE)
     await $.command.run({ command: 'clear', args: '', origin: { kind: 'composer' } })
     expect(world.closed).toEqual(['trace'])
+  })
+
+  test('/trace answers in English under language en', EN, async ($, on) => {
+    Fixtures.worldOf(on)
+    await $.session.start(Fixtures.START)
+    expect((await $.command.run(Fixtures.TRACE)).text).toBe('Opened the agent trace panel')
+    expect((await $.command.run(Fixtures.TRACE)).text).toBe('Closed the agent trace panel')
+  })
+
+  test('the pane header and fields read in English under language en', EN, async ($, on) => {
+    Fixtures.worldOf(on, { files: teammateFiles(Fixtures.SESSION_DIR), live: TEAMMATE_LIVE })
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.TRACE)
+    expect(Fixtures.textOf(await $.ui.render(PANE))).toContain('1 agent · 0 running · 1 idle · 0 failed')
+    await $.ui.press({ plugin: 'agent-trace', key: 'node:t1' })
+    expect(Fixtures.textOf(await $.ui.render(PANE))).toContain('Type    teammate · foreground')
+  })
+
+  test('a refused stop shows why in English under language en', EN, async ($, on) => {
+    on('tool.call', { tool: 'TaskStop' }, () => ({ deny: 'No task found with ID: ticker' }))
+    const world = Fixtures.worldOf(on, { files: teammateFiles(Fixtures.SESSION_DIR), live: TEAMMATE_LIVE })
+    await $.session.start(Fixtures.START)
+    await $.command.run(Fixtures.TRACE)
+    await $.ui.render(PANE)
+    await $.ui.press({ plugin: 'agent-trace', key: 'node:t1' })
+    await $.ui.render(PANE)
+    await $.ui.press({ plugin: 'agent-trace', key: 'stop' })
+    await world.clock.settle()
+    expect(Fixtures.textOf(await $.ui.render(PANE))).toContain('Stop failed: No task found with ID: ticker')
   })
 })

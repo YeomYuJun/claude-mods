@@ -2,6 +2,8 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import Layout from '../hooks/layout'
 import type { TraceModel, TraceNode } from '../hooks/model'
+import Messages from '../hooks/messages'
+import Text from '../hooks/text'
 import Views from '../hooks/views'
 import Fixtures from './fixtures'
 
@@ -13,6 +15,8 @@ function el(type: string) {
   }
 }
 const KIT = { Box: el('Box'), Text: el('Text'), Button: el('Button'), Markdown: el('Markdown') } as unknown as Parameters<typeof Views.flowView>[0]['kit']
+const KO = Messages.MESSAGES.ko
+const EN = Messages.MESSAGES.en
 
 function node(id: string, parentId: string | undefined, extra: Partial<TraceNode> = {}): TraceNode {
   return { id, kind: parentId ? 'subagent' : 'session', label: id, parentId, depth: 0, status: 'running', toolCalls: [], ...extra }
@@ -31,7 +35,7 @@ export const MODEL: TraceModel = {
 
 function flowOf(width: number, rows = 40, top = 0) {
   const layout = Layout.layoutOf({ model: MODEL, width, collapsed: new Set() })
-  return Views.flowView({ kit: KIT, model: MODEL, layout, top, rows, now: 231_000, act: () => {} })
+  return Views.flowView({ kit: KIT, messages: KO, model: MODEL, layout, top, rows, now: 231_000, act: () => {} })
 }
 
 describe('flow view', () => {
@@ -50,7 +54,7 @@ describe('flow view', () => {
   test('the session model drops the claude- prefix', () => {
     const model: TraceModel = { ...MODEL, nodes: [node('S', undefined, { model: 'claude-opus-5-5[1m]', contextTokens: 69_600 })] }
     const layout = Layout.layoutOf({ model, width: 90, collapsed: new Set() })
-    expect(Fixtures.textOf(Views.flowView({ kit: KIT, model, layout, top: 0, rows: 10, now: 0, act: () => {} }))).toContain('opus-5-5[1m] · 컨텍스트 69.6k')
+    expect(Fixtures.textOf(Views.flowView({ kit: KIT, messages: KO, model, layout, top: 0, rows: 10, now: 0, act: () => {} }))).toContain('opus-5-5[1m] · 컨텍스트 69.6k')
   })
 
   test('each node is a button, and the background shell is listed apart', () => {
@@ -83,7 +87,7 @@ describe('detail view', () => {
   }
 
   function detailOf(canStop: boolean) {
-    return Views.detailView({ kit: KIT, model: MODEL_D, id: 'c', width: 60, now: 701_000, act: () => {}, canStop, stop: () => {} })
+    return Views.detailView({ kit: KIT, messages: KO, model: MODEL_D, id: 'c', width: 60, now: 701_000, act: () => {}, canStop, stop: () => {} })
   }
 
   test('the lines of the reference detail', () => {
@@ -107,14 +111,14 @@ describe('detail view', () => {
 
   test('a tool call row starts with the time since the agent started, names in one column', () => {
     const model: TraceModel = { ...MODEL_D, nodes: MODEL_D.nodes.map(item => item.id === 'c' ? { ...item, toolCalls: [{ id: 'x', name: 'Bash', summary: 'date', ok: true, at: 5_000 }] } : item) }
-    const text = Fixtures.textOf(Views.detailView({ kit: KIT, model, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {} }))
+    const text = Fixtures.textOf(Views.detailView({ kit: KIT, messages: KO, model, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {} }))
     expect(text).toContain('  5s      ✓  Bash    date')
   })
 
   test('tool calls fill the rows left and count the rest', () => {
     const calls = Array.from({ length: 30 }, (_, index) => ({ id: `t${index}`, name: 'Bash', summary: `cmd ${index}`, ok: true }))
     const model: TraceModel = { ...MODEL_D, nodes: MODEL_D.nodes.map(item => item.id === 'c' ? { ...item, toolCalls: calls } : item) }
-    const text = Fixtures.textOf(Views.detailView({ kit: KIT, model, id: 'c', width: 60, rows: 25, now: 0, act: () => {}, canStop: true, stop: () => {} }))
+    const text = Fixtures.textOf(Views.detailView({ kit: KIT, messages: KO, model, id: 'c', width: 60, rows: 25, now: 0, act: () => {}, canStop: true, stop: () => {} }))
     expect(text).toContain('cmd 29')
     expect(text).not.toContain('cmd 10')
     expect(text).toMatch(/… 외 \d+개/)
@@ -122,7 +126,7 @@ describe('detail view', () => {
 
   test('the session detail shows its model once and no tool list', () => {
     const model: TraceModel = { rootId: 'S', files: [], nodes: [node('S', undefined, { label: 'main', model: 'claude-opus-5-5[1m]', contextTokens: 69_600 })] }
-    const text = Fixtures.textOf(Views.detailView({ kit: KIT, model, id: 'S', width: 60, now: 0, act: () => {}, canStop: true, stop: () => {} }))
+    const text = Fixtures.textOf(Views.detailView({ kit: KIT, messages: KO, model, id: 'S', width: 60, now: 0, act: () => {}, canStop: true, stop: () => {} }))
     expect(text).not.toContain('실행 중')
     expect(text).not.toContain('도구 호출')
     expect(text.split('opus-5-5[1m]').length).toBe(2)
@@ -134,7 +138,7 @@ describe('detail view', () => {
       node('team:x', 'S', { kind: 'team', label: 'x' }),
       node('t1', 'team:x', { kind: 'teammate', label: 'ticker', status: 'idle', sentTo: [{ to: 'team-lead', count: 1 }] }),
     ] }
-    const detail = (id: string) => Fixtures.textOf(Views.detailView({ kit: KIT, model, id, width: 60, now: 0, act: () => {}, canStop: true, stop: () => {} }))
+    const detail = (id: string) => Fixtures.textOf(Views.detailView({ kit: KIT, messages: KO, model, id, width: 60, now: 0, act: () => {}, canStop: true, stop: () => {} }))
     expect(detail('team:x')).toContain('멤버 1 ─')
     expect(detail('team:x')).toContain('ticker')
     expect(detail('t1')).toContain('보냄  → team-lead ×1')
@@ -144,18 +148,18 @@ describe('detail view', () => {
   test('a long prompt shows four rows and a button for the rest', () => {
     const long = Array.from({ length: 10 }, (_, index) => `line ${index}`).join('\n')
     const model: TraceModel = { ...MODEL_D, nodes: MODEL_D.nodes.map(item => item.id === 'c' ? { ...item, prompt: long } : item) }
-    const closed = Views.detailView({ kit: KIT, model, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {} })
+    const closed = Views.detailView({ kit: KIT, messages: KO, model, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {} })
     expect(Fixtures.textOf(closed)).toContain('line 3')
     expect(Fixtures.textOf(closed)).not.toContain('line 4')
     expect(Fixtures.textOf(closed)).toContain('▸ 전체 보기 (10행)')
-    const open = Views.detailView({ kit: KIT, model, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {}, isPromptOpen: true })
+    const open = Views.detailView({ kit: KIT, messages: KO, model, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {}, isPromptOpen: true })
     expect(Fixtures.textOf(open)).toContain('line 9')
     expect(Fixtures.keysOf(open)).toContain('prompt')
   })
 
   test('a teammate whose type is its own name does not repeat it', () => {
     const model: TraceModel = { rootId: 'S', files: [], nodes: [node('S', undefined), node('t1', 'S', { kind: 'teammate', label: 'x', name: 'date-15s', agentType: 'date-15s', model: 'claude-opus-5-5' })] }
-    const text = Fixtures.textOf(Views.detailView({ kit: KIT, model, id: 't1', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {} }))
+    const text = Fixtures.textOf(Views.detailView({ kit: KIT, messages: KO, model, id: 't1', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {} }))
     expect(text).toContain('유형  팀원')
     expect(text).toContain('모델  opus-5-5')
     expect(text).not.toContain('date-15s')
@@ -163,7 +167,7 @@ describe('detail view', () => {
 
   test('the transcript path can be copied', () => {
     const copied: string[] = []
-    const tree = Views.detailView({ kit: KIT, model: MODEL_D, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {}, copy: text => copied.push(text) })
+    const tree = Views.detailView({ kit: KIT, messages: KO, model: MODEL_D, id: 'c', width: 60, now: 0, act: () => {}, canStop: false, stop: () => {}, copy: text => copied.push(text) })
     expect(Fixtures.keysOf(tree)).toContain('copy')
   })
 
@@ -212,13 +216,13 @@ describe('files view', () => {
   })
 
   test('the tab says shell edits are missing', () => {
-    const text = Fixtures.textOf(Views.filesView({ kit: KIT, model: MODEL_F, width: 60 }))
+    const text = Fixtures.textOf(Views.filesView({ kit: KIT, messages: KO, model: MODEL_F, width: 60 }))
     expect(text).toContain('충돌 가능')
     expect(text).toContain('Bash 로 바꾼 파일은 빠져 있음')
   })
 
   test('file rows show the path tail without a link', () => {
-    const text = Fixtures.textOf(Views.filesView({ kit: KIT, model: MODEL_F, width: 20 }))
+    const text = Fixtures.textOf(Views.filesView({ kit: KIT, messages: KO, model: MODEL_F, width: 20 }))
     expect(text).not.toContain('file:///')
     expect(text).toContain('D:/y.ts')
   })
@@ -228,24 +232,162 @@ describe('pane view', () => {
   const STATE = { tab: 'flow' as const, collapsed: new Set<string>(), top: 0 }
 
   test('header summarises, tabs and density are buttons', () => {
-    const { tree } = Views.paneView({ kit: KIT, model: MODEL, state: STATE, width: 90, rows: 30, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
+    const { tree } = Views.paneView({ kit: KIT, messages: KO, model: MODEL, state: STATE, width: 90, rows: 30, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
     expect(Fixtures.textOf(tree)).toContain('에이전트 2 · 실행 1 · 대기 0 · 실패 0')
     expect(Fixtures.keysOf(tree)).toEqual(expect.arrayContaining(['tab:flow', 'tab:files', 'density']))
   })
 
   test('an open detail replaces the flow body', () => {
-    const { tree } = Views.paneView({ kit: KIT, model: MODEL, state: { ...STATE, detail: 'a1' }, width: 90, rows: 30, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
+    const { tree } = Views.paneView({ kit: KIT, messages: KO, model: MODEL, state: { ...STATE, detail: 'a1' }, width: 90, rows: 30, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
     expect(Fixtures.keysOf(tree)).toContain('back')
     expect(Fixtures.keysOf(tree)).not.toContain('node:a2')
   })
 
   test('the files tab draws the file list', () => {
-    const { tree } = Views.paneView({ kit: KIT, model: MODEL, state: { ...STATE, tab: 'files' }, width: 90, rows: 30, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
+    const { tree } = Views.paneView({ kit: KIT, messages: KO, model: MODEL, state: { ...STATE, tab: 'files' }, width: 90, rows: 30, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
     expect(Fixtures.textOf(tree)).toContain('Bash 로 바꾼 파일은 빠져 있음')
   })
 
   test('maxTop is what the flow can scroll', () => {
-    const { maxTop } = Views.paneView({ kit: KIT, model: MODEL, state: STATE, width: 40, rows: 6, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
+    const { maxTop } = Views.paneView({ kit: KIT, messages: KO, model: MODEL, state: STATE, width: 40, rows: 6, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
     expect(maxTop).toBeGreaterThan(0)
   })
 })
+
+describe('views in English', () => {
+  const STATE = { tab: 'flow' as const, collapsed: new Set<string>(), top: 0 }
+  const MODEL_E: TraceModel = {
+    rootId: 'S',
+    files: [
+      { path: 'D:/x.ts', nodeId: 'p', op: 'read' },
+      { path: 'D:/y.ts', nodeId: 'p', op: 'edit' },
+      { path: 'D:/y.ts', nodeId: 'c', op: 'write' },
+      { path: 'D:/y.ts', nodeId: 'c', op: 'read' },
+    ],
+    nodes: [
+      node('S', undefined, { label: 'main' }),
+      node('p', 'S', { label: 'lea ARIA tests admin2' }),
+      node('c', 'p', {
+        label: 'admin2 IT part B menu/msg', agentType: 'general-purpose', model: 'Opus 5 (1M)', runMode: 'background',
+        startedAt: 0, tokens: 136_900, nowTool: 'Bash', prompt: 'Read and follow helper_prompt.md fully.', transcriptPath: 'D:/c.jsonl',
+        toolCalls: [{ id: 't1', name: 'Read', summary: 'D:/a.ts', ok: true }, { id: 't2', name: 'Bash', summary: 'npm test' }],
+      }),
+    ],
+  }
+  const TEAM: TraceModel = { rootId: 'S', files: [], nodes: [
+    node('S', undefined),
+    node('team:x', 'S', { kind: 'team', label: 'x' }),
+    node('t1', 'team:x', { kind: 'teammate', label: 'ticker', status: 'idle', sentTo: [{ to: 'team-lead', count: 1 }] }),
+  ] }
+
+  function detail(model: TraceModel, id: string, extra: { rows?: number; canStop?: boolean } = {}) {
+    return Fixtures.textOf(Views.detailView({ kit: KIT, messages: EN, model, id, width: 60, rows: extra.rows, now: 701_000, act: () => {}, canStop: extra.canStop ?? true, stop: () => {}, copy: () => {} }))
+  }
+
+  test('the flow tells context, status words and background jobs in English', () => {
+    const layout = Layout.layoutOf({ model: MODEL, width: 90, collapsed: new Set() })
+    const text = Fixtures.textOf(Views.flowView({ kit: KIT, messages: EN, model: MODEL, layout, top: 0, rows: 40, now: 231_000, act: () => {} }))
+    expect(text).toContain('Opus 5 (1M) · context 262.3k')
+    expect(text).toContain('done · 12m 42s · 289.0k')
+    expect(text).toContain('1 background job')
+    expect(text).toContain('shell · 3m 51s')
+  })
+
+  test('the detail pads every field label to the widest one', () => {
+    const text = detail(MODEL_E, 'c')
+    expect(text).toContain('running · 11m 41s · 136.9k')
+    expect(text).toContain('Type    general-purpose · background')
+    expect(text).toContain('Model   Opus 5 (1M)')
+    expect(text).toContain('Parent  lea ARIA tests admin2')
+    expect(text).toContain('Now     Bash')
+    expect(text).toContain('Prompt ─')
+    expect(text).toContain('2 tool calls ─')
+    expect(text).toContain('Stop agent')
+    expect(text).toContain('Copy transcript path')
+  })
+
+  test('counts take the singular for one', () => {
+    const one: TraceModel = { ...MODEL_E, nodes: MODEL_E.nodes.map(item => item.id === 'c' ? { ...item, toolCalls: [{ id: 't1', name: 'Read', summary: 'D:/a.ts', ok: true }] } : item) }
+    expect(detail(one, 'c')).toContain('1 tool call ─')
+    expect(detail(TEAM, 'team:x')).toContain('1 member ─')
+    const { tree } = Views.paneView({ kit: KIT, messages: EN, model: TEAM, state: STATE, width: 90, rows: 30, now: 0, act: () => {}, canStop: false, stop: () => {} })
+    expect(Fixtures.textOf(tree)).toContain('1 agent · 0 running · 1 idle · 0 failed')
+  })
+
+  test('a teammate detail says what it sent', () => {
+    expect(detail(TEAM, 't1')).toContain('Sent    → team-lead ×1')
+    expect(detail(TEAM, 't1')).toContain('Type    teammate')
+  })
+
+  test('hidden tool calls and a long prompt are told in English', () => {
+    const calls = Array.from({ length: 30 }, (_, index) => ({ id: `t${index}`, name: 'Bash', summary: `cmd ${index}`, ok: true }))
+    const long = Array.from({ length: 10 }, (_, index) => `line ${index}`).join('\n')
+    const model: TraceModel = { ...MODEL_E, nodes: MODEL_E.nodes.map(item => item.id === 'c' ? { ...item, toolCalls: calls, prompt: long } : item) }
+    const text = detail(model, 'c', { rows: 25 })
+    expect(text).toMatch(/… \d+ more/)
+    expect(text).toContain('▸ Show all (10 rows)')
+  })
+
+  test('the files tab counts reads, edits and writes in English', () => {
+    const text = Fixtures.textOf(Views.filesView({ kit: KIT, messages: EN, model: MODEL_E, width: 60 }))
+    expect(text).toContain('Possible conflict D:/y.ts')
+    expect(text).toContain('1 read · 1 edit · 1 write')
+    expect(text).toContain('1 read · 0 edits · 0 writes')
+    expect(text).toContain('Files changed through Bash are not listed')
+  })
+
+  test('the header summarises in English and its tabs are named', () => {
+    const { tree } = Views.paneView({ kit: KIT, messages: EN, model: MODEL, state: STATE, width: 90, rows: 30, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
+    const text = Fixtures.textOf(tree)
+    expect(text).toContain('2 agents · 1 running · 0 idle · 0 failed')
+    expect(text).toContain('Flow')
+    expect(text).toContain('Files')
+    expect(text).toContain('Compact')
+  })
+})
+
+describe('layout fixes', () => {
+  test('the conflict badge leaves the path only the cells it does not use', () => {
+    const model: TraceModel = { rootId: 'S', nodes: [node('S', undefined), node('a', 'S'), node('b', 'S')], files: [
+      { path: 'D:/work/y.ts', nodeId: 'a', op: 'edit' },
+      { path: 'D:/work/y.ts', nodeId: 'b', op: 'edit' },
+    ] }
+    for (const messages of [KO, EN]) {
+      const badge = `${messages.conflict} `
+      const width = Text.widthOf(badge) + 6
+      const text = Fixtures.textOf(Views.filesView({ kit: KIT, messages, model, width }))
+      expect(text).toContain(`${badge}${Text.clipStart('D:/work/y.ts', 6)}`)
+    }
+  })
+
+  test('the header summary is cut at the pane width instead of wrapping', () => {
+    const { tree } = Views.paneView({ kit: KIT, messages: EN, model: MODEL, state: { tab: 'flow' as const, collapsed: new Set<string>(), top: 0 }, width: 20, rows: 30, now: 231_000, act: () => {}, canStop: false, stop: () => {} })
+    const summary = textNodes(tree).find(item => Fixtures.textOf(item).startsWith('2 agents'))
+    expect(summary?.props.wrap).toBe('truncate-end')
+  })
+})
+
+describe('messages', () => {
+  test('en and ko carry the same keys of the same kind', () => {
+    expect(Object.keys(EN).sort()).toEqual(Object.keys(KO).sort())
+    for (const key of Object.keys(EN) as Array<keyof typeof EN>) expect(typeof EN[key]).toBe(typeof KO[key])
+    expect(Object.keys(EN.status).sort()).toEqual(Object.keys(KO.status).sort())
+  })
+
+  test('auto reads the settings language, then LC_ALL, then LANG, and falls back to English', () => {
+    expect(Messages.languageOf('auto', ['Korean', 'en_US.UTF-8'])).toBe('ko')
+    expect(Messages.languageOf('auto', [undefined, 'en_US.UTF-8', 'ko_KR.UTF-8'])).toBe('en')
+    expect(Messages.languageOf('auto', [undefined, undefined, 'ko_KR.UTF-8'])).toBe('ko')
+    expect(Messages.languageOf('auto', [undefined, 'C', undefined])).toBe('en')
+    expect(Messages.languageOf('ko', ['english'])).toBe('ko')
+  })
+})
+
+type Element = { type: string; props: Record<string, unknown>; children: unknown[] }
+
+function textNodes(tree: unknown): Element[] {
+  if (!tree || typeof tree !== 'object') return []
+  if (Array.isArray(tree)) return tree.flatMap(textNodes)
+  const item = tree as Element
+  return [...(item.type === 'Text' ? [item] : []), ...textNodes(item.children)]
+}
