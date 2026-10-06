@@ -25,8 +25,7 @@ function portOf(files: Record<string, string>, reads: string[] = []) {
 
 describe('reader', () => {
   test('project key and session dir follow the transcript folder names', () => {
-    expect(Reader.projectKeyOf('D:\\0. dle')).toBe('D--0--dle')
-    expect(Reader.projectKeyOf('d:\\PaaS')).toBe('d--PaaS')
+    expect(Reader.projectKeyOf('d:\\My app.v2')).toBe('d--My-app-v2')
     expect(Reader.sessionDirOf({ configDir: 'C:\\Users\\u\\.claude', cwd: 'D:\\claude-mods', sessionId: 'S1' }))
       .toBe('C:/Users/u/.claude/projects/D--claude-mods/S1')
   })

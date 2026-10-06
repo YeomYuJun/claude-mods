@@ -4,7 +4,7 @@ import Target from '../hooks/target'
 
 describe('target', () => {
   test('argOf strips surrounding quotes', () => {
-    expect(Target.argOf('  "D:/0. dle/TODO.md"  ')).toBe('D:/0. dle/TODO.md')
+    expect(Target.argOf('  "D:/my app/TODO.md"  ')).toBe('D:/my app/TODO.md')
     expect(Target.argOf("'docs/TODO.md'")).toBe('docs/TODO.md')
     expect(Target.argOf('docs/TODO.md')).toBe('docs/TODO.md')
     expect(Target.argOf('   ')).toBe('')
@@ -14,7 +14,7 @@ describe('target', () => {
     expect(Target.resolve('D:/claude-mods', 'C:\\work\\TODO.md')).toBe('C:/work/TODO.md')
     expect(Target.resolve('D:\\claude-mods', 'docs/TODO.md')).toBe('D:/claude-mods/docs/TODO.md')
     expect(Target.resolve('D:/claude-mods/pets', '../TODO.md')).toBe('D:/claude-mods/TODO.md')
-    expect(Target.resolve('D:/0. dle', './a/./b/../TODO.md')).toBe('D:/0. dle/a/TODO.md')
+    expect(Target.resolve('D:/my app', './a/./b/../TODO.md')).toBe('D:/my app/a/TODO.md')
     expect(Target.resolve('/home/u', '/tmp/TODO.md')).toBe('/tmp/TODO.md')
   })
 

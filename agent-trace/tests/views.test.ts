@@ -25,7 +25,7 @@ export const MODEL: TraceModel = {
     node('S', undefined, { label: 'Cnd-lea-be ARIA 전환 테스트', model: 'Opus 5 (1M)', contextTokens: 262_300 }),
     node('a1', 'S', { label: 'lea ARIA tests admin1', startedAt: 0, endedAt: 762_000, tokens: 289_000, status: 'done' }),
     node('a2', 'S', { label: 'lea ARIA tests admin2', startedAt: 0, tokens: 111_500 }),
-    node('sh', 'S', { kind: 'shell', label: 'cd "d:/PaaS"; sleep 30', startedAt: 0 }),
+    node('sh', 'S', { kind: 'shell', label: 'cd "d:/work"; sleep 30', startedAt: 0 }),
   ],
 }
 

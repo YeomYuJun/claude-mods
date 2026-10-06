@@ -7,7 +7,7 @@ const NOTE = '<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>toolu_sh<
 
 const MESSAGES: SessionMessage[] = [
   { role: 'assistant', text: '', toolUses: [
-    { tool_use_id: 'toolu_sh', tool: 'Bash', input: { command: 'cd "d:/PaaS"; sleep 30', run_in_background: true } },
+    { tool_use_id: 'toolu_sh', tool: 'Bash', input: { command: 'cd "d:/work"; sleep 30', run_in_background: true } },
     { tool_use_id: 'toolu_fg', tool: 'Bash', input: { command: 'ls' } },
     { tool_use_id: 'toolu_rd', tool: 'Read', input: { file_path: 'D:/work/a.ts' } },
   ] },
@@ -20,7 +20,7 @@ describe('mainOf', () => {
     const facts = Collect.mainOf({ rootId: 'S1', messages: MESSAGES, firstSeen, now: 7_000 })
 
     expect(facts.shells.map(shell => [shell.id, shell.kind, shell.parentId, shell.label])).toEqual([
-      ['toolu_sh', 'shell', 'S1', 'cd "d:/PaaS"; sleep 30'],
+      ['toolu_sh', 'shell', 'S1', 'cd "d:/work"; sleep 30'],
     ])
     expect(firstSeen.get('toolu_sh')).toBe(7_000)
   })
