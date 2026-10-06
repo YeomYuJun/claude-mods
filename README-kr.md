@@ -13,6 +13,17 @@ Claude Code 패널 플러그인 모음.
 | [agent-trace](agent-trace/README-kr.md) | `/trace` | 세션이 띄운 서브에이전트, agent team, Workflow, 백그라운드 셸을 흐름도와 파일 접근 목록으로 보여 준다 |
 | [todo-md](todo-md/README-kr.md) | `/todo` | cwd 의 `TODO.md`(또는 지정한 md 파일)에서 제목과 체크리스트 항목만 보이고, 파일이 바뀌면 다시 그린다 |
 
+<table>
+  <tr>
+    <td align="center" valign="top"><img src="assets/pets.png" width="360" alt="pets 패널"><br><code>/pets</code></td>
+    <td align="center" valign="top"><img src="assets/auto-tetris.png" width="360" alt="auto-tetris 패널"><br><code>/tetris</code></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><img src="assets/agent-trace.png" width="360" alt="agent-trace 패널"><br><code>/trace</code></td>
+    <td align="center" valign="top"><img src="assets/todo-md.png" width="360" alt="todo-md 패널"><br><code>/todo</code></td>
+  </tr>
+</table>
+
 네 플러그인 모두 TypeScript 함수 훅(`hooks/register.ts`)으로 돌아간다. 따로 설치할 런타임(Node 등)은 없다. Claude Code v2.1.287 이상이 필요하다. `claude --version` 으로 확인한다.
 
 pets 와 auto-tetris 는 fullscreen 렌더러(`/tui fullscreen`)에서만 쓸 수 있다. classic 렌더러(`/tui default`)에서는 패널이 입력창 위에 열리지만 크기가 모자라 크기 안내만 보인다. todo-md 는 두 렌더러 모두에서 동작한다.
