@@ -16,7 +16,7 @@ const band = (body: number, under: number, line: number, eye: number, ear: numbe
 
 const BREEDS: readonly BreedDef[] = [
   {
-    id: 'penguin', species: 'penguin', label: '펭귄', aliases: ['펭귄'],
+    id: 'penguin', species: 'penguin', aliases: ['펭귄'],
     bank: { outline: 0x0e1014, body: 0x22262c, under: 0xf4f4f0, far: 0xc07818, farLight: 0xc07818, eye: 0xf4f4f0, lid: 0x5a5e66, tongue: 0xc0503a, ear: 0xf0a030, earDark: 0x3a3e46, collar: 0x22262c, pattern: 0x22262c },
     band: { dark: band(0x8a9098, 0xf4f4f0, 0xa8aeb6, 0xf0a030, 0xf0a030, 0x8a9098, 0x8a9098), light: band(0x22262c, 0x8a8a86, 0x0e1014, 0xf0a030, 0xc07818, 0x22262c, 0x22262c) },
   },
@@ -50,7 +50,6 @@ const closed = (rows: readonly string[]) => rows.map(r => r.replace('E', 'l'))
 
 export const PENGUIN: SpeciesDef = {
   id: 'penguin',
-  label: '펭귄',
   breeds: BREEDS,
   gaits: {
     // 두 발을 번갈아 딛으며 뒤뚱거린다. 달리기는 배로 미끄러진다

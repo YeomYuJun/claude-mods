@@ -1,7 +1,8 @@
-import type { On, Timer } from 'claude-code'
+import type { EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
 import Band from './band'
 import Biome, { type BiomeId } from './biome'
+import Messages, { type Language } from './messages'
 import Names from './names'
 import Pet from './pet'
 import Rng from './rng'
@@ -19,6 +20,23 @@ type Host = {
 }
 
 type Mount = { requestId: string; cols: number; rows: number; lastCells: string; lastAt: number }
+
+// userConfig 의 language 가 auto 면 settings 의 language, LC_ALL, LANG 순으로 본다. $ 는 훅 안에만 있어 session.start 에서 부른다
+async function languageIn($: Pick<EngineInterface, 'settings' | 'env'>, option: unknown): Promise<Language> {
+  if (option === 'en' || option === 'ko') return option
+  const valueOf = async (read: () => Promise<unknown>) => {
+    try {
+      return await read()
+    } catch {
+      return undefined
+    }
+  }
+  return Messages.languageOf(option, [
+    await valueOf(async () => (await $.settings.read()).language),
+    await valueOf(() => $.env.get('LC_ALL')),
+    await valueOf(() => $.env.get('LANG')),
+  ])
+}
 
 // 세션 신호로 강아지를 움직이는 일은 부가 기능이다. 여기서 난 오류가 세션의 스트림·도구 호출을 막지 않게 삼킨다
 function safely(fn: () => void): void {
@@ -54,7 +72,8 @@ function worldChoiceOf(value: unknown): BiomeId | 'auto' {
   return v.set === 'auto' || Biome.isId(v.set) ? v.set : Biome.DEFAULT
 }
 
-export function register(on: On) {
+export function register(on: On, options: PluginOptions) {
+  let messages = Messages.messagesOf(Messages.languageOf(options.language))
   let host: Host | undefined
   let isOpen = false
   // 프롬프트 위 띠는 쓰지 않는 기능으로 둔다: 켜는 명령이 없고 예전 저장값(band 키)도 읽지 않아 늘 꺼져 있다
@@ -220,7 +239,8 @@ export function register(on: On) {
     try { await pruneEdits({ keys: () => $.store.keys(), get: key => $.store.get(key), delete: key => $.store.delete(key) }) } catch { /* 지우지 못하면 다음 세션에 */ }
     band = Band.create(seed, now)
     lookBand()
-    await $.command.register({ name: Names.COMMAND_NAME, description: Names.COMMAND_DESCRIPTION, argumentHint: Names.ARGUMENT_HINT })
+    messages = Messages.messagesOf(await languageIn($, options.language))
+    await $.command.register({ name: Names.COMMAND_NAME, description: messages.commandDescription, argumentHint: messages.argumentHint })
     return next(e)
   })
 
@@ -230,7 +250,7 @@ export function register(on: On) {
     const named = arg === 'zoom' ? Scene.zoomNamed(sub) : undefined
     if (arg === 'zoom' && (sub === '' || sub === 'in' || sub === 'out' || named !== undefined) && rest.length === 0) {
       const next = named ?? (sub === '' ? Scene.zoomNext(zoom) : Scene.zoomBy(zoom, sub === 'in' ? 1 : -1))
-      if (next === zoom) return { text: named !== undefined ? Names.ZOOM_SAME_TEXT(zoom) : Names.ZOOM_LIMIT_TEXT(zoom) }
+      if (next === zoom) return { text: named !== undefined ? messages.zoomSame(zoom) : messages.zoomLimit(zoom) }
       zoom = next
       await host?.store(Names.STORE_SCALE, zoom)
       if (pane) {
@@ -238,14 +258,14 @@ export function register(on: On) {
         pane.lastCells = ''
       }
       $.ui.invalidate('ui.render')
-      return { text: Names.ZOOM_TEXT(zoom) }
+      return { text: messages.zoomChanged(zoom) }
     }
     // world 는 지금 세트와 목록을 보이고, world <세트|auto> 는 세트를 바꿔 저장한다. 모르는 세트면 아무것도 바꾸지 않는다
     if (arg === 'world' && rest.length === 0) {
-      const choices = Names.WORLD_CHOICES(Biome.BIOMES)
-      if (sub === '') return { text: Names.WORLD_NOW_TEXT(Biome.byId(scene.biome).label, worldChoice === 'auto', choices) }
+      const choices = messages.worldChoices(Biome.BIOMES.map(b => b.id))
+      if (sub === '') return { text: messages.worldNow(messages.setLabels[scene.biome], worldChoice === 'auto', choices) }
       const picked = sub === 'auto' ? 'auto' : Biome.find(sub)?.id
-      if (picked === undefined) return { text: Names.WORLD_UNKNOWN_TEXT(sub, choices) }
+      if (picked === undefined) return { text: messages.worldUnknown(sub, choices) }
       worldChoice = picked
       const now = await $.clock.now()
       if (host) {
@@ -259,48 +279,49 @@ export function register(on: On) {
         pane.lastCells = ''
       }
       $.ui.invalidate('ui.render')
-      return { text: Names.WORLD_TEXT(Biome.byId(scene.biome).label, picked === 'auto') }
+      return { text: messages.worldChanged(messages.setLabels[scene.biome], picked === 'auto') }
     }
     // pet 은 지금 품종과 목록을 보이고, pet <품종…|auto> 는 품종을 바꿔 저장한다. 지금은 한 마리라 첫 번째만 쓴다
     if (arg === 'pet') {
-      const choices = Names.PET_CHOICES(Species.BREEDS)
-      if (sub === '') return { text: Names.PET_NOW_TEXT(Species.breedOf(scene.breed).label, petChoice === 'auto', choices) }
+      const choices = messages.petChoices(Species.BREEDS.map(b => b.id))
+      if (sub === '') return { text: messages.petNow(messages.breedLabels[scene.breed], petChoice === 'auto', choices) }
       const picked = sub === 'auto' ? 'auto' : Species.findBreed(sub)?.id
-      if (picked === undefined) return { text: Names.PET_UNKNOWN_TEXT(sub, choices) }
+      if (picked === undefined) return { text: messages.petUnknown(sub, choices) }
       petChoice = picked
       Scene.setBreed(scene, breedOf(picked))
       lookBand()
       await host?.store(Names.STORE_PETS, { v: Names.STORE_PETS_VERSION, list: picked === 'auto' ? 'auto' : [picked] })
       if (pane) pane.lastCells = ''
       $.ui.invalidate('ui.render')
-      return { text: Names.PET_TEXT(Species.breedOf(scene.breed).label, picked === 'auto', rest.length) }
+      return { text: messages.petChanged(messages.breedLabels[scene.breed], picked === 'auto', rest.length) }
     }
     // idle 은 지금 상태를 보이고, idle on · off 는 잠들지 않기를 켜고 꺼 저장한다
     if (arg === 'idle' && rest.length === 0) {
-      if (sub === '') return { text: Names.IDLE_NOW_TEXT(isIdle) }
-      if (sub !== 'on' && sub !== 'off') return { text: Names.IDLE_USAGE_TEXT }
+      if (sub === '') return { text: messages.idleNow(isIdle, Names.SLEEP_AFTER_MS / 60_000, Names.SLEEP_MS / 60_000) }
+      if (sub !== 'on' && sub !== 'off') return { text: messages.idleUsage }
       isIdle = sub === 'on'
       scene.pet.keepAwake = isIdle
       await host?.store(Names.STORE_IDLE, { v: Names.STORE_IDLE_VERSION, on: isIdle })
-      return { text: Names.IDLE_TEXT(isIdle) }
+      return { text: messages.idleChanged(isIdle) }
     }
-    // do <행동> 은 패널이 열려 있을 때 그 행동을 지금 시킨다. 못 하면 이유를 답하고 아무것도 바꾸지 않는다
+    // do <행동> 은 패널이 열려 있을 때 그 행동을 지금 시킨다. 못 하면 이유를 답하고 아무것도 바꾸지 않는다. id 나 별칭으로 받는다
     if (arg === 'do' && rest.length === 0) {
-      const choices = Names.DO_CHOICES(Pet.ORDERS)
-      if (sub === '') return { text: Names.DO_USAGE_TEXT(choices) }
-      if (!Pet.isOrderName(sub)) return { text: Names.DO_UNKNOWN_TEXT(sub, choices) }
-      if (!isOpen) return { text: Names.DO_CLOSED_TEXT }
-      const refusal = Pet.order(scene.pet, scene.world, await $.clock.now(), sub)
-      if (refusal) return { text: Names.DO_REFUSED_TEXT[refusal] }
-      return { text: Names.DO_TEXT(Pet.ORDERS.find(o => o.id === sub)!.label) }
+      const choices = messages.doChoices(Pet.ORDERS.map(o => o.id))
+      if (sub === '') return { text: messages.doUsage(choices) }
+      const name = Pet.findOrder(sub)
+      if (name === undefined) return { text: messages.doUnknown(sub, choices) }
+      if (!isOpen) return { text: messages.doClosed }
+      const refusal = Pet.order(scene.pet, scene.world, await $.clock.now(), name)
+      if (refusal) return { text: messages.doRefused[refusal] }
+      return { text: messages.doDone(messages.orderLabels[name]) }
     }
-    if (arg !== '') return { text: Names.USAGE_TEXT }
+    if (arg !== '') return { text: messages.usage }
     if (isOpen) {
       await $.ui.close({ id: Names.PANE_ID })
       isOpen = false
       pane = undefined
       syncTimer()
-      return { text: Names.PANEL_HIDDEN_TEXT }
+      return { text: messages.panelHidden }
     }
     const docked = e.presentation?.isFullscreen === true
     await $.ui.open(docked
@@ -309,7 +330,7 @@ export function register(on: On) {
     isOpen = true
     // 패널을 여는 것도 신호로 친다. 오래 닫아 두었다 열었을 때 강아지가 보자마자 잠자리로 가지 않는다
     scene.pet.lastSignalAt = await $.clock.now()
-    return { text: Names.PANEL_SHOWN_TEXT }
+    return { text: messages.panelShown }
   })
 
   // 테마를 바꾸면 띠 색 벌도 바꾼다(거절된 변경은 넘긴다)
@@ -338,13 +359,13 @@ export function register(on: On) {
     if (e.surface !== 'terminal') {
       pane = undefined
       syncTimer()
-      return View.noticeView($.ui.resolve(e), View.NOT_TERMINAL_LINES)
+      return View.noticeView($.ui.resolve(e), [messages.notTerminal])
     }
     const kit = $.ui.resolve(e)
     if (cols < Names.MIN_COLS || rows < Names.MIN_ROWS) {
       pane = undefined
       syncTimer()
-      return View.noticeView(kit, View.tooSmallLines(cols, rows))
+      return View.noticeView(kit, messages.tooSmall(Names.MIN_COLS, Names.MIN_ROWS, cols, rows))
     }
     const now = await $.clock.now()
     Scene.ensureVisible(scene, cols, rows, zoom)

@@ -15,7 +15,7 @@ const band = (body: number, under: number, line: number, eye: number, ear: numbe
 
 const BREEDS: readonly BreedDef[] = [
   {
-    id: 'claude', species: 'claude', label: 'Claude 마스코트', aliases: ['클로드', '마스코트'],
+    id: 'claude', species: 'claude', aliases: ['클로드', '마스코트', 'mascot'],
     bank: { outline: 0x3a160c, body: 0xd97757, under: 0xb85a36, far: 0x9a4628, farLight: 0xa8502e, eye: 0x141414, lid: 0x3a160c, tongue: 0xd97757, ear: 0xd97757, earDark: 0xa8502e, collar: 0xd97757, pattern: 0xd97757 },
     band: { dark: band(0xd97757, 0xc0643f, 0xe8a080, 0x141414, 0xd97757, 0xa8502e, 0xd97757), light: band(0xa8502e, 0x8a4024, 0x3a160c, 0x141414, 0xa8502e, 0x7a3418, 0xa8502e) },
   },
@@ -51,7 +51,6 @@ const FRONT: readonly string[] = [
 
 export const CLAUDE: SpeciesDef = {
   id: 'claude',
-  label: 'Claude 마스코트',
   breeds: BREEDS,
   gaits: {
     // 네 다리를 대각 짝으로 종종걸음한다

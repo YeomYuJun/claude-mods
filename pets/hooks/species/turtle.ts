@@ -15,7 +15,7 @@ const band = (body: number, under: number, line: number, eye: number, ear: numbe
 
 const BREEDS: readonly BreedDef[] = [
   {
-    id: 'turtle', species: 'turtle', label: '거북이', aliases: ['거북이', '거북'],
+    id: 'turtle', species: 'turtle', aliases: ['거북이', '거북', 'tortoise'],
     bank: { outline: 0x1e3218, body: 0x5a8a3c, under: 0x9ab868, far: 0x6a7a48, farLight: 0x8a9a60, eye: 0x141212, lid: 0x6a7a48, tongue: 0xc86060, ear: 0xb0bc7c, earDark: 0x3a6226, collar: 0x5a8a3c, pattern: 0x5a8a3c },
     band: { dark: band(0x8ab060, 0xb0c888, 0x6a8a48, 0x141212, 0xb0bc7c, 0x6a8a48, 0x8ab060), light: band(0x3e6628, 0x4e7a34, 0x1e3218, 0x141212, 0x5a6a38, 0x2a4a1a, 0x3e6628) },
   },
@@ -34,7 +34,6 @@ const low: BitmapSpec = { ax: 4, ay: 5, rows: SHELL }
 
 export const TURTLE: SpeciesDef = {
   id: 'turtle',
-  label: '거북이',
   breeds: BREEDS,
   gaits: {
     // 네 발을 대각 짝으로 느리게 옮긴다. 달리기도 조금 빠른 기어가기

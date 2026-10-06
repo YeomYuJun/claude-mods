@@ -14,12 +14,12 @@ const band = (body: number, under: number, line: number, eye: number, ear: numbe
 
 const BREEDS: readonly BreedDef[] = [
   {
-    id: 'cat', species: 'cat', label: '회색 줄무늬 고양이', aliases: ['고양이', '회색고양이', '줄무늬'], stripes: 3,
+    id: 'cat', species: 'cat', aliases: ['고양이', '회색고양이', '줄무늬', 'tabby', 'graycat', 'greycat', 'kitty'], stripes: 3,
     bank: { outline: 0x2e2e34, body: 0x9a9aa4, under: 0xc8c8d0, far: 0x5a5a64, farLight: 0x7a7a84, eye: 0x141212, lid: 0x4a4a52, tongue: 0xe8a0b0, ear: 0xe8a0b0, earDark: 0x5e5e68, collar: 0x9a9aa4, pattern: 0x6a6a74 },
     band: { dark: band(0xb4b4bc, 0xd0d0d8, 0x8a8a94, 0x141212, 0x8a8a94, 0x6a6a74, 0xb4b4bc), light: band(0x6a6a74, 0x55555e, 0x2e2e34, 0x141212, 0x45454d, 0x2e2e34, 0x6a6a74) },
   },
   {
-    id: 'cheese', species: 'cat', label: '치즈 고양이', aliases: ['치즈', '치즈고양이'], stripes: 3,
+    id: 'cheese', species: 'cat', aliases: ['치즈', '치즈고양이', 'ginger', 'gingercat', 'orange'], stripes: 3,
     bank: { outline: 0x4a2a18, body: 0xe8a050, under: 0xf8e0c0, far: 0x9a5a28, farLight: 0xc07a38, eye: 0x141212, lid: 0x7a4a20, tongue: 0xf0a0a0, ear: 0xf0a0a0, earDark: 0xb86a28, collar: 0xe8a050, pattern: 0xc87830 },
     band: { dark: band(0xe8a050, 0xf8e0c0, 0xb07840, 0x141212, 0xc87830, 0x9a5a28, 0xe8a050), light: band(0xb86e2e, 0x8a5a34, 0x4a2a18, 0x141212, 0x8a4a1e, 0x5a3014, 0xb86e2e) },
   },
@@ -27,7 +27,6 @@ const BREEDS: readonly BreedDef[] = [
 
 export const CAT: SpeciesDef = {
   id: 'cat',
-  label: '고양이',
   breeds: BREEDS,
   gaits: {
     // 다리 순서와 걸음 모양은 강아지와 같다. 달리기는 앞·뒤 짝이 더 모인다

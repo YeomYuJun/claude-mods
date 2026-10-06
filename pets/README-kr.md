@@ -59,12 +59,24 @@ claude plugin install pets@claude-mods
 |---|---|
 | `/pets` | 패널을 열고 닫는다 |
 | `/pets zoom` | 줌을 한 단계 바꾼다. `in`, `out` 으로 한 단계씩, `wide`, `far`, `1`, `2` 로 바로 고른다 |
-| `/pets world [세트]` | 맵 세트를 보이거나 바꾼다. `paper` `meadow` `mountain` `forest` `lake` `beach` `snow` `desert` 나 한국어 이름(`초원` 등), `auto`(세션마다 고름) |
-| `/pets pet [품종]` | 동물을 보이거나 바꾼다. `dog` `shiba` `blackdog` `dalmatian` `brown` `cat` `cheese` `turtle` `duck` `penguin` `claude` 나 한국어 이름(`시바` 등), `auto` |
+| `/pets world [세트]` | 맵 세트를 보이거나 바꾼다. `paper` `meadow` `mountain` `forest` `lake` `beach` `snow` `desert` 나 한국어·영어 이름(`초원`, `grass` 등), `auto`(세션마다 고름) |
+| `/pets pet [품종]` | 동물을 보이거나 바꾼다. `dog` `shiba` `blackdog` `dalmatian` `brown` `cat` `cheese` `turtle` `duck` `penguin` `claude` 나 한국어·영어 이름(`치즈`, `ginger` 등), `auto` |
 | `/pets idle [on\|off]` | 잠들지 않기를 보이거나 켜고 끈다 |
-| `/pets do <행동>` | 행동을 지금 시킨다: `sleep` `wake` `sit` `lie` `play` `ball` `fetch` `zoomies` `roam` `explore` `come` |
+| `/pets do <행동>` | 행동을 지금 시킨다: `sleep` `wake` `sit` `lie` `play` `ball` `fetch` `zoomies` `roam` `explore` `come` 이나 `앉아`, `down` 같은 이름 |
 
 고른 줌, 세트, 품종, 잠들지 않기는 저장되어 다음 세션에도 남는다.
+
+## 언어
+
+크기·화면 안내, `/pets` 설명과 인자 안내, 세트·품종·행동 이름을 포함한 명령 응답은 플러그인의 `language` 옵션을 따른다. 값은 `auto`(기본), `en`, `ko` 다. `/config` 에서 바꾸면 플러그인이 새 값으로 다시 불러와진다. `/pets world`, `/pets pet`, `/pets do` 뒤에 적는 이름은 이 옵션과 상관없이 두 언어 모두 받는다.
+
+`auto` 는 아래 순서로 보고 한국어나 영어로 읽히는 첫 값을 쓴다. 아무것도 없으면 영어다.
+
+1. Claude Code settings 의 `language` 키(`"korean"`, `"한국어"`, `"english"`)
+2. 환경변수 `LC_ALL`
+3. 환경변수 `LANG`(`ko_KR.UTF-8`)
+
+Windows 에서는 `LC_ALL`·`LANG` 이 대개 비어 있어서 settings 에 `language` 키가 없으면 영어로 보인다. settings 의 키를 바꾼 것은 다음 세션부터 반영된다.
 
 ## 개발
 

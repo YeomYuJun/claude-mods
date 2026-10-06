@@ -100,7 +100,6 @@ export type BandColors = Readonly<Record<BandRole, number>>
 export type BreedDef = {
   id: BreedId
   species: SpeciesId
-  label: string
   aliases: readonly string[]
   bank: BankColors
   band: { dark: BandColors; light: BandColors }
@@ -110,7 +109,6 @@ export type BreedDef = {
 
 export type SpeciesDef = {
   id: SpeciesId
-  label: string
   // 이 종의 품종. 첫 번째가 기본
   breeds: readonly BreedDef[]
   // swim: 물 칸에서 쓰는 걸음(헤엄치는 종만). 행동이 고른 걸음과 상관없이 이 값으로 움직인다

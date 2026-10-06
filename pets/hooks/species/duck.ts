@@ -16,7 +16,7 @@ const band = (body: number, under: number, line: number, eye: number, ear: numbe
 
 const BREEDS: readonly BreedDef[] = [
   {
-    id: 'duck', species: 'duck', label: '오리', aliases: ['오리', '흰오리'],
+    id: 'duck', species: 'duck', aliases: ['오리', '흰오리', 'whiteduck'],
     bank: { outline: 0x3a3228, body: 0xf8f6ee, under: 0xdcd8cc, far: 0xc07818, farLight: 0xc07818, eye: 0x141212, lid: 0x9a968c, tongue: 0xc0503a, ear: 0xf0a030, earDark: 0xc07818, collar: 0xf8f6ee, pattern: 0xc8c4b8 },
     band: { dark: band(0xf8f6ee, 0xdcd8cc, 0xa8a49a, 0x141212, 0xf0a030, 0xc07818, 0xf8f6ee), light: band(0x8a8688, 0x6f6b6c, 0x3a3228, 0x141212, 0xc07818, 0x8a5010, 0x8a8688) },
   },
@@ -36,7 +36,6 @@ const sit: BitmapSpec = { ax: 4, ay: 7, rows: STAND }
 
 export const DUCK: SpeciesDef = {
   id: 'duck',
-  label: '오리',
   breeds: BREEDS,
   gaits: {
     // 두 발을 번갈아(위상 반 주기 차) 딛으며 뒤뚱거린다

@@ -24,7 +24,7 @@ export function breedOf(id: BreedId): BreedDef {
   return BREEDS.find(b => b.id === id)!
 }
 
-// 명령 인자(id 나 한국어 별칭, 소문자로 받는다)로 품종을 찾는다
+// 명령 인자(id 나 한국어·영어 별칭, 소문자로 받는다)로 품종을 찾는다
 export function findBreed(word: string): BreedDef | undefined {
   return BREEDS.find(b => b.id === word || b.aliases.includes(word))
 }

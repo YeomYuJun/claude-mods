@@ -14,26 +14,26 @@ const band = (body: number, under: number, line: number, eye: number, ear: numbe
 
 const BREEDS: readonly BreedDef[] = [
   {
-    id: 'dog', species: 'dog', label: '흰 강아지', aliases: ['강아지', '흰강아지', '비글'], bank: WHITE_DOG,
+    id: 'dog', species: 'dog', aliases: ['강아지', '흰강아지', '비글', 'white', 'puppy', 'whitedog', 'beagle'], bank: WHITE_DOG,
     band: { dark: band(0xfdfdfd, 0xd9d6d7, 0xa29ea0, 0x141212, 0xc47f4a, 0x8e5433, 0xe2433b), light: band(0x8a8688, 0x6f6b6c, 0x3b3838, 0x141212, 0x8e5433, 0x5e3420, 0xc2231b) },
   },
   {
-    id: 'shiba', species: 'dog', label: '시바', aliases: ['시바'],
+    id: 'shiba', species: 'dog', aliases: ['시바', 'shibainu'],
     bank: { outline: 0x3a2a20, body: 0xd9893f, under: 0xf6e7cf, far: 0x7a4a26, farLight: 0xa8703c, eye: 0x141212, lid: 0x6a4020, tongue: 0xe38a9b, ear: 0xb86e2e, earDark: 0x7a4a26, collar: 0x2f6fbf, pattern: 0xd9893f },
     band: { dark: band(0xe8a060, 0xf6e7cf, 0xb08060, 0x141212, 0xd9893f, 0xa8642a, 0x4f8fdf), light: band(0xb86e2e, 0x8a5a34, 0x3a2a20, 0x141212, 0x8a4a1e, 0x5a3014, 0x1f4f9f) },
   },
   {
-    id: 'blackdog', species: 'dog', label: '검은 강아지', aliases: ['검은강아지', '검정'],
+    id: 'blackdog', species: 'dog', aliases: ['검은강아지', '검정', 'black'],
     bank: { outline: 0x121112, body: 0x2e2c2c, under: 0x4a4646, far: 0x1a1919, farLight: 0x3a3737, eye: 0xbfb8b0, lid: 0x5a5555, tongue: 0xe38a9b, ear: 0x3a3737, earDark: 0x1a1919, collar: 0xe2433b, pattern: 0x2e2c2c },
     band: { dark: band(0x8a8486, 0x6a6466, 0xa8a2a4, 0x141212, 0x9a9496, 0x7a7476, 0xe2433b), light: band(0x2e2c2c, 0x4a4646, 0x121112, 0xbfb8b0, 0x3a3737, 0x1a1919, 0xc2231b) },
   },
   {
-    id: 'dalmatian', species: 'dog', label: '점박이', aliases: ['점박이'], spots: 0.22,
+    id: 'dalmatian', species: 'dog', aliases: ['점박이', 'spotted', 'spots'], spots: 0.22,
     bank: { ...WHITE_DOG, ear: 0x2a2828, earDark: 0x141212, pattern: 0x2a2828 },
     band: { dark: band(0xfdfdfd, 0xd9d6d7, 0xa29ea0, 0x141212, 0x8a8486, 0x6a6466, 0xe2433b), light: band(0x8a8688, 0x6f6b6c, 0x3b3838, 0x141212, 0x2a2828, 0x141212, 0xc2231b) },
   },
   {
-    id: 'brown', species: 'dog', label: '갈색 강아지', aliases: ['갈색', '갈색강아지'],
+    id: 'brown', species: 'dog', aliases: ['갈색', '갈색강아지', 'browndog'],
     bank: { outline: 0x4a2e16, body: 0xe0b066, under: 0xf2d8a0, far: 0x8a6038, farLight: 0xb08a50, eye: 0x141212, lid: 0x7a5028, tongue: 0xe38a9b, ear: 0x9a6a30, earDark: 0x6a4020, collar: 0x2f8f4f, pattern: 0xe0b066 },
     band: { dark: band(0xe0b066, 0xf2d8a0, 0xb08a60, 0x141212, 0xc08a48, 0x8a6038, 0x4fbf6f), light: band(0x9a6a30, 0x7a5028, 0x5a3a1e, 0x141212, 0x6a4020, 0x4a2a10, 0x1f7f3f) },
   },
@@ -41,7 +41,6 @@ const BREEDS: readonly BreedDef[] = [
 
 export const DOG: SpeciesDef = {
   id: 'dog',
-  label: '강아지',
   breeds: BREEDS,
   gaits: {
     // 다리 순서: 가까운 뒷다리, 먼 뒷다리, 가까운 앞다리, 먼 앞다리.

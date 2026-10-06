@@ -4,5 +4,18 @@
   "description": "터미널 도킹 패널의 아이소메트릭 월드(맵 세트 8 개)에서 동물(강아지·고양이·거북이·오리·펭귄·Claude 마스코트)이 스스로 돌아다니고 세션 신호(프롬프트·도구 호출·턴 끝)에 반응한다.",
   "author": {
     "name": "YeomYuJun"
+  },
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Panel and command language: auto, en or ko. auto follows the language key in settings, then LC_ALL and LANG, then English",
+      "options": [
+        "auto",
+        "en",
+        "ko"
+      ],
+      "default": "auto"
+    }
   }
 }

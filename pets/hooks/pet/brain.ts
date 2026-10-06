@@ -1376,14 +1376,22 @@ function wakeUp(p: Pet, world: WorldState, now: number): void {
 
 // 명령(/pets do)으로 시킬 수 있는 행동. 이 순서로 목록 글을 만든다
 export type OrderName = 'sleep' | 'wake' | 'sit' | 'lie' | 'play' | 'ball' | 'fetch' | 'zoomies' | 'roam' | 'explore' | 'come'
-export const ORDERS: ReadonlyArray<{ id: OrderName; label: string }> = [
-  { id: 'sleep', label: '자기' }, { id: 'wake', label: '깨기' }, { id: 'sit', label: '앉기' }, { id: 'lie', label: '엎드리기' },
-  { id: 'play', label: '놀기' }, { id: 'ball', label: '공 차기' }, { id: 'fetch', label: '공 물어 오기' }, { id: 'zoomies', label: '연달아 뛰기' },
-  { id: 'roam', label: '멀리 가기' }, { id: 'explore', label: '둘러보기' }, { id: 'come', label: '앞으로 와서 앉기' },
+// 별칭은 언어 설정과 무관하게 받는다(한국어 라벨을 붙여 쓴 꼴과 짧은 말)
+export const ORDERS: ReadonlyArray<{ id: OrderName; aliases: readonly string[] }> = [
+  { id: 'sleep', aliases: ['자기', '자'] }, { id: 'wake', aliases: ['깨기', '일어나', 'wakeup'] }, { id: 'sit', aliases: ['앉기', '앉아'] },
+  { id: 'lie', aliases: ['엎드리기', '엎드려', 'down', 'liedown'] }, { id: 'play', aliases: ['놀기', '놀아'] },
+  { id: 'ball', aliases: ['공차기', '공', 'kick'] }, { id: 'fetch', aliases: ['공물어오기', '물어와', '가져와'] },
+  { id: 'zoomies', aliases: ['연달아뛰기', '뛰어'] }, { id: 'roam', aliases: ['멀리가기', 'wander'] },
+  { id: 'explore', aliases: ['둘러보기', 'look'] }, { id: 'come', aliases: ['앞으로와서앉기', '이리와', '와'] },
 ]
 
 export function isOrderName(word: string): word is OrderName {
   return ORDERS.some(o => o.id === word)
+}
+
+// 명령 인자(id 나 한국어·영어 별칭, 소문자로 받는다)로 행동을 찾는다
+export function findOrder(word: string): OrderName | undefined {
+  return ORDERS.find(o => o.id === word || o.aliases.includes(word))?.id
 }
 
 // 시킨 행동을 못 하는 이유: 이미 깨어 있다, 이미 자고 있다, 공까지 길이 없다, 갈 만한 먼 칸이 없다

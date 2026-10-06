@@ -4,7 +4,7 @@ English | [한국어](README-kr.md)
 
 Draws a seeded isometric map in the `/pets` docked panel, and an animal roams it on its own. The animal reacts to session signals (prompts, typing, tool calls, turn ends, and more). The panel has no buttons or keys; the only way to make it do something is `/pets do`.
 
-The panel text and command replies are currently in Korean only. `/pets world` and `/pets pet` also accept Korean names.
+The panel text and command replies are in English or Korean. See [Language](#language). `/pets world`, `/pets pet` and `/pets do` accept English and Korean names in either language.
 
 ## Install
 
@@ -61,12 +61,24 @@ Curiosity, playfulness, wanting to be near you, thirst, and energy are kept as v
 |---|---|
 | `/pets` | Opens and closes the panel |
 | `/pets zoom` | Changes zoom by one level. `in` and `out` move one step; `wide`, `far`, `1`, `2` pick a level directly |
-| `/pets world [set]` | Shows or changes the map set. `paper` `meadow` `mountain` `forest` `lake` `beach` `snow` `desert`, a Korean name (such as `초원`, meadow), or `auto` (picked per session) |
-| `/pets pet [breed]` | Shows or changes the animal. `dog` `shiba` `blackdog` `dalmatian` `brown` `cat` `cheese` `turtle` `duck` `penguin` `claude`, a Korean name (such as `시바`, shiba), or `auto` |
+| `/pets world [set]` | Shows or changes the map set. `paper` `meadow` `mountain` `forest` `lake` `beach` `snow` `desert`, an English or Korean name (such as `grass` or `초원` for meadow), or `auto` (picked per session) |
+| `/pets pet [breed]` | Shows or changes the animal. `dog` `shiba` `blackdog` `dalmatian` `brown` `cat` `cheese` `turtle` `duck` `penguin` `claude`, an English or Korean name (such as `ginger` or `치즈` for cheese), or `auto` |
 | `/pets idle [on\|off]` | Shows or toggles stay-awake mode |
-| `/pets do <action>` | Makes it act now: `sleep` `wake` `sit` `lie` `play` `ball` `fetch` `zoomies` `roam` `explore` `come` |
+| `/pets do <action>` | Makes it act now: `sleep` `wake` `sit` `lie` `play` `ball` `fetch` `zoomies` `roam` `explore` `come`, or a name such as `down` or `앉아` |
 
 The chosen zoom, set, breed, and stay-awake setting are saved and carry over to the next session.
+
+## Language
+
+The size and surface notices, the `/pets` description and argument hint, and the command replies, including set, breed and action names, follow the plugin's `language` option: `auto` (default), `en` or `ko`. Change it in `/config`; the plugin reloads with the new value. Names typed after `/pets world`, `/pets pet` and `/pets do` are accepted in both languages whatever this option is.
+
+`auto` takes the first of these that names Korean or English, and falls back to English:
+
+1. The `language` key in Claude Code settings (`"korean"`, `"한국어"`, `"english"`)
+2. The `LC_ALL` environment variable
+3. The `LANG` environment variable (`ko_KR.UTF-8`)
+
+On Windows `LC_ALL` and `LANG` are usually unset, so without a `language` key in settings the plugin shows English. A change to the settings key takes effect in the next session.
 
 ## Development
 

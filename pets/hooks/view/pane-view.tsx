@@ -3,8 +3,6 @@
 /* @jsxFrag Fragment */
 import type { ElementTable, RenderElement } from 'claude-code'
 
-import Names from '../names'
-
 export type NoticeKit = Pick<ElementTable<'terminal' | 'desktop'>, 'Box' | 'Text'>
 export type RasterTag = ElementTable<'terminal'>['Raster']
 
@@ -21,8 +19,3 @@ export function noticeView(kit: NoticeKit, lines: readonly string[]): RenderElem
   )
 }
 
-export function tooSmallLines(cols: number, rows: number): string[] {
-  return [`패널이 ${Names.MIN_COLS}열 × ${Names.MIN_ROWS}행 이상이어야 한다`, `지금 ${cols}열 × ${rows}행`]
-}
-
-export const NOT_TERMINAL_LINES: readonly string[] = ['강아지는 터미널 패널에서만 그린다']
