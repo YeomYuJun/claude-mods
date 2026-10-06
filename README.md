@@ -13,7 +13,7 @@ English | [한국어](README-kr.md)
 | [agent-trace](agent-trace/README.md) | `/trace` | Shows the subagents, agent teams, Workflows, and background shells the session launched, as a flow diagram and a file access list |
 | [todo-md](todo-md/README.md) | `/todo` | Shows only the headings and checklist items of `TODO.md` in the cwd (or a given md file), and redraws when the file changes |
 
-All four plugins run as TypeScript function hooks (`hooks/register.ts`). No separate runtime (Node, etc.) is needed.
+All four plugins run as TypeScript function hooks (`hooks/register.ts`). No separate runtime (Node, etc.) is needed. They need Claude Code v2.1.287 or later; check with `claude --version`.
 
 pets and auto-tetris work only in the fullscreen renderer (`/tui fullscreen`). In the classic renderer (`/tui default`) the panel opens above the input box, but it is too small and shows only a size notice. todo-md works in both renderers.
 
