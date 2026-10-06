@@ -435,3 +435,17 @@ describe('/pets do', () => {
     expect((await $.command.run(DO(''))).text).toContain('/pets do <행동>. 시킬 수 있는 행동: sleep 자기, wake 깨기')
   })
 })
+
+describe('reload with the pane up', () => {
+  test('a reloaded module finds its pane in the engine record, draws frames again, and the next /pets closes it', EN, async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    on('ui.panes', () => ({ value: [{ id: 'pets', title: 'pets', isShown: true, isFocused: false, isPlaced: true }] }))
+    await $.session.start(Fixtures.START)
+    await $.ui.render(Fixtures.paneOf(40, 30))
+    const before = world.blits.length
+    await world.clock.advance(400)
+    expect(world.blits.length).toBeGreaterThan(before)
+    expect((await $.command.run(Fixtures.PETS_DOCKED)).text).toBe('Closed the pets panel')
+    expect(world.closed).toEqual(['pets'])
+  })
+})

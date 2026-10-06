@@ -258,3 +258,13 @@ describe('register', () => {
     expect(Fixtures.textOf(await $.ui.render(PANE))).toContain('Stop failed: No task found with ID: ticker')
   })
 })
+
+describe('reload with the pane up', () => {
+  test('a reloaded module finds its pane in the engine record and the next /trace closes it', { options: { language: 'en' } }, async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    on('ui.panes', () => ({ value: [{ id: 'trace', title: 'agent trace', isShown: true, isFocused: false, isPlaced: true }] }))
+    await $.session.start(Fixtures.START)
+    expect((await $.command.run(Fixtures.TRACE)).text).toBe('Closed the agent trace panel')
+    expect(world.closed).toEqual(['trace'])
+  })
+})

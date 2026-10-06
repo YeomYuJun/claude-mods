@@ -72,6 +72,15 @@ function worldChoiceOf(value: unknown): BiomeId | 'auto' {
   return v.set === 'auto' || Biome.isId(v.set) ? v.set : Biome.DEFAULT
 }
 
+// 엔진이 기록한 이 플러그인의 열린 패널. 모듈을 다시 불러와도(언어 변경 등) 패널은 떠 있고 이 기록에 남는다
+async function isPaneUp($: Pick<EngineInterface, 'ui'>, id: string): Promise<boolean> {
+  try {
+    return (await $.ui.panes()).some(pane => pane.id === id)
+  } catch {
+    return false
+  }
+}
+
 export function register(on: On, options: PluginOptions) {
   let messages = Messages.messagesOf(Messages.languageOf(options.language))
   let host: Host | undefined
@@ -241,6 +250,12 @@ export function register(on: On, options: PluginOptions) {
     lookBand()
     messages = Messages.messagesOf(await languageIn($, options.language))
     await $.command.register({ name: Names.COMMAND_NAME, description: messages.commandDescription, argumentHint: messages.argumentHint })
+    // 다시 불러온 모듈은 패널을 닫힌 것으로 안다. 패널이 떠 있으면 열린 상태로 되돌리고 다시 그려 프레임을 잇는다
+    if (await isPaneUp($, Names.PANE_ID)) {
+      isOpen = true
+      scene.pet.lastSignalAt = now
+      $.ui.invalidate('ui.render')
+    }
     return next(e)
   })
 

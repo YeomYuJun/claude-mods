@@ -140,3 +140,13 @@ describe('register', () => {
     expect(Number(Fixtures.valueOf(lines, 'PIECES'))).toBeGreaterThan(1)
   })
 })
+
+describe('reload with the pane up', () => {
+  test('a reloaded module finds its pane in the engine record and the next /tetris closes it', { options: { language: 'en' } }, async ($, on) => {
+    const world = Fixtures.worldOf(on)
+    on('ui.panes', () => ({ value: [{ id: 'tetris', title: 'TETRIS', isShown: true, isFocused: false, isPlaced: true }] }))
+    await $.session.start(Fixtures.START)
+    expect((await $.command.run(Fixtures.TETRIS_DOCKED)).text).toBe('Closed the Tetris panel')
+    expect(world.closed).toEqual(['tetris'])
+  })
+})

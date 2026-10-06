@@ -138,3 +138,22 @@ describe('before the session starts', () => {
     expect(text).toBe(Messages.MESSAGES.ko.notReady)
   })
 })
+
+describe('reload with the pane up', () => {
+  test('a reloaded module finds its pane in the engine record, reads the file again, and the next /todo closes it', { options: { language: 'en' } }, async ($, on) => {
+    const closed: string[] = []
+    mock.clock(on, { now: 1_000 })
+    mock.env(on, {})
+    worldOf(on)
+    on('session.cwd', () => ({ value: 'D:/work' }))
+    on('fs.stat', () => ({ value: { kind: 'file', size: 20, mtimeMs: 1 } }) as never)
+    on('fs.read', () => ({ value: '# T\n- [ ] a\n- [x] b\n' }) as never)
+    on('ui.invalidate', () => ({ value: undefined }))
+    on('ui.panes', () => ({ value: [{ id: 'todo', title: 'TODO', isShown: true, isFocused: false, isPlaced: true }] }))
+    on('ui.close', ($, e) => { closed.push(e.id); return { value: undefined } })
+    await $.session.start(START)
+    const { text } = await $.command.run({ command: 'todo', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+    expect(text).toBe(Messages.MESSAGES.en.panelHidden)
+    expect(closed).toEqual(['todo'])
+  })
+})
