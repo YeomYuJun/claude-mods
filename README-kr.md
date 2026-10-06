@@ -17,6 +17,8 @@ Claude Code 패널 플러그인 모음.
 
 pets 와 auto-tetris 는 fullscreen 렌더러(`/tui fullscreen`)에서만 쓸 수 있다. classic 렌더러(`/tui default`)에서는 패널이 입력창 위에 열리지만 크기가 모자라 크기 안내만 보인다. todo-md 는 두 렌더러 모두에서 동작한다.
 
+패널 글과 명령 응답은 영어나 한국어로 나온다. 플러그인마다 `/config` 에 `language` 옵션(`auto`, `en`, `ko`)이 있다. `auto` 는 Claude Code settings 의 `language` 키, `LC_ALL`, `LANG` 순으로 보고 아무것도 없으면 영어다. 자세한 내용은 플러그인별 README 에 있다.
+
 ## Get started
 
 1. 마켓플레이스를 추가한다.

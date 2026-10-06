@@ -1,4 +1,4 @@
 {
-  "description": "/todo 패널: md 파일의 제목과 체크리스트 항목을 보이고, 파일이 바뀌면 다시 그린다",
+  "description": "/todo panel: shows the headings and checklist items of an md file and redraws when the file changes",
   "modules": ["./register.ts"]
 }

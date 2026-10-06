@@ -1,4 +1,4 @@
 {
-  "description": "/pets 패널: 절차적으로 만든 아이소메트릭 맵 위를 동물이 돌아다니고 세션 신호에 반응한다",
+  "description": "/pets panel: an animal roams a procedurally built isometric map and reacts to session signals",
   "modules": ["./register.ts"]
 }
