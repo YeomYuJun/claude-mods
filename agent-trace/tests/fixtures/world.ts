@@ -74,4 +74,4 @@ export function worldOf(on: On, seed: Seed = {}): World {
 }
 
 export const START = { surface: 'terminal', isInteractive: true, cwd: CWD } as const
-export const TRACE = { command: 'trace', args: '', origin: { kind: 'composer' } } as const
+export const TRACE = { command: 'trace', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 160 } } as const

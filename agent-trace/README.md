@@ -22,17 +22,17 @@ The full steps are in the [repository README](../README.md#get-started).
 ### Flow tab
 
 - Draws agents as a tree. A horizontal tree when there is enough width, otherwise a vertically indented tree.
-- Each node shows its status (running, waiting, done, failed, stopped), elapsed time, and tokens. The root shows the model and the current context.
+- Each node shows its status (running, idle, done, failed, stopped), elapsed time, and tokens. The root shows the model and the current context.
 - Team members are placed under the team node.
 - A list of background shells sits below the tree.
-- The header summarizes the counts of agents, running, waiting, and failed. `d` changes node density.
+- The header summarizes the counts of agents, running, idle, and failed. `d` changes node density.
 
 ### Agent details
 
 Opens when you click a node.
 
 - Shows the type, model, parent, prompt, and the list of tool calls (most recent first).
-- The `Stop agent` button stops a running agent or a waiting team member.
+- The `Stop agent` button stops a running agent or an idle team member.
 - The `Copy transcript path` button copies the path of that agent's transcript file.
 - `Esc` goes back to the flow, and pressing it again closes the panel.
 
