@@ -1,56 +1,60 @@
+English | [한국어](README-kr.md)
+
 # auto-tetris
 
-세션이 쓰는 토큰으로만 움직이는 자동 테트리스를 `/tetris` 도킹 패널에 그린다. 사람은 조작하지 않는다(패널에 버튼도 키도 없다).
+Draws an auto-playing Tetris, moved only by the tokens the session writes, in the `/tetris` docked panel. No one controls it (the panel has no buttons or keys).
 
-## 설치
+The in-game labels are in English. The size notice and command replies are currently in Korean only.
 
-```powershell
+## Install
+
+```sh
 claude plugin marketplace add YeomYuJun/claude-mods
 claude plugin install auto-tetris@claude-mods
 ```
 
-함수 훅 스위치 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` 이 켜져 있어야 한다. 자세한 순서는 [저장소 README](../README.md#get-started) 에 있다.
+The full steps are in the [repository README](../README.md#get-started).
 
-`/tetris` 로 열고 닫는다. 전체 화면 레이아웃에서는 트랜스크립트 옆에 24 열 폭으로 붙는다. 24 열 × 22 행보다 작으면 필요한 크기를 알린다.
+`/tetris` opens and closes the panel. In the fullscreen layout it docks next to the transcript at 24 columns wide. If it is smaller than 24 columns × 22 rows, it shows the required size.
 
-fullscreen 렌더러(`/tui fullscreen`)에서만 쓸 수 있다. classic 렌더러(`/tui default`)에서는 패널이 입력창 위에 열리지만 크기가 모자라 크기 안내만 보인다.
+It works only in the fullscreen renderer (`/tui fullscreen`). In the classic renderer (`/tui default`) the panel opens above the input box, but it is too small and shows only a size notice.
 
-## 기능
+## Features
 
-### 규칙
+### Rules
 
-| 세션에서 일어난 일 | 게임에서 |
+| What happens in the session | In the game |
 |---|---|
-| 출력 토큰 12 개(텍스트, 생각, 도구 인자) | 한 수: 한 번 돌리기, 한 칸 옮기기, 또는 한 칸 내리기 |
-| 모델이 도구 호출을 시작 | 지금 블록이 계획한 자리로 떨어진다 |
-| 아무 일 없음 | 멈춘다. 시간만으로는 블록이 내려가지 않는다 |
+| 12 output tokens (text, thinking, tool arguments) | One move: rotate once, shift one cell, or drop one cell |
+| The model starts a tool call | The current piece drops to its planned spot |
+| Nothing | It stops. Time alone does not move pieces down |
 
-- 서브에이전트와 팀원의 응답도 같은 게임을 움직인다.
-- 낙하 속도는 토큰 속도를 따른다.
-- 패널이 닫혀 있어도 게임은 진행된다.
+- Responses from subagents and team members move the same game.
+- Falling speed follows token speed.
+- The game keeps going while the panel is closed.
 
-### AI 실력
+### AI skill
 
-수는 AI 가 둔다. 실력은 응답을 쓰는 모델의 등급(`haiku`, `sonnet`, `opus`, `fable`)을 따른다.
+An AI makes the moves. Its skill follows the tier of the model writing the response (`haiku`, `sonnet`, `opus`, `fable`).
 
-- `haiku` 는 단순한 평가로 두고 실수가 잦다.
-- `sonnet` 이상은 더 많은 특징으로 판을 평가한다.
-- `opus` 와 `fable` 은 다음 블록까지 두 수를 본다.
-- 등급마다 평가 잡음, 판단 실수, 실행 실수(노린 열에서 한 칸 옆) 확률이 다르다(`hooks/game/ai.ts` 의 `TIERS`).
+- `haiku` plays with a simple evaluation and makes frequent mistakes.
+- `sonnet` and up evaluate the board with more features.
+- `opus` and `fable` look two moves ahead, through the next piece.
+- Each tier has its own evaluation noise, judgment error, and execution error (one column off from the target) rates (`TIERS` in `hooks/game/ai.ts`).
 
-### 화면
+### Screen
 
-- 보드, `░` 로 표시한 AI 가 노린 착지 자리
-- `NEXT`, `LINES`, `SCORE`, `COMBO`, `PIECES`, `GAME`, `AI`(지금 등급)
-- 출력 토큰, 입력 토큰, 최근 토큰 속도 막대
-- 세션 상태: `streaming`, `thinking`, `tool call`, `waiting`, `idle`
-- 줄을 지우면 `SINGLE`~`TETRIS` 와 `COMBO xN` 이 뜬다
+- The board, and the AI's target landing spot marked with `░`
+- `NEXT`, `LINES`, `SCORE`, `COMBO`, `PIECES`, `GAME`, `AI` (current tier)
+- Output tokens, input tokens, and a recent token speed bar
+- Session state: `streaming`, `thinking`, `tool call`, `waiting`, `idle`
+- Clearing lines shows `SINGLE` to `TETRIS` and `COMBO xN`
 
-## 개발
+## Development
 
-```powershell
-claude plugin test "<저장소 경로>/auto-tetris"
-claude plugin validate "<저장소 경로>/auto-tetris"
+```sh
+claude plugin test "<repo-path>/auto-tetris"
+claude plugin validate "<repo-path>/auto-tetris"
 ```
 
-`hooks/game`, `hooks/meter`, `hooks/frame` 은 `$` 를 쓰지 않는 순수 모듈이다.
+`hooks/game`, `hooks/meter`, and `hooks/frame` are pure modules that do not use `$`.

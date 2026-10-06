@@ -1,74 +1,78 @@
+English | [한국어](README-kr.md)
+
 # pets
 
-`/pets` 도킹 패널에 시드로 만든 아이소메트릭 맵을 그리고, 동물 한 마리가 그 위를 스스로 돌아다닌다. 동물은 세션 신호(프롬프트, 타이핑, 도구 호출, 턴 끝 등)에 반응한다. 패널에 버튼도 키도 없고, 사람이 행동을 시키는 길은 `/pets do` 하나다.
+Draws a seeded isometric map in the `/pets` docked panel, and an animal roams it on its own. The animal reacts to session signals (prompts, typing, tool calls, turn ends, and more). The panel has no buttons or keys; the only way to make it do something is `/pets do`.
 
-## 설치
+The panel text and command replies are currently in Korean only. `/pets world` and `/pets pet` also accept Korean names.
 
-```powershell
+## Install
+
+```sh
 claude plugin marketplace add YeomYuJun/claude-mods
 claude plugin install pets@claude-mods
 ```
 
-함수 훅 스위치 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` 이 켜져 있어야 한다. 자세한 순서는 [저장소 README](../README.md#get-started) 에 있다.
+The full steps are in the [repository README](../README.md#get-started).
 
-- 그림은 터미널에서만 그린다. VS Code 확장과 데스크톱 앱에서는 패널이 터미널에서 열라고 알린다.
-- 패널이 32 열 × 24 행보다 작으면 필요한 크기를 알린다.
-- fullscreen 렌더러(`/tui fullscreen`)에서만 쓸 수 있다. classic 렌더러(`/tui default`)에서는 패널이 입력창 위에 열리지만 크기가 모자라 크기 안내만 보인다.
+- Drawing works only in a terminal. In the VS Code extension and the desktop app, the panel tells you to open it in a terminal.
+- If the panel is smaller than 32 columns × 24 rows, it shows the required size.
+- It works only in the fullscreen renderer (`/tui fullscreen`). In the classic renderer (`/tui default`) the panel opens above the input box, but it is too small and shows only a size notice.
 
-## 기능
+## Features
 
-### 맵
+### Maps
 
-- 모눈종이 섬(기본)과 끝이 없는 월드 일곱 가지: 초원, 산악, 숲, 호숫가, 해변, 설원, 사막.
-- 세트마다 지형이 다르다. 초원·숲·설원은 넓은 평지와 언덕, 산악은 능선과 골짜기, 호숫가·해변은 큰 호수와 분지, 사막은 모래 평지와 메사.
-- 호수와 강, 경사와 돌 계단, 세트별 나무·바위·꽃·풀포기 같은 소품이 있다.
-- 줌은 네 단계(맵 보기, 원거리, 1 배, 2 배)다.
+- Graph paper island (default) and seven endless worlds: meadow, mountain, forest, lakeside, beach, snowfield, desert.
+- Terrain differs per set. Meadow, forest, and snowfield have wide plains and hills; mountain has ridges and valleys; lakeside and beach have large lakes and basins; desert has sand flats and mesas.
+- Lakes and rivers, slopes and stone stairs, and per-set props such as trees, rocks, flowers, and grass tufts.
+- Zoom has four levels (map view, far, 1x, 2x).
 
-### 동물
+### Animals
 
-| 종 | 품종 | 특징 |
+| Species | Breeds | Notes |
 |---|---|---|
-| 강아지 | 흰, 시바, 검은, 점박이, 갈색 | 기본 |
-| 고양이 | 고양이, 치즈 | 두 단을 한 번에 오른다 |
-| 거북이, 오리, 펭귄 | | 물에 들어가면 헤엄친다. 오리와 펭귄은 뒤뚱 걷는다 |
-| Claude 마스코트 | | |
+| Dog | white, shiba, black, dalmatian, brown | Default |
+| Cat | cat, cheese | Climbs two steps at once |
+| Turtle, duck, penguin | | Swim when they enter water. Duck and penguin waddle |
+| Claude mascot | | |
 
-### 스스로 하는 행동
+### Autonomous behavior
 
-호기심, 놀고 싶음, 사람 곁, 목마름, 기운을 수치로 두고 그 값에 따라 다음 행동을 고른다. 걷기, 킁킁대기, 공놀이, 탐험, 멀리 가기, 블록 둘레 돌기, 높은 곳 오르기, 사람 쪽 보고 앉기, 낮잠, 물 마시기, 물장난, 나뭇가지 씹기, 땅 파기 등을 한다.
+Curiosity, playfulness, wanting to be near you, thirst, and energy are kept as values, and the next action is chosen from them. It walks, sniffs, plays with a ball, explores, wanders far, circles a block, climbs high places, sits facing you, naps, drinks water, splashes, chews a stick, digs, and more.
 
-### 세션 신호 반응
+### Reactions to session signals
 
-| 신호 | 반응 |
+| Signal | Reaction |
 |---|---|
-| 프롬프트 | 하던 일을 멈추고 사람 쪽을 보며 달려온다. 자고 있었으면 깬다 |
-| 타이핑 | 사람 쪽을 본다 |
-| 도구 호출 | 도구 종류에 따라 킁킁대거나 귀를 세운다. 4 초 넘게 돌면 앞에 와서 앉아 기다린다 |
-| 도구 실패 | 오류면 짖고, 거부면 고개를 갸웃한다 |
-| 긴 생각 | 앉아서 말줄임표를 띄운다 |
-| 서브에이전트 시작과 끝 | 음표를 띄운다 |
-| 대화 압축 | 몸을 털고 기지개를 켠다 |
-| 턴 끝 | 답하면 앉아서 하트와 꼬리 흔들기, 중단이면 `!`, 오류면 풀이 죽는다 |
-| 3 분 동안 신호 없음 | 잠든다. 1 분이 지나 기운이 차면 스스로 깬다 |
+| Prompt | Stops what it is doing and runs toward you, facing you. Wakes up if it was asleep |
+| Typing | Looks at you |
+| Tool call | Sniffs or perks its ears depending on the tool type. If the call runs longer than 4 seconds, it comes to the front and sits waiting |
+| Tool failure | Barks on an error, tilts its head on a denial |
+| Long thinking | Sits and shows an ellipsis |
+| Subagent start and end | Shows musical notes |
+| Conversation compaction | Shakes itself off and stretches |
+| Turn end | On an answer, sits with hearts and a wagging tail; on an interrupt, `!`; on an error, droops |
+| No signal for 3 minutes | Falls asleep. After 1 minute, once its energy is restored, wakes up on its own |
 
-## 명령
+## Commands
 
-| 명령 | 하는 일 |
+| Command | What it does |
 |---|---|
-| `/pets` | 패널을 열고 닫는다 |
-| `/pets zoom` | 줌을 한 단계 바꾼다. `in`, `out` 으로 한 단계씩, `wide`, `far`, `1`, `2` 로 바로 고른다 |
-| `/pets world [세트]` | 맵 세트를 보이거나 바꾼다. `paper` `meadow` `mountain` `forest` `lake` `beach` `snow` `desert` 나 한국어 이름(`초원` 등), `auto`(세션마다 고름) |
-| `/pets pet [품종]` | 동물을 보이거나 바꾼다. `dog` `shiba` `blackdog` `dalmatian` `brown` `cat` `cheese` `turtle` `duck` `penguin` `claude` 나 한국어 이름(`시바` 등), `auto` |
-| `/pets idle [on\|off]` | 잠들지 않기를 보이거나 켜고 끈다 |
-| `/pets do <행동>` | 행동을 지금 시킨다: `sleep` `wake` `sit` `lie` `play` `ball` `fetch` `zoomies` `roam` `explore` `come` |
+| `/pets` | Opens and closes the panel |
+| `/pets zoom` | Changes zoom by one level. `in` and `out` move one step; `wide`, `far`, `1`, `2` pick a level directly |
+| `/pets world [set]` | Shows or changes the map set. `paper` `meadow` `mountain` `forest` `lake` `beach` `snow` `desert`, a Korean name (such as `초원`, meadow), or `auto` (picked per session) |
+| `/pets pet [breed]` | Shows or changes the animal. `dog` `shiba` `blackdog` `dalmatian` `brown` `cat` `cheese` `turtle` `duck` `penguin` `claude`, a Korean name (such as `시바`, shiba), or `auto` |
+| `/pets idle [on\|off]` | Shows or toggles stay-awake mode |
+| `/pets do <action>` | Makes it act now: `sleep` `wake` `sit` `lie` `play` `ball` `fetch` `zoomies` `roam` `explore` `come` |
 
-고른 줌, 세트, 품종, 잠들지 않기는 저장되어 다음 세션에도 남는다.
+The chosen zoom, set, breed, and stay-awake setting are saved and carry over to the next session.
 
-## 개발
+## Development
 
-```powershell
-claude plugin test "<저장소 경로>/pets"
-claude plugin validate "<저장소 경로>/pets"
+```sh
+claude plugin test "<repo-path>/pets"
+claude plugin validate "<repo-path>/pets"
 ```
 
-`hooks/register.ts` 와 `hooks/view/` 를 뺀 모듈은 `$` 를 쓰지 않는 순수 모듈이다.
+Modules other than `hooks/register.ts` and `hooks/view/` are pure modules that do not use `$`.
